@@ -1979,6 +1979,10 @@ function showPIN(label) {
   if (label && sub) sub.textContent = label;
 }
 
+function isPinReady() {
+  return CORRECT_PIN !== '0000';
+}
+
 async function doFaceID() {
   try {
     var cred = await navigator.credentials.get({
@@ -2044,6 +2048,11 @@ function unlock() {
 }
 
 function pinKey(k) {
+  if (!isPinReady()) {
+    document.getElementById('pinError').textContent = 'Cargando...';
+    setTimeout(function() { document.getElementById('pinError').textContent = ''; }, 1000);
+    return;
+  }
   if (pinInput.length >= 4) return;
   pinInput += k;
   updatePinDots();
