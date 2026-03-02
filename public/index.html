@@ -1947,10 +1947,12 @@ async function initAuth() {
 
   isRegistered = localStorage.getItem('ph_passkey') === '1';
 
-  if (passkeySupported) {
+  if (isRegistered && passkeySupported) {
+    // Already registered on this device — go straight to Face ID
     document.getElementById('passkeyBtn').style.display = 'flex';
-    if (isRegistered) { tryPasskey(); }
+    tryPasskey();
   } else {
+    // Not registered yet — must prove with PIN first
     document.getElementById('pinView').style.display = 'flex';
   }
 }
@@ -1959,32 +1961,48 @@ async function tryPasskey() {
   document.getElementById('passkeyBtn').style.display = 'flex';
   document.getElementById('pinView').style.display = 'none';
   try {
-    if (!isRegistered) {
-      const cred = await navigator.credentials.create({
-        publicKey: {
-          challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rp: { name: 'Personal Hub', id: location.hostname },
-          user: { id: new Uint8Array(16), name: 'julian', displayName: 'Julian' },
-          pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
-          authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
-          timeout: 60000,
-        }
-      });
-      if (cred) { localStorage.setItem('ph_passkey', '1'); unlock(); }
-    } else {
-      const cred = await navigator.credentials.get({
-        publicKey: {
-          challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rpId: location.hostname,
-          userVerification: 'required',
-          timeout: 60000,
-        }
-      });
-      if (cred) { unlock(); }
-    }
+    const cred = await navigator.credentials.get({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rpId: location.hostname,
+        userVerification: 'required',
+        timeout: 60000,
+      }
+    });
+    if (cred) { unlock(); }
   } catch(e) {
+    // Face ID failed — fall back to PIN
     document.getElementById('pinView').style.display = 'flex';
+    document.getElementById('passkeyBtn').style.display = 'none';
   }
+}
+
+async function registerPasskey() {
+  // Only called after PIN is verified
+  let passkeySupported = false;
+  try {
+    passkeySupported = window.PublicKeyCredential &&
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch(e) {}
+
+  if (!passkeySupported) { unlock(); return; }
+
+  try {
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rp: { name: 'Personal Hub', id: location.hostname },
+        user: { id: new Uint8Array(16), name: 'julian', displayName: 'Julian' },
+        pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+        timeout: 60000,
+      }
+    });
+    if (cred) { localStorage.setItem('ph_passkey', '1'); }
+  } catch(e) {
+    // User skipped passkey setup — no problem, PIN will work next time
+  }
+  unlock();
 }
 
 function showPasskey() {
@@ -2007,7 +2025,7 @@ function pinKey(k) {
   if (pinInput.length === 4) {
     setTimeout(function() {
       if (pinInput === CORRECT_PIN) {
-        unlock();
+        if (!isRegistered) { registerPasskey(); } else { unlock(); }
       } else {
         document.getElementById('pinError').textContent = 'PIN incorrecto';
         pinInput = '';
