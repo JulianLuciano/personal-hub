@@ -1936,20 +1936,13 @@ setTimeout(drawPie, 200);
 // AUTH
 // States: 'pin_setup' | 'face_id' | 'pin_fallback'
 let pinInput = '';
-let CORRECT_PIN = '0000';
+let CORRECT_PIN = null;
 let authState = 'loading';
 
-// Fetch PIN from server first, then init
 fetch('/api/config')
   .then(function(r) { return r.json(); })
-  .then(function(d) {
-    CORRECT_PIN = d.pin;
-    initAuth();
-  })
-  .catch(function() {
-    // If fetch fails, still init (PIN won't work but Face ID will)
-    initAuth();
-  });
+  .then(function(d) { CORRECT_PIN = String(d.pin).trim(); initAuth(); })
+  .catch(function() { CORRECT_PIN = '__never__'; initAuth(); });
 
 function initAuth() {
   var registered = localStorage.getItem('ph_passkey') === '1';
@@ -1980,7 +1973,7 @@ function showPIN(label) {
 }
 
 function isPinReady() {
-  return CORRECT_PIN !== '0000';
+  return CORRECT_PIN !== null;
 }
 
 async function doFaceID() {
@@ -2048,12 +2041,7 @@ function unlock() {
 }
 
 function pinKey(k) {
-  if (!isPinReady()) {
-    document.getElementById('pinError').textContent = 'Cargando...';
-    setTimeout(function() { document.getElementById('pinError').textContent = ''; }, 1000);
-    return;
-  }
-  if (pinInput.length >= 4) return;
+  if (!isPinReady() || pinInput.length >= 4) return;
   pinInput += k;
   updatePinDots();
   if (pinInput.length === 4) {
