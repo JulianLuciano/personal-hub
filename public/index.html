@@ -651,9 +651,82 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
   .toggle-switch.on::after { transform: translateX(18px); }
+
+  /* LOCK SCREEN */
+  #lockScreen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.4s ease;
+  }
+  #lockScreen.hidden { opacity: 0; pointer-events: none; }
+  .lock-avatar {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; margin-bottom: 20px;
+    box-shadow: 0 0 40px rgba(108,99,255,0.3);
+  }
+  .lock-title { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+  .lock-sub { font-size: 13px; color: var(--muted); margin-bottom: 48px; }
+  .lock-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    cursor: pointer; padding: 20px 40px; border-radius: 20px;
+    background: var(--surface); border: 1px solid var(--border); transition: all 0.15s;
+  }
+  .lock-btn:active { transform: scale(0.96); }
+  .lock-btn-icon { font-size: 36px; }
+  .lock-btn-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .pin-dots { display: flex; gap: 14px; margin: 24px 0 32px; }
+  .pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); transition: all 0.15s; }
+  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+  .pin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 240px; }
+  .pin-key {
+    height: 60px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; cursor: pointer; transition: all 0.1s;
+  }
+  .pin-key:active { background: var(--accent); color: #fff; transform: scale(0.94); }
+  .pin-key.del { font-size: 16px; color: var(--muted); }
+  .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
 </style>
 </head>
 <body>
+
+<div id="lockScreen">
+  <div class="lock-avatar">J</div>
+  <div class="lock-title">Personal Hub</div>
+  <div class="lock-sub">Julian Luciano</div>
+  <div id="passkeyBtn" class="lock-btn" onclick="tryPasskey()" style="display:none">
+    <div class="lock-btn-icon">&#x1F512;</div>
+    <div class="lock-btn-label">Desbloquear con Face ID</div>
+  </div>
+  <div id="pinView" style="display:none;flex-direction:column;align-items:center">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Ingres&#225; tu PIN</div>
+    <div class="pin-dots">
+      <div class="pin-dot" id="d0"></div>
+      <div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div>
+      <div class="pin-dot" id="d3"></div>
+    </div>
+    <div class="pin-error" id="pinError"></div>
+    <div class="pin-grid">
+      <div class="pin-key" onclick="pinKey('1')">1</div>
+      <div class="pin-key" onclick="pinKey('2')">2</div>
+      <div class="pin-key" onclick="pinKey('3')">3</div>
+      <div class="pin-key" onclick="pinKey('4')">4</div>
+      <div class="pin-key" onclick="pinKey('5')">5</div>
+      <div class="pin-key" onclick="pinKey('6')">6</div>
+      <div class="pin-key" onclick="pinKey('7')">7</div>
+      <div class="pin-key" onclick="pinKey('8')">8</div>
+      <div class="pin-key" onclick="pinKey('9')">9</div>
+      <div class="pin-key" style="opacity:0;pointer-events:none"></div>
+      <div class="pin-key" onclick="pinKey('0')">0</div>
+      <div class="pin-key del" onclick="pinDel()">&#x232B;</div>
+    </div>
+    <div style="margin-top:20px;font-size:12px;color:var(--muted);cursor:pointer" onclick="showPasskey()">Usar Face ID</div>
+  </div>
+</div>
+
 <div class="phone-frame" id="app">
 
   <!-- TOP BAR -->
@@ -1859,6 +1932,105 @@ function drawVestChart(rate, sym, slice) {
 }
 
 setTimeout(drawPie, 200);
+
+// AUTH
+let CORRECT_PIN = '0000'; fetch('/api/config').then(r=>r.json()).then(d=>{ CORRECT_PIN = d.pin; });
+let pinInput = '';
+let isRegistered = false;
+
+async function initAuth() {
+  let passkeySupported = false;
+  try {
+    passkeySupported = window.PublicKeyCredential &&
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch(e) {}
+
+  isRegistered = localStorage.getItem('ph_passkey') === '1';
+
+  if (passkeySupported) {
+    document.getElementById('passkeyBtn').style.display = 'flex';
+    if (isRegistered) { tryPasskey(); }
+  } else {
+    document.getElementById('pinView').style.display = 'flex';
+  }
+}
+
+async function tryPasskey() {
+  document.getElementById('passkeyBtn').style.display = 'flex';
+  document.getElementById('pinView').style.display = 'none';
+  try {
+    if (!isRegistered) {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: 'Personal Hub', id: location.hostname },
+          user: { id: new Uint8Array(16), name: 'julian', displayName: 'Julian' },
+          pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+          authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+          timeout: 60000,
+        }
+      });
+      if (cred) { localStorage.setItem('ph_passkey', '1'); unlock(); }
+    } else {
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rpId: location.hostname,
+          userVerification: 'required',
+          timeout: 60000,
+        }
+      });
+      if (cred) { unlock(); }
+    }
+  } catch(e) {
+    document.getElementById('pinView').style.display = 'flex';
+  }
+}
+
+function showPasskey() {
+  document.getElementById('pinView').style.display = 'none';
+  document.getElementById('passkeyBtn').style.display = 'flex';
+  tryPasskey();
+}
+
+function unlock() {
+  const lock = document.getElementById('lockScreen');
+  lock.classList.add('hidden');
+  setTimeout(function() { lock.style.display = 'none'; }, 400);
+  requestAnimationFrame(function() { requestAnimationFrame(drawChart); });
+}
+
+function pinKey(k) {
+  if (pinInput.length >= 4) return;
+  pinInput += k;
+  updatePinDots();
+  if (pinInput.length === 4) {
+    setTimeout(function() {
+      if (pinInput === CORRECT_PIN) {
+        unlock();
+      } else {
+        document.getElementById('pinError').textContent = 'PIN incorrecto';
+        pinInput = '';
+        updatePinDots();
+        setTimeout(function() { document.getElementById('pinError').textContent = ''; }, 1500);
+      }
+    }, 100);
+  }
+}
+
+function pinDel() {
+  pinInput = pinInput.slice(0, -1);
+  updatePinDots();
+}
+
+function updatePinDots() {
+  for (var i = 0; i < 4; i++) {
+    document.getElementById('d' + i).classList.toggle('filled', i < pinInput.length);
+  }
+}
+
+window.addEventListener('load', initAuth);
+
 </script>
 </body>
 </html>
