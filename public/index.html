@@ -2229,7 +2229,16 @@ let rsuLoadedOnce = false;
 
 async function loadRSUVests() {
   try {
-    const rows = await sbFetch('/rest/v1/rsu_vests?select=*&ticker=eq.META&order=vest_date.asc');
+    const rows = await sbFetch('/rest/v1/rsu_vests?select=*&order=vest_date.asc');
+    console.log('[RSU] rows from Supabase:', rows);
+    if (!Array.isArray(rows)) {
+      console.error('[RSU] Expected array, got:', rows);
+      vestSchedule = [];
+      rsuLoadedOnce = true;
+      const sub = document.getElementById('rsuSubtitle');
+      if (sub) sub.textContent = 'Error cargando datos';
+      return;
+    }
     const today = new Date();
     today.setHours(0,0,0,0);
 
