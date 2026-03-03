@@ -1211,7 +1211,10 @@
       <!-- Header row: title + currency toggle -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
         <div>
-          <h2 style="margin-bottom:2px">🏆 Anthropic RSUs</h2>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px">
+            <img src="/logos/meta.png" style="width:36px;height:36px;border-radius:50%;object-fit:cover" onerror="this.outerHTML='<div style=&quot;width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:20px&quot;>🏆</div>'">
+            <h2 style="margin:0">Meta RSUs</h2>
+          </div>
           <p style="margin-bottom:0;font-size:12px">96 units · 4 años de vesting</p>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -1573,7 +1576,8 @@ async function loadPortfolio() {
     });
 
     // Get latest portfolio snapshot for FX rate + change
-    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=2');
+    // Get last 48h of snapshots to find today vs yesterday
+    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=48');
     if (snapData.length > 0) FX_RATE = snapData[0].fx_rate;
 
     // Calculate values
@@ -1616,10 +1620,17 @@ async function loadPortfolio() {
     }
 
     // Change vs previous snapshot
+    // Daily change: current vs last snapshot from >20h ago
     let changeUSD = 0;
-    if (snapData.length >= 2) changeUSD = totalUSD - snapData[1].total_usd;
+    let changeRef = null;
+    const now = Date.now();
+    for (const s of snapData) {
+      const age = now - new Date(s.captured_at).getTime();
+      if (age > 20 * 3600 * 1000) { changeRef = s; break; }
+    }
+    if (changeRef) changeUSD = totalUSD - changeRef.total_usd;
 
-    liveData = { totalUSD, changeUSD, breakdown, assets };
+    liveData = { totalUSD, changeUSD, changeRef, breakdown, assets };
     renderPortfolio();
 
   } catch(e) {
@@ -1632,7 +1643,7 @@ async function loadPortfolio() {
 
 function renderPortfolio() {
   if (!liveData) return;
-  const { totalUSD, changeUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeRef, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
@@ -1643,11 +1654,20 @@ function renderPortfolio() {
   // Change
   const changeEl = document.getElementById('portfolioChange');
   const changePct = totalUSD > 0 ? (changeUSD / (totalUSD - changeUSD)) * 100 : 0;
-  const changeFormatted = fmtVal(Math.abs(changeUSD), rate, sym);
-  const arrow = changeUSD >= 0 ? '↑' : '↓';
-  const changeClass = changeUSD >= 0 ? 'up' : 'down';
-  changeEl.className = 'portfolio-change ' + changeClass;
-  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs anterior';
+  const changeConverted = changeUSD * rate;
+  const pctRounded = Math.abs(changePct).toFixed(2);
+  if (changeRef === null || parseFloat(pctRounded) === 0) {
+    changeEl.className = 'portfolio-change';
+    changeEl.style.color = 'var(--muted)';
+    changeEl.innerHTML = '— sin cambio hoy';
+  } else {
+    const arrow = changeUSD >= 0 ? '↑' : '↓';
+    const changeClass = changeUSD >= 0 ? 'up' : 'down';
+    changeEl.className = 'portfolio-change ' + changeClass;
+    changeEl.style.color = '';
+    const absVal = fmtVal(Math.abs(changeUSD), rate, sym);
+    changeEl.innerHTML = arrow + ' ' + absVal + ' · ' + (changeUSD >= 0 ? '+' : '-') + pctRounded + '% hoy';
+  }
 
   // Alloc bar (4 cats)
   const CATS = ['acciones','cripto','rsu','fiat'];
@@ -1669,7 +1689,13 @@ function renderPortfolio() {
   if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
 
   // Asset cards — sorted by value desc, hide zero values
-  const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => b.valueUSD - a.valueUSD);
+  const sorted = [...assets]
+    .filter(a => a.valueUSD > 0.5)
+    .sort((a, b) => {
+      if (a.pos.ticker === 'RENT_DEPOSIT') return 1;
+      if (b.pos.ticker === 'RENT_DEPOSIT') return -1;
+      return b.valueUSD - a.valueUSD;
+    });
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
   sorted.forEach(({ pos, valueUSD, pct }) => {
@@ -1696,9 +1722,10 @@ function renderPortfolio() {
     const fit = meta.whiteBg ? 'contain' : 'cover';
     const bg  = meta.whiteBg ? '#fff' : 'transparent';
     const pad = meta.whiteBg ? '4px' : '0';
+    const emojiCircle = '<div style="width:38px;height:38px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + meta.logo + '</div>';
     const logoBlock = meta.logoUrl
-      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:' + bg + ';padding:' + pad + '" onerror="this.outerHTML=\'<div class=&quot;asset-logo&quot;>' + meta.logo + '</div>\'">'
-      : '<div class="asset-logo">' + meta.logo + '</div>';
+      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:' + bg + ';padding:' + pad + '" onerror="this.outerHTML=\'' + emojiCircle.replace(/\'/g, \'&apos;\') + '\'">'
+      : emojiCircle;
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
@@ -1855,16 +1882,17 @@ async function loadChartData() {
     snaps.forEach(snap => {
       const b = snap.breakdown || {};
       const fxR = snap.fx_rate || 0.79;
-      // fiat_gbp = raw GBP, fiat_usd = raw USD
-      // acciones/cripto/rsu are stored in USD
+      // fiat_gbp = raw GBP (e.g. 7368), fiat_usd = raw USD
+      // Sanity check: fiat_gbp should be < 15000 (raw GBP), if > 10000 it's likely old bad data stored as USD
+      const fiatGbp = (b.fiat_gbp || 0) > 10000 ? (b.fiat_gbp || 0) * fxR : (b.fiat_gbp || 0);
       let fiatVal, accionesVal, criptoVal, rsuVal;
       if (isGBP) {
-        fiatVal    = (b.fiat_gbp || 0) + (b.fiat_usd || 0) * fxR;
+        fiatVal     = fiatGbp + (b.fiat_usd || 0) * fxR;
         accionesVal = (b.acciones || 0) * fxR;
         criptoVal   = (b.cripto   || 0) * fxR;
         rsuVal      = (b.rsu      || 0) * fxR;
       } else {
-        fiatVal    = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+        fiatVal     = fiatGbp / fxR + (b.fiat_usd || 0);
         accionesVal = (b.acciones || 0);
         criptoVal   = (b.cripto   || 0);
         rsuVal      = (b.rsu      || 0);
