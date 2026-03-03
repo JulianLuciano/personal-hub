@@ -1693,11 +1693,14 @@ function renderPortfolio() {
     }
     const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
-    const logoHtml = meta.logoUrl
-      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;object-fit:cover" onerror="this.parentNode.innerHTML=\'' + meta.logo + '\'">' 
-      : meta.logo;
+    const fit = meta.whiteBg ? 'contain' : 'cover';
+    const bg  = meta.whiteBg ? '#fff' : 'transparent';
+    const pad = meta.whiteBg ? '4px' : '0';
+    const logoBlock = meta.logoUrl
+      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:' + bg + ';padding:' + pad + '" onerror="this.outerHTML=\'<div class=&quot;asset-logo&quot;>' + meta.logo + '</div>\'">'
+      : '<div class="asset-logo">' + meta.logo + '</div>';
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
-      '<div class="asset-logo">' + logoHtml + '</div>' +
+      logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
       '<div class="asset-sub">' + subLabel + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
