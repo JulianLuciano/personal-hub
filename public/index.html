@@ -689,6 +689,18 @@
   .pin-key.del { font-size: 16px; color: var(--muted); }
   .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.values-hidden .asset-val,
+.values-hidden .portfolio-total,
+.values-hidden #portfolioChange,
+.values-hidden #yTop,
+.values-hidden #yMid,
+.values-hidden #yBot,
+.values-hidden .alloc-item,
+.values-hidden #pieTotal,
+.values-hidden [id^="pl"] {
+  filter: blur(6px);
+  user-select: none;
+}
 </style>
 </head>
 <body>
@@ -1054,6 +1066,7 @@
         <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
           <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:5px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£ GBP</div>
           <div id="btnUSD" onclick="setCurrency('USD')" style="padding:5px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$ USD</div>
+          <div onclick="toggleHideValues()" id="eyeBtn" style="padding:5px 10px;border-radius:100px;font-size:14px;cursor:pointer;color:var(--muted);transition:all 0.2s" title="Ocultar valores">👁</div>
         </div>
       </div>
 
@@ -1159,8 +1172,8 @@
           </div>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
-        <span>Feb 1</span><span>Feb 10</span><span>Feb 20</span><span>Mar 1</span>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px" id="chartXLabels">
+        <span></span><span></span><span></span><span></span>
       </div>
     </div>
 
@@ -1505,16 +1518,16 @@ let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
 
 const TICKER_META = {
-  'SPY':             { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones' },
-  'BRK.B':           { name: 'Berkshire',        logo: '🏦', cat: 'acciones' },
-  'MELI':            { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones' },
-  'NU':              { name: 'Nu Holdings',      logo: '💜', cat: 'acciones' },
-  'BTC':             { name: 'Bitcoin',          logo: '₿',  cat: 'cripto'  },
-  'RSU_META':        { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',    rsu: true },
-  'GBP_LIQUID':      { name: 'Líquido',          logo: '💷', cat: 'fiat'   },
-  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',   logo: '📋', cat: 'fiat'   },
-  'USD_CASH':        { name: 'USD Cash',         logo: '💵', cat: 'fiat'   },
-  'RENT_DEPOSIT':    { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat'   },
+  'SPY':             { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones', showTicker: true },
+  'BRK.B':           { name: 'Berkshire',        logo: '🏦', cat: 'acciones', showTicker: true },
+  'MELI':            { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones', showTicker: true },
+  'NU':              { name: 'Nu Holdings',      logo: '💜', cat: 'acciones', showTicker: true },
+  'BTC':             { name: 'Bitcoin',          logo: '₿',  cat: 'cripto',  showTicker: true },
+  'RSU_META':        { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',     showTicker: false, rsu: true },
+  'GBP_LIQUID':      { name: 'Libras',           logo: '💷', cat: 'fiat',    showTicker: false },
+  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',   logo: '📋', cat: 'fiat',    showTicker: false },
+  'USD_CASH':        { name: 'USD Cash',         logo: '💵', cat: 'fiat',    showTicker: false },
+  'RENT_DEPOSIT':    { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat',    showTicker: false },
 };
 
 function fmtVal(usd, rate, sym) {
@@ -1524,7 +1537,8 @@ function fmtVal(usd, rate, sym) {
 }
 
 function fmtQty(qty, ticker) {
-  if (['SPY','BRK.B','MELI','NU','BTC'].includes(ticker)) return qty.toFixed(8);
+  if (ticker === 'BTC') return qty.toFixed(8);
+  if (['SPY','BRK.B','MELI','NU'].includes(ticker)) return qty.toFixed(3);
   return qty % 1 === 0 ? qty.toString() : qty.toFixed(2);
 }
 
@@ -1647,15 +1661,24 @@ function renderPortfolio() {
   const pieTotal = document.getElementById('pieTotal');
   if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
 
-  // Asset cards — sorted by value desc
-  const sorted = [...assets].sort((a, b) => b.valueUSD - a.valueUSD);
+  // Asset cards — sorted by value desc, hide zero values
+  const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => b.valueUSD - a.valueUSD);
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
   sorted.forEach(({ pos, valueUSD, pct }) => {
-    const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category };
+    const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category, showTicker: true };
     const valStr = fmtVal(valueUSD, rate, sym);
     const qtyStr = fmtQty(pos.qty, pos.ticker);
-    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">— cash</div>';
+    // Subtitle: show ticker+qty for stocks/crypto, nothing for fiat
+    let subLabel;
+    if (meta.showTicker) {
+      subLabel = pos.ticker + ' · ' + qtyStr;
+    } else if (meta.rsu) {
+      subLabel = pos.qty + ' units';
+    } else {
+      subLabel = pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR');
+    }
+    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">—</div>';
     if (pct !== null) {
       const cls = pct >= 0 ? 'up' : 'down';
       const arrow = pct >= 0 ? '↑' : '↓';
@@ -1663,8 +1686,6 @@ function renderPortfolio() {
     }
     const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
-    // Cash sub-label
-    const subLabel = pos.notes ? pos.ticker + ' · ' + pos.notes : pos.ticker + ' · ' + qtyStr;
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       '<div class="asset-logo">' + meta.logo + '</div>' +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
@@ -1681,6 +1702,19 @@ function renderPortfolio() {
   loadChartData();
 }
 
+let valuesHidden = false;
+function toggleHideValues() {
+  valuesHidden = !valuesHidden;
+  const panel = document.getElementById('panel-portfolio');
+  if (valuesHidden) {
+    panel.classList.add('values-hidden');
+    document.getElementById('eyeBtn').textContent = '🙈';
+  } else {
+    panel.classList.remove('values-hidden');
+    document.getElementById('eyeBtn').textContent = '👁';
+  }
+}
+
 function setCurrency(cur) {
   currentCurrency = cur;
   const isGBP = cur === 'GBP';
@@ -1689,6 +1723,7 @@ function setCurrency(cur) {
   document.getElementById('btnUSD').style.background = isGBP ? 'transparent' : 'var(--accent)';
   document.getElementById('btnUSD').style.color = isGBP ? 'var(--muted)' : '#fff';
   renderPortfolio();
+  loadChartData();
 }
 
 // Period tabs
@@ -1766,13 +1801,30 @@ async function loadChartData() {
     const CATS = ['acciones','cripto','rsu','fiat'];
     CATS.forEach(cat => { catData[cat].points = []; });
 
+    // Build x-axis labels (show ~4 evenly spaced dates)
+    const labelEl = document.getElementById('chartXLabels');
+    if (labelEl && snaps.length > 0) {
+      const indices = [0, Math.floor(snaps.length/3), Math.floor(2*snaps.length/3), snaps.length-1];
+      const spans = labelEl.querySelectorAll('span');
+      indices.forEach((idx, i) => {
+        if (spans[i] && snaps[idx]) {
+          const d = new Date(snaps[idx].captured_at);
+          spans[i].textContent = d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+        }
+      });
+    }
+
     snaps.forEach(snap => {
       const b = snap.breakdown || {};
-      const rate = isGBP ? snap.fx_rate : 1;
+      // fiat_gbp is stored as raw GBP amount, fiat_usd as raw USD
+      // convert to display currency
+      const fxR = snap.fx_rate || 0.79;
+      let fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+      const rate = isGBP ? fxR : 1;
       catData.acciones.points.push((b.acciones || 0) * rate);
       catData.cripto.points.push((b.cripto || 0) * rate);
       catData.rsu.points.push((b.rsu || 0) * rate);
-      catData.fiat.points.push(((b.fiat_gbp || 0) + (b.fiat_usd || 0)) * rate);
+      catData.fiat.points.push(fiatUSD * rate);
     });
 
     drawChart();
@@ -1949,35 +2001,36 @@ function swipeEnd(e) {
 function drawPie() {
   const canvas = document.getElementById('allocPie');
   if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const SIZE = 130;
+  canvas.width = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
   const ctx = canvas.getContext('2d');
-  const cx = 65, cy = 65, r = 50, iR = 32;
+  ctx.scale(dpr, dpr);
+  const cx = SIZE/2, cy = SIZE/2, r = SIZE*0.38, iR = SIZE*0.25;
   // Use live data if available
   const bd = liveData ? liveData.breakdown : { acciones:1, cripto:0.1, rsu:2.5, fiat:6 };
-  const tot = Object.values(bd).reduce((s,v) => s+(v||0), 0) || 1;
+  const tot = (bd.acciones||0) + (bd.cripto||0) + (bd.rsu||0) + (bd.fiat||0) || 1;
   const slices = [
     { pct: (bd.acciones||0)/tot, color: '#43e97b' },
     { pct: (bd.cripto||0)/tot,   color: '#6c63ff' },
     { pct: (bd.rsu||0)/tot,      color: '#f7b731' },
     { pct: (bd.fiat||0)/tot,     color: '#4fc3f7' },
-  ];
-  ctx.clearRect(0,0,110,110);
+  ].filter(s => s.pct > 0);
+  ctx.clearRect(0,0,SIZE,SIZE);
   let angle = -Math.PI / 2;
   slices.forEach(s => {
     const sweep = s.pct * Math.PI * 2;
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, angle, angle + sweep);
+    ctx.arc(cx, cy, iR, angle + sweep, angle, true);
     ctx.closePath();
     ctx.fillStyle = s.color;
     ctx.fill();
     angle += sweep;
   });
-  // donut hole
-  ctx.beginPath();
-  ctx.arc(cx, cy, iR, 0, Math.PI * 2);
-  const surfaceColor = getComputedStyle(document.getElementById('app')).getPropertyValue('--surface').trim() || '#13131a';
-  ctx.fillStyle = surfaceColor || '#13131a';
-  ctx.fill();
 }
 
 // pie legend now handled inside renderPortfolio()
