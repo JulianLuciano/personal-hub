@@ -1069,16 +1069,20 @@
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="portfolio-total-label">Patrimonio total</div>
-        <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
-          <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:5px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£ GBP</div>
-          <div id="btnUSD" onclick="setCurrency('USD')" style="padding:5px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$ USD</div>
-          <div onclick="toggleHideValues()" id="eyeBtn" style="padding:5px 10px;border-radius:100px;font-size:14px;cursor:pointer;color:var(--muted);transition:all 0.2s" title="Ocultar valores">👁</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+            <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
+            <div id="btnUSD" onclick="setCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+          </div>
         </div>
       </div>
 
       <!-- Slide 0: normal view -->
       <div id="hSlide0">
-        <div class="portfolio-total" id="portfolioTotal">—</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
+          <div onclick="toggleHideValues()" id="eyeBtn" style="font-size:20px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px" title="Ocultar valores">👁</div>
+        </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar">
@@ -1174,8 +1178,9 @@
           <span id="yBot" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
         </div>
         <div style="flex:1;position:relative" id="chartWrap">
-          <div class="mini-chart" style="height:90px">
-            <canvas id="portfolioChart" style="width:100%;height:100%"></canvas>
+          <div class="mini-chart" style="height:90px;position:relative">
+            <canvas id="portfolioChart" style="width:100%;height:100%;display:block"></canvas>
+            <canvas id="chartDotOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
           </div>
           <div id="chartTooltip"><div class="tt-date" id="ttDate"></div><div class="tt-val" id="ttVal"></div></div>
         </div>
@@ -1416,7 +1421,7 @@ function toggleTheme() {
 const navTitles = {
   today: ['Good morning, Julian 👋', 'Lunes, 3 de Marzo'],
   recipes: ['Mis Recetas 🍳', 'Tu repositorio personal'],
-  portfolio: ['Portfolio 📈', 'Actualizado hace 5 min'],
+  portfolio: ['Portfolio 📈', 'Cargando...'],
   settings: ['Configuración ⚙️', 'julian@email.com'],
 };
 
@@ -1429,7 +1434,17 @@ function switchNav(el, name) {
   document.querySelector('.topbar-left h1').textContent = t[0];
   document.querySelector('.topbar-left p').textContent = t[1];
   document.querySelector('.tabs').style.display = name === 'today' ? 'flex' : 'none';
-  if (name === 'portfolio') { requestAnimationFrame(() => requestAnimationFrame(drawChart)); if (!liveData) loadPortfolio(); }
+  if (name === 'portfolio') {
+    requestAnimationFrame(() => requestAnimationFrame(drawChart));
+    if (!liveData) loadPortfolio();
+    else { updateLastUpdatedLabel(); }
+    // Refresh label every 30s while on portfolio tab
+    if (_lastUpdatedTimer) clearInterval(_lastUpdatedTimer);
+    _lastUpdatedTimer = setInterval(() => {
+      if (document.getElementById('panel-portfolio').classList.contains('active')) updateLastUpdatedLabel();
+      else { clearInterval(_lastUpdatedTimer); _lastUpdatedTimer = null; }
+    }, 30000);
+  }
 }
 
 function switchTab(name, btn) {
@@ -1535,13 +1550,36 @@ async function sbFetch(path) {
 
 // Live portfolio data (filled by loadPortfolio)
 let liveData = null;
+let lastSnapshotAt = null;
+let _lastUpdatedTimer = null;
+
+function updateLastUpdatedLabel() {
+  if (!lastSnapshotAt) return;
+  const diffMs = Date.now() - lastSnapshotAt.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  let label;
+  if (diffMin < 1) label = 'Actualizado hace un momento';
+  else if (diffMin === 1) label = 'Actualizado hace 1 min';
+  else if (diffMin < 60) label = 'Actualizado hace ' + diffMin + ' min';
+  else {
+    const h = Math.floor(diffMin / 60);
+    label = 'Actualizado hace ' + h + (h === 1 ? ' hora' : ' hs');
+  }
+  // Update the subtitle in the topbar when portfolio is active
+  const sub = document.querySelector('.topbar-left p');
+  if (sub && document.getElementById('panel-portfolio').classList.contains('active')) {
+    sub.textContent = label;
+  }
+  // Store for navTitles
+  navTitles.portfolio[1] = label;
+}
 let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
 
 const TICKER_META = {
   'SPY':             { name: 'S&P 500 ETF',   logo: '📊', logoUrl: '/logos/spy.png',    cat: 'acciones', showTicker: true, whiteBg: true },
   'BRK.B':           { name: 'Berkshire',      logo: '🏦', logoUrl: '/logos/brkb.png',   cat: 'acciones', showTicker: true },
-  'MELI':            { name: 'MercadoLibre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
+  'MELI':            { name: 'Mercado Libre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
   'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
   'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
@@ -1612,7 +1650,11 @@ async function loadPortfolio() {
 
     // Get latest portfolio snapshot for FX rate + change
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=2');
-    if (snapData.length > 0) FX_RATE = snapData[0].fx_rate;
+    if (snapData.length > 0) {
+      FX_RATE = snapData[0].fx_rate;
+      lastSnapshotAt = new Date(snapData[0].captured_at);
+      updateLastUpdatedLabel();
+    }
 
     // Calculate values
     let totalUSD = 0;
@@ -1756,12 +1798,23 @@ function renderPortfolio() {
     const logoBlock = meta.logoUrl
       ? '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:#fff;padding:' + pad + '" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div style=&quot;width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0&quot;>' + meta.logo + '</div>\')">'
       : '<div style="width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + meta.logo + '</div>';
-    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
+    const sharePct = totalUSD > 0 ? (valueUSD / totalUSD * 100) : 0;
+    const shareStr = sharePct >= 0.5 ? sharePct.toFixed(1) + '%' : '<0.5%';
+    // Mini share bar: full width = 100% of portfolio
+    const barWidth = Math.max(2, Math.min(100, sharePct));
+    const barColor = meta.cat === 'acciones' ? '#43e97b' : meta.cat === 'cripto' ? '#6c63ff' : meta.cat === 'rsu' ? '#f7b731' : '#4fc3f7';
+    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + ' style="flex-direction:column;padding:0;overflow:hidden">' +
+      '<div style="display:flex;align-items:center;gap:14px;padding:16px 16px 10px">' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
       '<div class="asset-sub">' + subLabel + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
-      '<div style="display:flex;align-items:center;gap:4px">' + chgHtml + rsuArrow + '</div></div></div>';
+      '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>' +
+      '<div style="padding:0 16px 12px;display:flex;align-items:center;gap:8px">' +
+      '<div style="flex:1;height:3px;background:var(--surface2);border-radius:100px;overflow:hidden">' +
+      '<div style="width:' + barWidth + '%;height:100%;background:' + barColor + ';border-radius:100px;opacity:0.7"></div></div>' +
+      '<span style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:28px;text-align:right">' + shareStr + '</span>' +
+      '</div></div>';
   });
 
   // Hide spinner, show list
@@ -1839,8 +1892,8 @@ function setCurrency(cur) {
   const isGBP = cur === 'GBP';
   document.getElementById('btnGBP').style.background = isGBP ? 'var(--accent)' : 'transparent';
   document.getElementById('btnGBP').style.color = isGBP ? '#fff' : 'var(--muted)';
-  document.getElementById('btnUSD').style.background = isGBP ? 'transparent' : 'var(--accent)';
-  document.getElementById('btnUSD').style.color = isGBP ? 'var(--muted)' : '#fff';
+  document.getElementById('btnUSD').style.background = !isGBP ? 'var(--accent)' : 'transparent';
+  document.getElementById('btnUSD').style.color = !isGBP ? '#fff' : 'var(--muted)';
   renderPortfolio();
   loadChartData();
 }
@@ -1975,6 +2028,59 @@ async function loadChartData() {
 }
 
 let chartSnapDates = [];  // populated by loadChartData
+let chartLastCoords = [];  // last drawn line coords for hover dot
+
+function clearDotOverlay() {
+  const ov = document.getElementById('chartDotOverlay');
+  if (!ov) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = ov.parentElement.offsetWidth;
+  const H = 90;
+  ov.width = W * dpr;
+  ov.height = H * dpr;
+  ov.style.width = W + 'px';
+  ov.style.height = H + 'px';
+  ov.getContext('2d').clearRect(0, 0, W * dpr, H * dpr);
+}
+
+function drawDotAt(idx) {
+  const ov = document.getElementById('chartDotOverlay');
+  if (!ov || !chartLastCoords.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = ov.parentElement.offsetWidth;
+  const H = 90;
+  ov.width = W * dpr;
+  ov.height = H * dpr;
+  ov.style.width = W + 'px';
+  ov.style.height = H + 'px';
+  const ctx = ov.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  if (idx < 0 || idx >= chartLastCoords.length) return;
+  const pt = chartLastCoords[idx];
+  // Vertical line
+  ctx.beginPath();
+  ctx.moveTo(pt.x, 0);
+  ctx.lineTo(pt.x, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+  ctx.fillStyle = (pt.color || '#43e97b') + '33';
+  ctx.fill();
+  // Inner dot
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = pt.color || '#43e97b';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
 
 function drawChart() {
   const canvas = document.getElementById('portfolioChart');
@@ -2048,6 +2154,8 @@ function drawChart() {
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
     ctx.strokeStyle = '#43e97b'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
+    chartLastCoords = coords.map(c => ({ ...c, color: '#43e97b' }));
+    clearDotOverlay();
     return;
   }
 
@@ -2082,7 +2190,10 @@ function drawChart() {
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
     ctx.strokeStyle = d.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    // store last cat coords for hover dot (use first active cat)
+    if (!chartLastCoords.length) chartLastCoords = coords.map(c => ({ ...c, color: d.color }));
   });
+  clearDotOverlay();
 }
 
 function toggleCat(el) {
@@ -2151,9 +2262,10 @@ function switchPosTab(el, cat) {
     const result = getChartValue(clientX - rect.left, rect.width);
     if (!result) return false;
     const sym = currentCurrency === 'GBP' ? '£' : '$';
-    document.getElementById('ttVal').textContent = sym + Math.round(result.val).toLocaleString('es-AR');
+    document.getElementById('ttVal').textContent = valuesHidden ? '******' : sym + Math.round(result.val).toLocaleString('es-AR');
     const date = chartSnapDates[result.idx];
     if (date) document.getElementById('ttDate').textContent = date.toLocaleDateString('es-AR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    drawDotAt(result.idx);
     const wrap = document.getElementById('chartWrap');
     const wRect = wrap.getBoundingClientRect();
     let left = clientX - wRect.left + 10;
@@ -2168,6 +2280,7 @@ function switchPosTab(el, cat) {
     if (!showTip(e.clientX, e.clientY)) {
       const t = document.getElementById('chartTooltip');
       if (t) t.classList.remove('visible');
+      clearDotOverlay();
     }
   });
   document.addEventListener('touchmove', function(e) {
