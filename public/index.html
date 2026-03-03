@@ -1130,8 +1130,8 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="margin-bottom:0">Evolución</h3>
         <div class="period-tabs" style="margin-bottom:0">
-          <div class="period-tab">1S</div>
-          <div class="period-tab active">1M</div>
+          <div class="period-tab active">1S</div>
+          <div class="period-tab">1M</div>
           <div class="period-tab">3M</div>
           <div class="period-tab">6M</div>
           <div class="period-tab">1A</div>
@@ -1215,7 +1215,7 @@
           <img src="/logos/meta.png" style="width:44px;height:44px;border-radius:50%;object-fit:contain;background:#fff;padding:4px;flex-shrink:0" onerror="this.outerHTML='<div style=\'width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0\'>🏆</div>'">
           <div>
             <h2 style="margin-bottom:2px">Meta RSUs</h2>
-            <p style="margin-bottom:0;font-size:12px">96 units · 4 años de vesting</p>
+            <p style="margin-bottom:0;font-size:12px" id="rsuSubtitle">Cargando...</p>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -1349,10 +1349,13 @@
     <div class="settings-group">
       <div class="settings-group-label">Cuenta</div>
       <div class="settings-list">
-        <div class="settings-row">
+        <div class="settings-row" onclick="toggleLockEnabled()">
           <div class="settings-row-icon" style="background:rgba(79,195,247,0.15)">🔒</div>
-          <div class="settings-row-text"><div class="row-title">Face ID</div></div>
-          <div class="toggle-switch on"></div>
+          <div class="settings-row-text">
+            <div class="row-title">Bloqueo con PIN / Face ID</div>
+            <div class="row-sub" id="lockSettingSub">Desactivado</div>
+          </div>
+          <div class="toggle-switch" id="lockToggle"></div>
         </div>
         <div class="settings-row">
           <div class="settings-row-icon" style="background:rgba(255,101,132,0.15)">🚪</div>
@@ -2220,25 +2223,60 @@ function drawPie() {
 
 // ─── RSU Modal ───
 // Full vest schedule (16 quarters = 4 years)
-const vestSchedule = [
-  { date: "Jun '25", units: 24, days: 115 },
-  { date: "Sep '25", units: 24, days: 207 },
-  { date: "Dec '25", units: 24, days: 299 },
-  { date: "Mar '26", units: 12, days: 388 },
-  { date: "Jun '26", units: 12, days: 480 },
-  { date: "Sep '26", units: 12, days: 572 },
-  { date: "Dec '26", units: 0,  days: 664 },
-  { date: "Mar '27", units: 0,  days: 753 },
-  { date: "Jun '27", units: 0,  days: 845 },
-  { date: "Sep '27", units: 0,  days: 937 },
-  { date: "Dec '27", units: 0,  days: 1029 },
-  { date: "Mar '28", units: 0,  days: 1118 },
-  { date: "Jun '28", units: 0,  days: 1210 },
-  { date: "Sep '28", units: 0,  days: 1302 },
-  { date: "Dec '28", units: 0,  days: 1394 },
-  { date: "Mar '29", units: 0,  days: 1483 },
-];
-const RSU_PRICE_USD = 250;
+// vestSchedule is loaded from Supabase rsu_vests table in openRSU()
+let vestSchedule = [];  // populated from Supabase: { date, units, days, vested, vest_date }
+let rsuLoadedOnce = false;
+
+async function loadRSUVests() {
+  try {
+    const rows = await sbFetch('/rest/v1/rsu_vests?select=*&ticker=eq.META&order=vest_date.asc');
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    vestSchedule = rows.map(r => {
+      const vestDate = new Date(r.vest_date);
+      vestDate.setHours(0,0,0,0);
+      const diffMs = vestDate - today;
+      const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      // Format date like "May '26"
+      const d = new Date(r.vest_date);
+      const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
+      const yearShort = "'" + String(d.getFullYear()).slice(2);
+      return {
+        date: monthShort + ' ' + yearShort,
+        vest_date: r.vest_date,
+        units: r.units,
+        days: days,
+        vested: r.vested,
+      };
+    });
+
+    // Summary stats for subtitle
+    const totalUnits = rows.reduce((s, r) => s + r.units, 0);
+    const vestedUnits = rows.filter(r => r.vested).reduce((s, r) => s + r.units, 0);
+    const pendingUnits = totalUnits - vestedUnits;
+    const sub = document.getElementById('rsuSubtitle');
+    if (sub) {
+      const pct = totalUnits > 0 ? Math.round((vestedUnits / totalUnits) * 100) : 0;
+      sub.textContent = totalUnits + ' units totales · ' + pendingUnits + ' por vestear (' + pct + '% vesteado)';
+    }
+
+    rsuLoadedOnce = true;
+  } catch(e) {
+    console.error('Error loading RSU vests:', e);
+    vestSchedule = [];
+  }
+}
+
+// Get live META price from already-loaded prices map
+function getRSUPriceUSD() {
+  // prices map uses 'RSU_META' key for META price
+  if (liveData && liveData.assets) {
+    const metaAsset = liveData.assets.find(a => a.pos.ticker === 'RSU_META');
+    if (metaAsset && metaAsset.priceUSD) return metaAsset.priceUSD;
+  }
+  return 600; // fallback
+}
 let rsuCurrency = 'GBP';
 let visibleQuarters = 4;
 
@@ -2263,68 +2301,93 @@ function setQuarters(n, el) {
   refreshRSU();
 }
 
-function openRSU() {
+async function openRSU() {
   rsuCurrency = currentCurrency;
-  // Sync currency buttons
   const isGBP = rsuCurrency === 'GBP';
   document.getElementById('rsuBtnGBP').style.background = isGBP ? '#4fc3f7' : 'transparent';
   document.getElementById('rsuBtnGBP').style.color = isGBP ? '#000' : 'var(--muted)';
   document.getElementById('rsuBtnUSD').style.background = isGBP ? 'transparent' : '#4fc3f7';
   document.getElementById('rsuBtnUSD').style.color = isGBP ? 'var(--muted)' : '#000';
   document.getElementById('rsuModal').classList.add('open');
+  if (!rsuLoadedOnce) {
+    await loadRSUVests();
+  }
   refreshRSU();
 }
 
 function refreshRSU() {
+  if (!vestSchedule.length) return;
   const isGBP = rsuCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
-  const slice = vestSchedule.slice(0, visibleQuarters);
+  const RSU_PRICE_USD = getRSUPriceUSD();
 
-  // Next vest card
-  const next = vestSchedule[0];
-  document.getElementById('nextVestDate').textContent = next.date;
-  document.getElementById('daysToVest').textContent = next.days;
-  const nextVal = Math.round(next.units * RSU_PRICE_USD * rate);
-  document.getElementById('nextVestVal').textContent = sym + nextVal.toLocaleString();
+  // Separate vested vs upcoming
+  const upcoming = vestSchedule.filter(v => !v.vested);
+  const allVests = vestSchedule; // includes vested ones for table
 
-  // Accum total for visible quarters
+  const slice = upcoming.slice(0, visibleQuarters);
+
+  // Next vest card — first upcoming vest
+  const next = upcoming[0];
+  if (next) {
+    document.getElementById('nextVestDate').textContent = next.date;
+    document.getElementById('daysToVest').textContent = next.days > 0 ? next.days : 'hoy';
+    const nextVal = Math.round(next.units * RSU_PRICE_USD * rate);
+    document.getElementById('nextVestVal').textContent = sym + nextVal.toLocaleString();
+  }
+
+  // Accum total for visible upcoming quarters
   const totalAccum = slice.reduce((s,v) => s + Math.round(v.units * RSU_PRICE_USD * rate), 0);
   document.getElementById('accumTotal').textContent = sym + totalAccum.toLocaleString();
-  document.getElementById('qLabel').textContent = visibleQuarters;
+  document.getElementById('qLabel').textContent = slice.length;
 
-  // X-axis labels (show every other if many)
+  // X-axis labels
   const labelsEl = document.getElementById('vestXLabels');
-  const step = visibleQuarters > 8 ? 2 : 1;
+  const step = slice.length > 8 ? 2 : 1;
   labelsEl.innerHTML = slice.map((v,i) => i % step === 0 ? `<span>${v.date}</span>` : '<span></span>').join('');
 
-  // Vest table (show all 6 real vests always)
+  // Vest table: show all upcoming vests (with vested ones grayed at top if any)
   let accum = 0;
   const tableEl = document.getElementById('vestTable');
-  tableEl.innerHTML = vestSchedule.slice(0,6).map((v, i) => {
+
+  // Show vested rows first (grayed), then upcoming
+  const vestedRows = allVests.filter(v => v.vested);
+  const upcomingRows = upcoming;
+  const tableRows = [...vestedRows, ...upcomingRows];
+
+  tableEl.innerHTML = tableRows.map((v, i) => {
     const val = Math.round(v.units * RSU_PRICE_USD * rate);
+    const isVested = v.vested;
+    const isNext = !isVested && v === upcomingRows[0];
     accum += val;
-    return `<div style="display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:14px;padding:12px 14px;${i===0?'border:1.5px solid rgba(79,195,247,0.4)':''}">
-      <div style="width:8px;height:8px;border-radius:50%;background:${i===0?'#4fc3f7':'var(--border)'}"></div>
+    const rowBorder = isNext ? 'border:1.5px solid rgba(79,195,247,0.4)' : '';
+    const dotColor = isVested ? '#43e97b' : isNext ? '#4fc3f7' : 'var(--border)';
+    const valColor = isVested ? 'var(--muted)' : '#4fc3f7';
+    const daysLabel = isVested
+      ? '<span style="color:#43e97b">✓ Vesteado</span>'
+      : (v.days > 0 ? 'en ' + v.days + ' días' : 'hoy') + ' · ' + v.units + ' units';
+    return `<div style="display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:14px;padding:12px 14px;opacity:${isVested?'0.5':'1'};${rowBorder}">
+      <div style="width:8px;height:8px;border-radius:50%;background:${dotColor}"></div>
       <div style="flex:1">
         <div style="font-size:13px;font-weight:500">${v.date}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">en ${v.days} días · ${v.units} units</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${daysLabel}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#4fc3f7">${sym}${val.toLocaleString()}</div>
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${valColor}">${sym}${val.toLocaleString()}</div>
         <div style="font-size:10px;color:var(--muted)">acum: ${sym}${accum.toLocaleString()}</div>
       </div>
     </div>`;
   }).join('');
 
-  setTimeout(() => drawVestChart(rate, sym, slice), 60);
+  setTimeout(() => drawVestChart(rate, sym, slice, RSU_PRICE_USD), 60);
 }
 
 function closeRSU() {
   document.getElementById('rsuModal').classList.remove('open');
 }
 
-function drawVestChart(rate, sym, slice) {
+function drawVestChart(rate, sym, slice, RSU_PRICE_USD) {
   const canvas = document.getElementById('vestChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -2385,15 +2448,40 @@ fetch('/api/config')
   .then(function(d) { CORRECT_PIN = String(d.pin).trim(); initAuth(); })
   .catch(function() { CORRECT_PIN = '__never__'; initAuth(); });
 
-function initAuth() {
-  var registered = localStorage.getItem('ph_passkey') === '1';
+function isLockEnabled() {
+  return localStorage.getItem('ph_lock_enabled') === '1';
+}
 
+function toggleLockEnabled() {
+  const enabled = isLockEnabled();
+  const newVal = !enabled;
+  localStorage.setItem('ph_lock_enabled', newVal ? '1' : '0');
+  updateLockToggleUI(newVal);
+}
+
+function updateLockToggleUI(enabled) {
+  const tog = document.getElementById('lockToggle');
+  const sub = document.getElementById('lockSettingSub');
+  if (tog) tog.classList.toggle('on', enabled);
+  if (sub) sub.textContent = enabled ? 'Activado · PIN + Face ID' : 'Desactivado';
+}
+
+function initAuth() {
+  // Init settings toggle UI
+  const lockEnabled = isLockEnabled();
+  updateLockToggleUI(lockEnabled);
+
+  // If lock is disabled — skip straight to app
+  if (!lockEnabled) {
+    unlock();
+    return;
+  }
+
+  var registered = localStorage.getItem('ph_passkey') === '1';
   if (registered) {
-    // Already set up — show Face ID button only
     authState = 'face_id';
     showFaceID();
   } else {
-    // First time — show PIN to prove identity before registering Face ID
     authState = 'pin_setup';
     showPIN('Configurá tu acceso — ingresá el PIN');
   }
