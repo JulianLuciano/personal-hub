@@ -1085,11 +1085,14 @@
         </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
-          <div class="alloc-bar">
+          <div class="alloc-bar" id="allocBar">
             <div class="alloc-seg" style="width:9%;background:#43e97b"></div>
             <div class="alloc-seg" style="width:1%;background:#6c63ff"></div>
             <div class="alloc-seg" style="width:26%;background:#f7b731"></div>
-            <div class="alloc-seg" style="width:64%;background:#4fc3f7"></div>
+            <!-- cash: liquid part + locked part with stripe pattern -->
+            <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px" id="cashAllocSegs">
+              <div class="alloc-seg" style="flex:1;background:#4fc3f7"></div>
+            </div>
           </div>
           <div class="alloc-legend" style="margin-top:10px">
             <div class="alloc-item"><div class="alloc-dot" style="background:#43e97b"></div>Acciones —%</div>
@@ -1377,6 +1380,63 @@
     </div>
   </div>
 
+  <!-- POSITION DETAIL MODAL -->
+  <div class="modal-overlay" id="posModal">
+    <div class="modal" style="max-height:80vh;overflow-y:auto;padding-bottom:40px">
+      <div class="modal-handle"></div>
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div id="posModalLogo" style="width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalName">—</div>
+          <div style="font-size:12px;color:var(--muted)" id="posModalTicker">—</div>
+        </div>
+        <button onclick="closePosDetail()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0">×</button>
+      </div>
+
+      <!-- Price + daily change -->
+      <div style="background:var(--surface2);border-radius:16px;padding:16px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Precio actual</div>
+            <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800" id="posModalPrice">—</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Hoy</div>
+            <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700" id="posModalDayChg">—</div>
+          </div>
+        </div>
+        <!-- Mini 30d price chart -->
+        <canvas id="posModalChart" style="width:100%;height:60px;margin-top:12px;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:3px">
+          <span id="posModalChartStart">30d atrás</span><span>hoy</span>
+        </div>
+      </div>
+
+      <!-- Position stats -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div style="background:var(--surface2);border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Valor posición</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalValue">—</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalQty">—</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">P&L total</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalPnl">—</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalPnlPct">—</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Precio promedio</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalAvg">—</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Del portfolio</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalShare">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
     <div class="nav-item active" onclick="switchNav(this, 'today')">
@@ -1658,7 +1718,7 @@ async function loadPortfolio() {
 
     // Calculate values
     let totalUSD = 0;
-    const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat: 0, fiat_gbp: 0, fiat_usd: 0 };
+    const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat: 0, fiat_gbp: 0, fiat_usd: 0, fiat_liquid: 0, fiat_locked: 0 };
     const assets = [];
 
     for (const pos of posData) {
@@ -1675,6 +1735,10 @@ async function loadPortfolio() {
           breakdown.fiat_usd += pos.qty;
         }
         breakdown.fiat += valueUSD;
+        // Track liquid vs locked (rent deposit + receivable = not liquid)
+        const isLocked = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
+        if (isLocked) breakdown.fiat_locked += valueUSD;
+        else breakdown.fiat_liquid += valueUSD;
       } else {
         priceUSD = prices[pos.ticker];
         if (priceUSD) {
@@ -1706,7 +1770,7 @@ async function loadPortfolio() {
     let changeUSD = 0;
     if (snapData.length >= 2) changeUSD = totalUSD - snapData[1].total_usd;
 
-    liveData = { totalUSD, changeUSD, breakdown, assets };
+    liveData = { totalUSD, changeUSD, breakdown, assets, prices };
     renderPortfolio();
 
   } catch(e) {
@@ -1741,11 +1805,31 @@ function renderPortfolio() {
   const CAT_LABELS = ['Acciones','Cripto','RSUs','Cash'];
   const segs = document.querySelectorAll('.alloc-seg');
   const items = document.querySelectorAll('.alloc-item');
-  CATS.forEach((cat, i) => {
+  // First 3 cats (acciones, cripto, rsu) use segs[0..2]
+  ['acciones','cripto','rsu'].forEach((cat, i) => {
     const pct = totalUSD > 0 ? Math.round((breakdown[cat] || 0) / totalUSD * 100) : 0;
     if (segs[i]) segs[i].style.width = pct + '%';
     if (items[i]) items[i].lastChild.textContent = ' ' + CAT_LABELS[i] + ' ' + pct + '%';
   });
+  // Cash seg: split into liquid (solid) + locked (striped)
+  const cashPct = totalUSD > 0 ? (breakdown.fiat || 0) / totalUSD * 100 : 0;
+  const lockedPct = totalUSD > 0 ? (breakdown.fiat_locked || 0) / totalUSD * 100 : 0;
+  const liquidPct = cashPct - lockedPct;
+  const cashSegs = document.getElementById('cashAllocSegs');
+  if (cashSegs) {
+    const lockedFrac = cashPct > 0 ? (lockedPct / cashPct * 100) : 0;
+    const liquidFrac = 100 - lockedFrac;
+    cashSegs.innerHTML =
+      '<div style="flex:' + liquidFrac + ';background:#4fc3f7;height:100%"></div>' +
+      (lockedFrac > 0 ? '<div style="flex:' + lockedFrac + ';height:100%;background:repeating-linear-gradient(45deg,#4fc3f7,#4fc3f7 2px,#2a6f7f 2px,#2a6f7f 5px)"></div>' : '');
+  }
+  // Cash alloc bar total width
+  const cashSeg = document.querySelector('#allocBar .alloc-seg:nth-child(4), #cashAllocSegs')?.parentElement;
+  // Update the cashAllocSegs container width via the parent flex container
+  // The cashAllocSegs already fills remaining space; set width on its wrapper:
+  const cashWrapper = document.getElementById('cashAllocSegs');
+  if (cashWrapper) cashWrapper.style.width = Math.round(cashPct) + '%';
+  if (items[3]) items[3].lastChild.textContent = ' Cash ' + Math.round(cashPct) + '%';
 
   // Pie legend (4 cats: pl0=acciones pl1=cripto pl2=rsu pl3=fiat)
   [breakdown.acciones, breakdown.cripto, breakdown.rsu, breakdown.fiat].forEach((v, i) => {
@@ -1774,7 +1858,8 @@ function renderPortfolio() {
     } else if (meta.rsu) {
       subLabel = pos.qty + ' units';
     } else {
-      subLabel = pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR');
+      const lockedBadge = isLockedFiat ? ' · <span style="font-size:10px;color:#2a8f9f;background:rgba(42,143,159,0.15);padding:1px 5px;border-radius:4px">bloqueado</span>' : '';
+      subLabel = (pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR')) + lockedBadge;
     }
     // Daily change: show dayPct with green/red/gray color coding
     let chgHtml;
@@ -1791,8 +1876,15 @@ function renderPortfolio() {
     } else {
       chgHtml = '<div class="asset-chg" style="color:var(--muted)">—</div>';
     }
-    const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
-    const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
+    const isLockedFiat = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
+    const ticker = pos.ticker;
+    const rsuClick = meta.rsu
+      ? ' onclick="openRSU()" style="cursor:pointer"'
+      : pos.category !== 'fiat'
+        ? ' onclick="openPosDetail(\''+ticker+'\')" style="cursor:pointer"'
+        : '';
+    const rsuArrowOverride = pos.category !== 'fiat' && !meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
+    const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : rsuArrowOverride;
     const fit = meta.whiteBg ? 'contain' : 'cover';
     const pad = meta.whiteBg ? '4px' : '0';
     const logoBlock = meta.logoUrl
@@ -1916,10 +2008,11 @@ const CAT_COLORS = {
   fiat:     '#4fc3f7',
 };
 const catData = {
-  acciones: { color: '#43e97b', points: [] },
-  cripto:   { color: '#6c63ff', points: [] },
-  rsu:      { color: '#f7b731', points: [] },
-  fiat:     { color: '#4fc3f7', points: [] },
+  acciones:     { color: '#43e97b', points: [] },
+  cripto:       { color: '#6c63ff', points: [] },
+  rsu:          { color: '#f7b731', points: [] },
+  fiat:         { color: '#4fc3f7', points: [] },
+  fiat_locked:  { color: '#4fc3f7', points: [], dashed: true },
 };
 let activeCats = new Set(['acciones','cripto','rsu','fiat']);
 let chartPeriod = '1S';  // current period selection
@@ -2018,6 +2111,11 @@ async function loadChartData() {
       catData.cripto.points.push(criptoVal);
       catData.rsu.points.push(rsuVal);
       catData.fiat.points.push(fiatVal);
+      // fiat_locked: approximated as fixed ratio from breakdown (no per-snapshot data)
+      // Use current ratio of locked/fiat applied to historical fiat values
+      const lockedRatio = liveData && liveData.breakdown.fiat > 0
+        ? liveData.breakdown.fiat_locked / liveData.breakdown.fiat : 0;
+      catData.fiat_locked.points.push(fiatVal * lockedRatio);
     });
 
     drawChart();
@@ -2170,6 +2268,7 @@ function drawChart() {
   drawGrid(globalMin, globalMax);
 
   cats.forEach(cat => {
+    if (cat === 'fiat_locked') return; // drawn separately
     const d = catData[cat];
     if (!d || d.points.length < 2) return;
     const pts = d.points;
@@ -2190,7 +2289,22 @@ function drawChart() {
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
     ctx.strokeStyle = d.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-    // store last cat coords for hover dot (use first active cat)
+    // Draw fiat_locked as dashed line on top of fiat
+    if (cat === 'fiat' && catData.fiat_locked.points.length > 1) {
+      const lkPts = catData.fiat_locked.points;
+      const lkStep = W / (lkPts.length - 1);
+      const lkCoords = lkPts.map((v, i) => ({
+        x: i * lkStep,
+        y: H - padB - ((v - globalMin) / globalRange) * (H - padT - padB)
+      }));
+      ctx.beginPath();
+      ctx.moveTo(lkCoords[0].x, lkCoords[0].y);
+      lkCoords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.strokeStyle = '#2a8f9f'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (!chartLastCoords.length) chartLastCoords = coords.map(c => ({ ...c, color: d.color }));
   });
   clearDotOverlay();
@@ -2319,13 +2433,26 @@ function drawPie() {
   // Use live data if available
   const bd = liveData ? liveData.breakdown : { acciones:1, cripto:0.1, rsu:2.5, fiat:6 };
   const tot = (bd.acciones||0) + (bd.cripto||0) + (bd.rsu||0) + (bd.fiat||0) || 1;
+  const liquidPct = (bd.fiat||0) - (bd.fiat_locked||0);
+  const lockedPct = (bd.fiat_locked||0);
   const slices = [
-    { pct: (bd.acciones||0)/tot, color: '#43e97b' },
-    { pct: (bd.cripto||0)/tot,   color: '#6c63ff' },
-    { pct: (bd.rsu||0)/tot,      color: '#f7b731' },
-    { pct: (bd.fiat||0)/tot,     color: '#4fc3f7' },
+    { pct: (bd.acciones||0)/tot, color: '#43e97b', pattern: null },
+    { pct: (bd.cripto||0)/tot,   color: '#6c63ff', pattern: null },
+    { pct: (bd.rsu||0)/tot,      color: '#f7b731', pattern: null },
+    { pct: liquidPct/tot,        color: '#4fc3f7', pattern: null },
+    { pct: lockedPct/tot,        color: '#2a8f9f', pattern: 'stripe' },
   ].filter(s => s.pct > 0);
   ctx.clearRect(0,0,SIZE,SIZE);
+  // Create stripe pattern for locked cash
+  const patCanvas = document.createElement('canvas');
+  patCanvas.width = 6; patCanvas.height = 6;
+  const patCtx = patCanvas.getContext('2d');
+  patCtx.strokeStyle = '#4fc3f7';
+  patCtx.lineWidth = 1.5;
+  patCtx.beginPath(); patCtx.moveTo(0,6); patCtx.lineTo(6,0); patCtx.stroke();
+  patCtx.beginPath(); patCtx.moveTo(-1,1); patCtx.lineTo(1,-1); patCtx.stroke();
+  patCtx.beginPath(); patCtx.moveTo(5,7); patCtx.lineTo(7,5); patCtx.stroke();
+  const stripePattern = ctx.createPattern(patCanvas, 'repeat');
   let angle = -Math.PI / 2;
   slices.forEach(s => {
     const sweep = s.pct * Math.PI * 2;
@@ -2333,7 +2460,13 @@ function drawPie() {
     ctx.arc(cx, cy, r, angle, angle + sweep);
     ctx.arc(cx, cy, iR, angle + sweep, angle, true);
     ctx.closePath();
-    ctx.fillStyle = s.color;
+    if (s.pattern === 'stripe') {
+      ctx.fillStyle = '#1a5f6f';
+      ctx.fill();
+      ctx.fillStyle = stripePattern;
+    } else {
+      ctx.fillStyle = s.color;
+    }
     ctx.fill();
     angle += sweep;
   });
@@ -2586,6 +2719,152 @@ function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
 }
 
 setTimeout(drawPie, 200);
+
+// ─── Position Detail Modal ───
+let posDetailTicker = null;
+
+async function openPosDetail(ticker) {
+  posDetailTicker = ticker;
+  document.getElementById('posModal').classList.add('open');
+
+  const meta = TICKER_META[ticker] || { name: ticker, logo: '💰', logoUrl: null };
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+
+  // Logo
+  const logoEl = document.getElementById('posModalLogo');
+  if (meta.logoUrl) {
+    logoEl.innerHTML = '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;object-fit:contain" onerror="this.outerHTML=\''+meta.logo+'\'">';
+  } else {
+    logoEl.textContent = meta.logo;
+  }
+  document.getElementById('posModalName').textContent = meta.name;
+  document.getElementById('posModalTicker').textContent = ticker;
+
+  // Find asset in liveData
+  const asset = liveData && liveData.assets.find(a => a.pos.ticker === ticker);
+  if (!asset) return;
+  const { pos, valueUSD, priceUSD, pct, dayPct } = asset;
+
+  // Price
+  const priceFormatted = priceUSD ? '$' + priceUSD.toFixed(2) : '—';
+  document.getElementById('posModalPrice').textContent = priceFormatted;
+
+  // Day change
+  const dayEl = document.getElementById('posModalDayChg');
+  if (dayPct !== null && dayPct !== undefined) {
+    const rounded = parseFloat(dayPct.toFixed(2));
+    dayEl.textContent = (rounded >= 0 ? '+' : '') + rounded.toFixed(2) + '%';
+    dayEl.style.color = rounded > 0 ? 'var(--accent3)' : rounded < 0 ? 'var(--accent2)' : 'var(--muted)';
+  } else {
+    dayEl.textContent = '—';
+    dayEl.style.color = 'var(--muted)';
+  }
+
+  // Value + qty
+  document.getElementById('posModalValue').textContent = fmtVal(valueUSD, rate, sym);
+  document.getElementById('posModalQty').textContent = fmtQty(pos.qty, ticker) + ' ' + ticker;
+
+  // P&L
+  const pnlEl = document.getElementById('posModalPnl');
+  const pnlPctEl = document.getElementById('posModalPnlPct');
+  if (pct !== null && pct !== undefined && priceUSD && pos.avg_cost_usd) {
+    const pnlUSD = (priceUSD - pos.avg_cost_usd) * pos.qty;
+    pnlEl.textContent = (pnlUSD >= 0 ? '+' : '') + fmtVal(Math.abs(pnlUSD), rate, sym);
+    pnlEl.style.color = pnlUSD >= 0 ? 'var(--accent3)' : 'var(--accent2)';
+    pnlPctEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% vs costo';
+    pnlPctEl.style.color = pnlEl.style.color;
+  } else {
+    pnlEl.textContent = '—'; pnlEl.style.color = 'var(--muted)';
+    pnlPctEl.textContent = 'sin costo promedio';
+  }
+
+  // Avg cost
+  const avgEl = document.getElementById('posModalAvg');
+  avgEl.textContent = pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '—';
+
+  // Portfolio share
+  const share = liveData && liveData.totalUSD > 0 ? (valueUSD / liveData.totalUSD * 100) : 0;
+  document.getElementById('posModalShare').textContent = share.toFixed(1) + '%';
+
+  // Load 30d price history and draw chart
+  await drawPosChart(ticker, meta);
+}
+
+function closePosDetail() {
+  document.getElementById('posModal').classList.remove('open');
+}
+
+async function drawPosChart(ticker, meta) {
+  const canvas = document.getElementById('posModalChart');
+  if (!canvas) return;
+
+  // Map ticker to price_snapshots ticker format
+  const snapTicker = ticker === 'BTC' ? 'BTC-USD' : ticker === 'BRK.B' ? 'BRK-B' : ticker === 'RSU_META' ? 'META' : ticker;
+
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const rows = await sbFetch('/rest/v1/price_snapshots?select=price_usd,captured_at&ticker=eq.' + snapTicker + '&order=captured_at.asc&captured_at=gte.' + since);
+    if (!rows || rows.length < 2) {
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.parentElement.offsetWidth * dpr;
+      canvas.height = 60 * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.font = '11px DM Sans';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sin datos suficientes', canvas.parentElement.offsetWidth / 2, 30);
+      return;
+    }
+
+    const prices = rows.map(r => r.price_usd);
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.parentElement.offsetWidth;
+    const H = 60;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
+    const step = W / (prices.length - 1);
+    const coords = prices.map((v, i) => ({
+      x: i * step,
+      y: H - 4 - ((v - min) / range) * (H - 8)
+    }));
+
+    const isUp = prices[prices.length-1] >= prices[0];
+    const lineColor = isUp ? '#43e97b' : '#ff6584';
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, lineColor + '30');
+    grad.addColorStop(1, lineColor + '00');
+    ctx.beginPath();
+    ctx.moveTo(coords[0].x, coords[0].y);
+    coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(coords[0].x, coords[0].y);
+    coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+
+    // Date label
+    if (rows.length > 0) {
+      const startDate = new Date(rows[0].captured_at);
+      document.getElementById('posModalChartStart').textContent =
+        startDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+    }
+  } catch(e) {
+    console.error('Error loading price history:', e);
+  }
+}
 
 // AUTH
 // States: 'pin_setup' | 'face_id' | 'pin_fallback'
