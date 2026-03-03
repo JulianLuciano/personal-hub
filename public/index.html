@@ -1219,10 +1219,17 @@
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <!-- Currency toggle inside modal -->
-          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
-            <div id="rsuBtnGBP" onclick="setRsuCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:#4fc3f7;color:#000;transition:all 0.2s">£</div>
-            <div id="rsuBtnUSD" onclick="setRsuCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+          <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">
+            <!-- Currency toggle -->
+            <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+              <div id="rsuBtnGBP" onclick="setRsuCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:#4fc3f7;color:#000;transition:all 0.2s">£</div>
+              <div id="rsuBtnUSD" onclick="setRsuCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+            </div>
+            <!-- Gross/Net toggle -->
+            <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+              <div id="rsuBtnBruto" onclick="setRsuNet(false)" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:#f7b731;color:#000;transition:all 0.2s">💰 Bruto</div>
+              <div id="rsuBtnNeto" onclick="setRsuNet(true)" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">✂️ Neto</div>
+            </div>
           </div>
           <button onclick="closeRSU()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1">×</button>
         </div>
@@ -1234,11 +1241,11 @@
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
             <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800" id="nextVestDate">Jun 25, 2025</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px">en <span id="daysToVest">115</span> días · 24 units</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px" id="nextVestSub">en <span id="daysToVest">—</span> días · — units</div>
           </div>
           <div style="text-align:right">
             <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#4fc3f7" id="nextVestVal">£4.740</div>
-            <div style="font-size:11px;color:var(--muted)">valor bruto estimado</div>
+            <div style="font-size:11px;color:var(--muted)" id="nextVestLabel">valor bruto estimado</div>
           </div>
         </div>
       </div>
@@ -2287,6 +2294,8 @@ function getRSUPriceUSD() {
   return 600; // fallback
 }
 let rsuCurrency = 'GBP';
+let rsuNet = false;  // false = bruto, true = neto (53% of bruto)
+const NET_RATE = 0.53;
 let visibleQuarters = 4;
 
 function setRsuCurrency(cur) {
@@ -2296,6 +2305,15 @@ function setRsuCurrency(cur) {
   document.getElementById('rsuBtnGBP').style.color = isGBP ? '#000' : 'var(--muted)';
   document.getElementById('rsuBtnUSD').style.background = isGBP ? 'transparent' : '#4fc3f7';
   document.getElementById('rsuBtnUSD').style.color = isGBP ? 'var(--muted)' : '#000';
+  refreshRSU();
+}
+
+function setRsuNet(isNet) {
+  rsuNet = isNet;
+  document.getElementById('rsuBtnBruto').style.background = isNet ? 'transparent' : '#f7b731';
+  document.getElementById('rsuBtnBruto').style.color = isNet ? 'var(--muted)' : '#000';
+  document.getElementById('rsuBtnNeto').style.background = isNet ? '#f7b731' : 'transparent';
+  document.getElementById('rsuBtnNeto').style.color = isNet ? '#000' : 'var(--muted)';
   refreshRSU();
 }
 
@@ -2337,18 +2355,28 @@ function refreshRSU() {
 
   const slice = upcoming.slice(0, visibleQuarters);
 
+  // Apply gross/net multiplier
+  const netMult = rsuNet ? NET_RATE : 1;
+  const labelSuffix = rsuNet ? 'valor neto estimado (53%)' : 'valor bruto estimado';
+
   // Next vest card — first upcoming vest
   const next = upcoming[0];
   if (next) {
     document.getElementById('nextVestDate').textContent = next.date;
-    document.getElementById('daysToVest').textContent = next.days > 0 ? next.days : 'hoy';
-    const nextVal = Math.round(next.units * RSU_PRICE_USD * rate);
+    const daysEl = document.getElementById('daysToVest');
+    if (daysEl) daysEl.textContent = next.days > 0 ? next.days : 'hoy';
+    // Update full subtitle including units
+    const subEl = document.getElementById('nextVestSub');
+    if (subEl) subEl.innerHTML = (next.days > 0 ? 'en <span id="daysToVest">' + next.days + '</span> días' : '<span id="daysToVest">hoy</span>') + ' · ' + next.units + ' units';
+    const nextVal = Math.round(next.units * RSU_PRICE_USD * rate * netMult);
     document.getElementById('nextVestVal').textContent = sym + nextVal.toLocaleString();
+    const lblEl = document.getElementById('nextVestLabel');
+    if (lblEl) lblEl.textContent = labelSuffix;
   }
 
   // Accum total for visible upcoming quarters
-  const totalAccum = slice.reduce((s,v) => s + Math.round(v.units * RSU_PRICE_USD * rate), 0);
-  document.getElementById('accumTotal').textContent = sym + totalAccum.toLocaleString();
+  const totalAccum = slice.reduce((s,v) => s + Math.round(v.units * RSU_PRICE_USD * rate * netMult), 0);
+  document.getElementById('accumTotal').textContent = sym + totalAccum.toLocaleString() + (rsuNet ? ' neto' : ' bruto');
   document.getElementById('qLabel').textContent = slice.length;
 
   // X-axis labels
@@ -2366,7 +2394,7 @@ function refreshRSU() {
   const tableRows = [...vestedRows, ...upcomingRows];
 
   tableEl.innerHTML = tableRows.map((v, i) => {
-    const val = Math.round(v.units * RSU_PRICE_USD * rate);
+    const val = Math.round(v.units * RSU_PRICE_USD * rate * netMult);
     const isVested = v.vested;
     const isNext = !isVested && v === upcomingRows[0];
     accum += val;
@@ -2389,14 +2417,14 @@ function refreshRSU() {
     </div>`;
   }).join('');
 
-  setTimeout(() => drawVestChart(rate, sym, slice, RSU_PRICE_USD), 60);
+  setTimeout(() => drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult), 60);
 }
 
 function closeRSU() {
   document.getElementById('rsuModal').classList.remove('open');
 }
 
-function drawVestChart(rate, sym, slice, RSU_PRICE_USD) {
+function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
   const canvas = document.getElementById('vestChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -2406,7 +2434,7 @@ function drawVestChart(rate, sym, slice, RSU_PRICE_USD) {
   canvas.height = H;
   ctx.clearRect(0, 0, W, H);
 
-  const vals = slice.map(v => Math.round(v.units * RSU_PRICE_USD * rate));
+  const vals = slice.map(v => Math.round(v.units * RSU_PRICE_USD * rate * (netMult || 1)));
   const accums = vals.reduce((acc, v, i) => { acc.push((acc[i-1]||0) + v); return acc; }, []);
   const maxVal = Math.max(...accums, 1);
   const n = vals.length;
