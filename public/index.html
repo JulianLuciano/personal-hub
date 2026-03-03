@@ -1210,9 +1210,12 @@
 
       <!-- Header row: title + currency toggle -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-        <div>
-          <h2 style="margin-bottom:2px">🏆 Anthropic RSUs</h2>
-          <p style="margin-bottom:0;font-size:12px">96 units · 4 años de vesting</p>
+        <div style="display:flex;align-items:center;gap:12px">
+          <img src="/logos/meta.png" style="width:44px;height:44px;border-radius:50%;object-fit:contain;background:#fff;padding:4px;flex-shrink:0" onerror="this.outerHTML='<div style=\'width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0\'>🏆</div>'">
+          <div>
+            <h2 style="margin-bottom:2px">Meta RSUs</h2>
+            <p style="margin-bottom:0;font-size:12px">96 units · 4 años de vesting</p>
+          </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <!-- Currency toggle inside modal -->
@@ -1562,14 +1565,24 @@ async function loadPortfolio() {
       return p.ticker;
     });
 
-    // Get latest snapshot for all tickers at once
-    const priceData = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=100');
+    // Get latest snapshot for all tickers at once — fetch enough to find yesterday's prices
+    const priceData = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=500');
 
-    // Build price map (most recent per ticker)
+    // Build price map: latest price per ticker, and "yesterday" price per ticker
     const prices = {};
+    const pricesYesterday = {}; // last price from a different calendar day
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    // group by ticker: first entry = latest, find first entry from a different day = yesterday
+    const seenDayPerTicker = {};
     priceData.forEach(row => {
       const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
       if (!prices[t]) prices[t] = row.price_usd;
+      const rowDay = row.captured_at.slice(0, 10);
+      if (!seenDayPerTicker[t]) seenDayPerTicker[t] = rowDay;
+      // "yesterday" = first row whose day differs from the FIRST seen day (which is latest)
+      if (!pricesYesterday[t] && rowDay !== seenDayPerTicker[t]) {
+        pricesYesterday[t] = row.price_usd;
+      }
     });
 
     // Get latest portfolio snapshot for FX rate + change
@@ -1606,13 +1619,20 @@ async function loadPortfolio() {
 
       totalUSD += valueUSD;
 
-      // P&L
+      // P&L (vs cost basis)
       let pct = null;
       if (pricePaidUSD && priceUSD) {
         pct = ((priceUSD - pricePaidUSD) / pricePaidUSD) * 100;
       }
 
-      assets.push({ pos, valueUSD, priceUSD, pct });
+      // Daily variation: current price vs yesterday's price
+      let dayPct = null;
+      if (priceUSD && pricesYesterday[pos.ticker]) {
+        const prevPrice = pricesYesterday[pos.ticker];
+        dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
+      }
+
+      assets.push({ pos, valueUSD, priceUSD, pct, dayPct });
     }
 
     // Change vs previous snapshot
@@ -1668,11 +1688,15 @@ function renderPortfolio() {
   const pieTotal = document.getElementById('pieTotal');
   if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
 
-  // Asset cards — sorted by value desc, hide zero values
-  const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => b.valueUSD - a.valueUSD);
+  // Asset cards — sorted by value desc, hide zero values; RENT_DEPOSIT always last
+  const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => {
+    if (a.pos.ticker === 'RENT_DEPOSIT') return 1;
+    if (b.pos.ticker === 'RENT_DEPOSIT') return -1;
+    return b.valueUSD - a.valueUSD;
+  });
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
-  sorted.forEach(({ pos, valueUSD, pct }) => {
+  sorted.forEach(({ pos, valueUSD, pct, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category, showTicker: true };
     const valStr = fmtVal(valueUSD, rate, sym);
     const qtyStr = fmtQty(pos.qty, pos.ticker);
@@ -1685,20 +1709,28 @@ function renderPortfolio() {
     } else {
       subLabel = pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR');
     }
-    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">—</div>';
-    if (pct !== null) {
-      const cls = pct >= 0 ? 'up' : 'down';
-      const arrow = pct >= 0 ? '↑' : '↓';
-      chgHtml = '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</div>';
+    // Daily change: show dayPct with green/red/gray color coding
+    let chgHtml;
+    if (dayPct !== null && dayPct !== undefined) {
+      const rounded = parseFloat(dayPct.toFixed(2));
+      if (rounded === 0) {
+        // Rounds to 0.00 — show gray
+        chgHtml = '<div class="asset-chg" style="color:var(--muted)">0.00%</div>';
+      } else {
+        const cls = rounded > 0 ? 'up' : 'down';
+        const arrow = rounded > 0 ? '↑' : '↓';
+        chgHtml = '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%</div>';
+      }
+    } else {
+      chgHtml = '<div class="asset-chg" style="color:var(--muted)">—</div>';
     }
     const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
     const fit = meta.whiteBg ? 'contain' : 'cover';
-    const bg  = meta.whiteBg ? '#fff' : 'transparent';
     const pad = meta.whiteBg ? '4px' : '0';
     const logoBlock = meta.logoUrl
-      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:' + bg + ';padding:' + pad + '" onerror="this.outerHTML=\'<div class=&quot;asset-logo&quot;>' + meta.logo + '</div>\'">'
-      : '<div class="asset-logo">' + meta.logo + '</div>';
+      ? '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:#fff;padding:' + pad + '" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div style=&quot;width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0&quot;>' + meta.logo + '</div>\')">'
+      : '<div style="width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + meta.logo + '</div>';
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
@@ -1855,16 +1887,24 @@ async function loadChartData() {
     snaps.forEach(snap => {
       const b = snap.breakdown || {};
       const fxR = snap.fx_rate || 0.79;
-      // fiat_gbp = raw GBP, fiat_usd = raw USD
-      // acciones/cripto/rsu are stored in USD
+      // Handle both breakdown formats:
+      // New format: fiat_gbp = raw GBP amount, fiat_usd = raw USD amount (worker stores separately)
+      // Old format: may have only 'fiat' in USD
+      // To avoid double-counting: if fiat_gbp and fiat_usd exist, use those; otherwise fall back to 'fiat' USD
+      let fiatUSD;
+      if (b.fiat_gbp !== undefined || b.fiat_usd !== undefined) {
+        fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+      } else {
+        fiatUSD = b.fiat || 0;  // fallback: already in USD
+      }
       let fiatVal, accionesVal, criptoVal, rsuVal;
       if (isGBP) {
-        fiatVal    = (b.fiat_gbp || 0) + (b.fiat_usd || 0) * fxR;
+        fiatVal     = fiatUSD * fxR;
         accionesVal = (b.acciones || 0) * fxR;
         criptoVal   = (b.cripto   || 0) * fxR;
         rsuVal      = (b.rsu      || 0) * fxR;
       } else {
-        fiatVal    = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+        fiatVal     = fiatUSD;
         accionesVal = (b.acciones || 0);
         criptoVal   = (b.cripto   || 0);
         rsuVal      = (b.rsu      || 0);
