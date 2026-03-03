@@ -1130,6 +1130,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="margin-bottom:0">Evolución</h3>
         <div class="period-tabs" style="margin-bottom:0">
+          <div class="period-tab">1S</div>
           <div class="period-tab active">1M</div>
           <div class="period-tab">3M</div>
           <div class="period-tab">6M</div>
@@ -1762,7 +1763,7 @@ function renderPortfolio() {
 }
 
 let valuesHidden = false;
-const MASK = '••••••';
+const MASK = '******';
 
 function maskElement(el) {
   if (!el) return;
@@ -1772,6 +1773,31 @@ function maskElement(el) {
 function unmaskElement(el) {
   if (!el) return;
   if (el.dataset.real) { el.textContent = el.dataset.real; delete el.dataset.real; }
+}
+
+// For alloc-items: only mask the text node at the end, preserving the color dot child span
+function maskAllocItem(el) {
+  if (!el) return;
+  // Walk child nodes to find the text node at the end
+  for (let i = el.childNodes.length - 1; i >= 0; i--) {
+    const node = el.childNodes[i];
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '') {
+      if (!el.dataset.realText) el.dataset.realText = node.textContent;
+      node.textContent = ' ' + MASK;
+      return;
+    }
+  }
+}
+function unmaskAllocItem(el) {
+  if (!el || el.dataset.realText === undefined) return;
+  for (let i = el.childNodes.length - 1; i >= 0; i--) {
+    const node = el.childNodes[i];
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.textContent = el.dataset.realText;
+      delete el.dataset.realText;
+      return;
+    }
+  }
 }
 
 function toggleHideValues() {
@@ -1784,13 +1810,15 @@ function toggleHideValues() {
     valuesHidden ? maskElement(el) : unmaskElement(el);
   });
 
-  // portfolioChange — mask/unmask the whole text
+  // portfolioChange
   const chg = document.getElementById('portfolioChange');
   if (chg) valuesHidden ? maskElement(chg) : unmaskElement(chg);
 
   // asset values
   document.querySelectorAll('.asset-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
-  document.querySelectorAll('.alloc-item').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
+  // alloc-items: preserve the color dot, only mask the text part
+  document.querySelectorAll('.alloc-item').forEach(el => valuesHidden ? maskAllocItem(el) : unmaskAllocItem(el));
 }
 
 // Patch renderPortfolio to re-apply mask after re-render
@@ -1831,7 +1859,7 @@ const catData = {
   fiat:     { color: '#4fc3f7', points: [] },
 };
 let activeCats = new Set(['acciones','cripto','rsu','fiat']);
-let chartPeriod = '1M';  // current period selection
+let chartPeriod = '1S';  // current period selection
 let totalMode = true;
 
 function toggleTotalMode() {
@@ -1862,8 +1890,8 @@ function setYAxis(min, max) {
 
 // Load chart data from portfolio_snapshots based on period
 async function loadChartData() {
-  const periodDays = { '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
-  const days = periodDays[chartPeriod] || 30;
+  const periodDays = { '1S': 7, '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
+  const days = periodDays[chartPeriod] || 7;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   try {
