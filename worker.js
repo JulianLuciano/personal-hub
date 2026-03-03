@@ -78,10 +78,10 @@ async function run() {
     if (pos.category === 'fiat') {
       if (pos.currency === 'GBP') {
         value_usd = pos.qty / fxRate;
-        breakdown.fiat_gbp += value_usd;
+        breakdown.fiat_gbp += pos.qty; // raw GBP amount
       } else {
         value_usd = pos.qty;
-        breakdown.fiat_usd += value_usd;
+        breakdown.fiat_usd += pos.qty; // raw USD amount
       }
     } else if (pos.category === 'acciones') {
       const price = prices[pos.ticker];

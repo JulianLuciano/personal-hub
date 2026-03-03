@@ -1063,18 +1063,16 @@
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar">
-            <div class="alloc-seg" style="width:38%;background:var(--accent)"></div>
-            <div class="alloc-seg" style="width:22%;background:var(--accent3)"></div>
-            <div class="alloc-seg" style="width:18%;background:var(--accent4)"></div>
-            <div class="alloc-seg" style="width:12%;background:var(--accent5)"></div>
-            <div class="alloc-seg" style="width:10%;background:var(--accent2)"></div>
+            <div class="alloc-seg" style="width:9%;background:#43e97b"></div>
+            <div class="alloc-seg" style="width:1%;background:#6c63ff"></div>
+            <div class="alloc-seg" style="width:26%;background:#f7b731"></div>
+            <div class="alloc-seg" style="width:64%;background:#4fc3f7"></div>
           </div>
           <div class="alloc-legend" style="margin-top:10px">
-            <div class="alloc-item"><div class="alloc-dot" style="background:var(--accent)"></div>Acciones 38%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:var(--accent3)"></div>Crypto 22%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:var(--accent4)"></div>ETFs 18%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:var(--accent5)"></div>RSUs 12%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:var(--accent2)"></div>Cash 10%</div>
+            <div class="alloc-item"><div class="alloc-dot" style="background:#43e97b"></div>Acciones —%</div>
+            <div class="alloc-item"><div class="alloc-dot" style="background:#6c63ff"></div>Cripto —%</div>
+            <div class="alloc-item"><div class="alloc-dot" style="background:#f7b731"></div>RSUs —%</div>
+            <div class="alloc-item"><div class="alloc-dot" style="background:#4fc3f7"></div>Cash —%</div>
           </div>
         </div>
         <!-- Subtle swipe hint dots -->
@@ -1095,11 +1093,10 @@
             </div>
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:6px" id="pieLegend">
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">£16.2k</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent3)"></div><span style="color:var(--muted)">Crypto</span></div><span style="font-weight:600" id="pl1">£9.4k</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent4)"></div><span style="color:var(--muted)">ETFs</span></div><span style="font-weight:600" id="pl2">£7.7k</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent5)"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl3">£4.7k</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent2)"></div><span style="color:var(--muted)">Cash</span></div><span style="font-weight:600" id="pl4">£3.5k</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#6c63ff"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Cash</span></div><span style="font-weight:600" id="pl3">—</span></div>
           </div>
         </div>
         <div style="display:flex;justify-content:center;gap:5px;margin-top:10px">
@@ -1135,20 +1132,17 @@
       </div>
       <!-- Category chips -->
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" id="catFilters">
-        <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #6c63ff;color:#6c63ff;background:rgba(108,99,255,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#6c63ff;display:inline-block"></span>Acciones
+        <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
+          <span style="width:7px;height:7px;border-radius:50%;background:#43e97b;display:inline-block"></span>Acciones
         </div>
-        <div class="cat-chip active" data-cat="crypto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#43e97b;display:inline-block"></span>Crypto
+        <div class="cat-chip active" data-cat="cripto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #6c63ff;color:#6c63ff;background:rgba(108,99,255,0.1);transition:all 0.2s">
+          <span style="width:7px;height:7px;border-radius:50%;background:#6c63ff;display:inline-block"></span>Cripto
         </div>
-        <div class="cat-chip active" data-cat="etf" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#f7b731;display:inline-block"></span>ETFs
+        <div class="cat-chip active" data-cat="rsu" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.1);transition:all 0.2s">
+          <span style="width:7px;height:7px;border-radius:50%;background:#f7b731;display:inline-block"></span>RSUs
         </div>
-        <div class="cat-chip active" data-cat="rsu" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #4fc3f7;color:#4fc3f7;background:rgba(79,195,247,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#4fc3f7;display:inline-block"></span>RSUs
-        </div>
-        <div class="cat-chip active" data-cat="cash" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#ff6584;display:inline-block"></span>Cash
+        <div class="cat-chip active" data-cat="fiat" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #4fc3f7;color:#4fc3f7;background:rgba(79,195,247,0.1);transition:all 0.2s">
+          <span style="width:7px;height:7px;border-radius:50%;background:#4fc3f7;display:inline-block"></span>Cash
         </div>
       </div>
 
@@ -1175,10 +1169,9 @@
     <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px" id="posTabs">
       <div class="pos-tab active" onclick="switchPosTab(this,'all')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;white-space:nowrap;border:1px solid var(--accent);transition:all 0.2s">Todas</div>
       <div class="pos-tab" onclick="switchPosTab(this,'acciones')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">📈 Acciones</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'crypto')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">₿ Crypto</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'etf')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">📊 ETFs</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'cripto')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">₿ Cripto</div>
       <div class="pos-tab" onclick="switchPosTab(this,'rsu')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">🏆 RSUs</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'cash')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">💵 Cash</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'fiat')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">💵 Cash</div>
     </div>
 
     <!-- Portfolio loading spinner -->
@@ -1512,16 +1505,16 @@ let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
 
 const TICKER_META = {
-  'SPY':          { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones' },
-  'BRK.B':        { name: 'Berkshire',        logo: '🏦', cat: 'acciones' },
-  'MELI':         { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones' },
-  'NU':           { name: 'Nu Holdings',      logo: '💜', cat: 'acciones' },
-  'BTC':          { name: 'Bitcoin',          logo: '₿',  cat: 'cripto'   },
-  'RSU_META':     { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',     rsu: true },
-  'GBP_LIQUID':   { name: 'Libras',           logo: '💷', cat: 'fiat'    },
-  'GBP_RECEIVABLE':{ name: 'Deudas a cobrar', logo: '📋', cat: 'fiat'    },
-  'USD_CASH':     { name: 'USD Cash',         logo: '💵', cat: 'fiat'    },
-  'RENT_DEPOSIT': { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat'    },
+  'SPY':             { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones' },
+  'BRK.B':           { name: 'Berkshire',        logo: '🏦', cat: 'acciones' },
+  'MELI':            { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones' },
+  'NU':              { name: 'Nu Holdings',      logo: '💜', cat: 'acciones' },
+  'BTC':             { name: 'Bitcoin',          logo: '₿',  cat: 'cripto'  },
+  'RSU_META':        { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',    rsu: true },
+  'GBP_LIQUID':      { name: 'Líquido',          logo: '💷', cat: 'fiat'   },
+  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',   logo: '📋', cat: 'fiat'   },
+  'USD_CASH':        { name: 'USD Cash',         logo: '💵', cat: 'fiat'   },
+  'RENT_DEPOSIT':    { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat'   },
 };
 
 function fmtVal(usd, rate, sym) {
@@ -1564,7 +1557,7 @@ async function loadPortfolio() {
 
     // Calculate values
     let totalUSD = 0;
-    const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat: 0 };
+    const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat: 0, fiat_gbp: 0, fiat_usd: 0 };
     const assets = [];
 
     for (const pos of posData) {
@@ -1573,13 +1566,20 @@ async function loadPortfolio() {
       let pricePaidUSD = pos.avg_cost_usd;
 
       if (pos.category === 'fiat') {
-        valueUSD = pos.currency === 'GBP' ? pos.qty / FX_RATE : pos.qty;
+        if (pos.currency === 'GBP') {
+          valueUSD = pos.qty / FX_RATE;
+          breakdown.fiat_gbp += pos.qty;  // store raw GBP for worker compat
+        } else {
+          valueUSD = pos.qty;
+          breakdown.fiat_usd += pos.qty;
+        }
         breakdown.fiat += valueUSD;
       } else {
         priceUSD = prices[pos.ticker];
         if (priceUSD) {
           valueUSD = pos.qty * priceUSD;
-          breakdown[pos.category] = (breakdown[pos.category] || 0) + valueUSD;
+          const bkey = pos.category === 'cripto' ? 'cripto' : pos.category;
+          breakdown[bkey] = (breakdown[bkey] || 0) + valueUSD;
         }
       }
 
@@ -1628,35 +1628,34 @@ function renderPortfolio() {
   changeEl.className = 'portfolio-change ' + changeClass;
   changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs anterior';
 
-  // Alloc bar
-  const cats = ['acciones','cripto','rsu','fiat'];
-  const colors = ['var(--accent)','var(--accent3)','var(--accent5)','var(--accent2)'];
+  // Alloc bar (4 cats)
+  const CATS = ['acciones','cripto','rsu','fiat'];
+  const CAT_LABELS = ['Acciones','Cripto','RSUs','Cash'];
   const segs = document.querySelectorAll('.alloc-seg');
   const items = document.querySelectorAll('.alloc-item');
-  const labels = ['Acciones','Cripto','RSUs','Fiat'];
-  cats.forEach((cat, i) => {
+  CATS.forEach((cat, i) => {
     const pct = totalUSD > 0 ? Math.round((breakdown[cat] || 0) / totalUSD * 100) : 0;
     if (segs[i]) segs[i].style.width = pct + '%';
-    if (items[i]) items[i].lastChild.textContent = ' ' + labels[i] + ' ' + pct + '%';
+    if (items[i]) items[i].lastChild.textContent = ' ' + CAT_LABELS[i] + ' ' + pct + '%';
   });
 
-  // Pie legend
-  const pieLabels = ['pl0','pl1','pl2','pl3','pl4'];
-  [breakdown.acciones, breakdown.cripto, 0, breakdown.rsu, breakdown.fiat].forEach((v, i) => {
-    const el = document.getElementById(pieLabels[i]);
+  // Pie legend (4 cats: pl0=acciones pl1=cripto pl2=rsu pl3=fiat)
+  [breakdown.acciones, breakdown.cripto, breakdown.rsu, breakdown.fiat].forEach((v, i) => {
+    const el = document.getElementById('pl' + i);
     if (el) el.textContent = fmtVal(v || 0, rate, sym);
   });
   const pieTotal = document.getElementById('pieTotal');
   if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
 
-  // Asset cards
+  // Asset cards — sorted by value desc
+  const sorted = [...assets].sort((a, b) => b.valueUSD - a.valueUSD);
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
-  assets.forEach(({ pos, valueUSD, pct }) => {
+  sorted.forEach(({ pos, valueUSD, pct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category };
     const valStr = fmtVal(valueUSD, rate, sym);
     const qtyStr = fmtQty(pos.qty, pos.ticker);
-    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">— fiat</div>';
+    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">— cash</div>';
     if (pct !== null) {
       const cls = pct >= 0 ? 'up' : 'down';
       const arrow = pct >= 0 ? '↑' : '↓';
@@ -1664,10 +1663,12 @@ function renderPortfolio() {
     }
     const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
+    // Cash sub-label
+    const subLabel = pos.notes ? pos.ticker + ' · ' + pos.notes : pos.ticker + ' · ' + qtyStr;
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       '<div class="asset-logo">' + meta.logo + '</div>' +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
-      '<div class="asset-sub">' + pos.ticker + ' · ' + qtyStr + '</div></div>' +
+      '<div class="asset-sub">' + subLabel + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
       '<div style="display:flex;align-items:center;gap:4px">' + chgHtml + rsuArrow + '</div></div></div>';
   });
@@ -1676,8 +1677,8 @@ function renderPortfolio() {
   document.getElementById('portfolioSpinner').style.display = 'none';
   assetList.style.display = 'flex';
 
-  // Redraw chart
-  requestAnimationFrame(drawChart);
+  // Load chart data from Supabase
+  loadChartData();
 }
 
 function setCurrency(cur) {
@@ -1695,19 +1696,26 @@ document.querySelectorAll('.period-tab').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('.period-tab').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
-    drawChart();
+    chartPeriod = t.textContent.trim();
+    loadChartData();
   });
 });
 
-// Category data for chart
-const catData = {
-  acciones: { color: '#6c63ff', points: [45,42,38,40,35,30,32,25,22,18,20,15,12,8,10,6] },
-  crypto:   { color: '#43e97b', points: [55,50,45,48,42,38,44,36,30,28,32,25,20,18,22,15] },
-  etf:      { color: '#f7b731', points: [50,48,46,47,44,42,43,40,38,36,37,34,32,30,31,28] },
-  rsu:      { color: '#4fc3f7', points: [30,30,31,31,32,32,38,38,39,40,40,45,45,46,48,50] },
-  cash:     { color: '#ff6584', points: [20,20,20,21,21,21,21,22,22,22,22,23,23,23,23,24] },
+// Category data for chart — populated from Supabase portfolio_snapshots
+const CAT_COLORS = {
+  acciones: '#43e97b',
+  cripto:   '#6c63ff',
+  rsu:      '#f7b731',
+  fiat:     '#4fc3f7',
 };
-let activeCats = new Set(['acciones','crypto','etf','rsu','cash']);
+const catData = {
+  acciones: { color: '#43e97b', points: [] },
+  cripto:   { color: '#6c63ff', points: [] },
+  rsu:      { color: '#f7b731', points: [] },
+  fiat:     { color: '#4fc3f7', points: [] },
+};
+let activeCats = new Set(['acciones','cripto','rsu','fiat']);
+let chartPeriod = '1M';  // current period selection
 let totalMode = true;
 
 function toggleTotalMode() {
@@ -1724,10 +1732,9 @@ function toggleTotalMode() {
 }
 
 function fmtY(v) {
-  const sym = (typeof currentCurrency !== 'undefined' && currentCurrency === 'GBP') ? '£' : '$';
-  const val = v * 100;
-  if (val >= 1000) return sym + (val/1000).toFixed(0) + 'k';
-  return sym + val.toFixed(0);
+  const sym = currentCurrency === 'GBP' ? '£' : '$';
+  if (v >= 1000) return sym + (v/1000).toFixed(1) + 'k';
+  return sym + Math.round(v);
 }
 
 function setYAxis(min, max) {
@@ -1735,6 +1742,44 @@ function setYAxis(min, max) {
   document.getElementById('yTop').textContent = fmtY(max);
   document.getElementById('yMid').textContent = fmtY(mid);
   document.getElementById('yBot').textContent = fmtY(min);
+}
+
+// Load chart data from portfolio_snapshots based on period
+async function loadChartData() {
+  const periodDays = { '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
+  const days = periodDays[chartPeriod] || 30;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const snaps = await sbFetch(
+      '/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.asc&captured_at=gte.' + since
+    );
+
+    if (!snaps || snaps.length < 2) {
+      // Not enough data yet — keep dummy points or show flat line
+      drawChart();
+      return;
+    }
+
+    const isGBP = currentCurrency === 'GBP';
+    // Build points per category from breakdown JSONB
+    const CATS = ['acciones','cripto','rsu','fiat'];
+    CATS.forEach(cat => { catData[cat].points = []; });
+
+    snaps.forEach(snap => {
+      const b = snap.breakdown || {};
+      const rate = isGBP ? snap.fx_rate : 1;
+      catData.acciones.points.push((b.acciones || 0) * rate);
+      catData.cripto.points.push((b.cripto || 0) * rate);
+      catData.rsu.points.push((b.rsu || 0) * rate);
+      catData.fiat.points.push(((b.fiat_gbp || 0) + (b.fiat_usd || 0)) * rate);
+    });
+
+    drawChart();
+  } catch(e) {
+    console.error('Error loading chart data:', e);
+    drawChart();
+  }
 }
 
 function drawChart() {
@@ -1747,9 +1792,20 @@ function drawChart() {
   canvas.height = H;
   ctx.clearRect(0, 0, W, H);
 
+  // If no data yet, show placeholder
+  const hasPts = catData.acciones.points.length > 1;
+  if (!hasPts) {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '11px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Acumulando datos...', W/2, H/2);
+    return;
+  }
+
   const padT = 6, padB = 6;
 
-  // Draw subtle horizontal gridlines
   function drawGrid(min, max) {
     const mid = (min + max) / 2;
     [min, mid, max].forEach(v => {
@@ -1768,7 +1824,8 @@ function drawChart() {
   if (totalMode) {
     const allCats = [...activeCats];
     if (allCats.length === 0) return;
-    const len = catData[allCats[0]].points.length;
+    const len = Math.max(...allCats.map(cat => (catData[cat]?.points || []).length));
+    if (len < 2) return;
     const totalPts = Array.from({length: len}, (_, i) =>
       allCats.reduce((sum, cat) => sum + (catData[cat]?.points[i] || 0), 0)
     );
@@ -1782,8 +1839,8 @@ function drawChart() {
       y: H - padB - ((v - min) / range) * (H - padT - padB)
     }));
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#6c63ff40');
-    grad.addColorStop(1, '#6c63ff00');
+    grad.addColorStop(0, '#43e97b40');
+    grad.addColorStop(1, '#43e97b00');
     ctx.beginPath();
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
@@ -1792,14 +1849,14 @@ function drawChart() {
     ctx.beginPath();
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = '#6c63ff'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
+    ctx.strokeStyle = '#43e97b'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
     return;
   }
 
-  // Individual mode — find global min/max across all active cats for shared y-axis
   const cats = [...activeCats];
   if (cats.length === 0) return;
   const allPts = cats.flatMap(cat => catData[cat]?.points || []);
+  if (allPts.length === 0) return;
   const globalMin = Math.min(...allPts);
   const globalMax = Math.max(...allPts);
   const globalRange = globalMax - globalMin || 1;
@@ -1808,7 +1865,7 @@ function drawChart() {
 
   cats.forEach(cat => {
     const d = catData[cat];
-    if (!d) return;
+    if (!d || d.points.length < 2) return;
     const pts = d.points;
     const step = W / (pts.length - 1);
     const coords = pts.map((v, i) => ({
@@ -1834,7 +1891,7 @@ function toggleCat(el) {
   const cat = el.dataset.cat;
   const isActive = activeCats.has(cat);
   // Don't allow deselecting all
-  if (isActive && activeCats.size === 1) return;
+  if (isActive && activeCats.size === 1) return; // always keep at least one
   if (isActive) {
     activeCats.delete(cat);
     el.style.opacity = '0.35';
@@ -1843,7 +1900,7 @@ function toggleCat(el) {
     activeCats.add(cat);
     el.style.opacity = '1';
     // Restore color bg
-    const colors = { acciones: 'rgba(108,99,255,0.1)', crypto: 'rgba(67,233,123,0.1)', etf: 'rgba(247,183,49,0.1)', rsu: 'rgba(79,195,247,0.1)', cash: 'rgba(255,101,132,0.1)' };
+    const colors = { acciones: 'rgba(67,233,123,0.1)', cripto: 'rgba(108,99,255,0.1)', rsu: 'rgba(247,183,49,0.1)', fiat: 'rgba(79,195,247,0.1)' };
     el.style.background = colors[cat];
   }
   drawChart();
@@ -1894,12 +1951,14 @@ function drawPie() {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const cx = 65, cy = 65, r = 50, iR = 32;
+  // Use live data if available
+  const bd = liveData ? liveData.breakdown : { acciones:1, cripto:0.1, rsu:2.5, fiat:6 };
+  const tot = Object.values(bd).reduce((s,v) => s+(v||0), 0) || 1;
   const slices = [
-    { pct: 0.38, color: '#6c63ff' },
-    { pct: 0.22, color: '#43e97b' },
-    { pct: 0.18, color: '#f7b731' },
-    { pct: 0.12, color: '#4fc3f7' },
-    { pct: 0.10, color: '#ff6584' },
+    { pct: (bd.acciones||0)/tot, color: '#43e97b' },
+    { pct: (bd.cripto||0)/tot,   color: '#6c63ff' },
+    { pct: (bd.rsu||0)/tot,      color: '#f7b731' },
+    { pct: (bd.fiat||0)/tot,     color: '#4fc3f7' },
   ];
   ctx.clearRect(0,0,110,110);
   let angle = -Math.PI / 2;
