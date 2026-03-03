@@ -689,18 +689,24 @@
   .pin-key.del { font-size: 16px; color: var(--muted); }
   .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.values-hidden .asset-val,
-.values-hidden .portfolio-total,
-.values-hidden #portfolioChange,
-.values-hidden #yTop,
-.values-hidden #yMid,
-.values-hidden #yBot,
-.values-hidden .alloc-item,
-.values-hidden #pieTotal,
-.values-hidden [id^="pl"] {
-  filter: blur(6px);
-  user-select: none;
+/* asterisk masking handled in JS */
+#chartTooltip {
+  position: absolute;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+  white-space: nowrap;
+  min-width: 80px;
 }
+#chartTooltip.visible { opacity: 1; }
+#chartTooltip .tt-date { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+#chartTooltip .tt-val  { font-weight: 700; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -1166,10 +1172,11 @@
           <span id="yMid" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
           <span id="yBot" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
         </div>
-        <div style="flex:1;position:relative">
+        <div style="flex:1;position:relative" id="chartWrap">
           <div class="mini-chart" style="height:90px">
             <canvas id="portfolioChart" style="width:100%;height:100%"></canvas>
           </div>
+          <div id="chartTooltip"><div class="tt-date" id="ttDate"></div><div class="tt-val" id="ttVal"></div></div>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px" id="chartXLabels">
@@ -1518,16 +1525,16 @@ let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
 
 const TICKER_META = {
-  'SPY':             { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones', showTicker: true },
-  'BRK.B':           { name: 'Berkshire',        logo: '🏦', cat: 'acciones', showTicker: true },
-  'MELI':            { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones', showTicker: true },
-  'NU':              { name: 'Nu Holdings',      logo: '💜', cat: 'acciones', showTicker: true },
-  'BTC':             { name: 'Bitcoin',          logo: '₿',  cat: 'cripto',  showTicker: true },
-  'RSU_META':        { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',     showTicker: false, rsu: true },
-  'GBP_LIQUID':      { name: 'Libras',           logo: '💷', cat: 'fiat',    showTicker: false },
-  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',   logo: '📋', cat: 'fiat',    showTicker: false },
-  'USD_CASH':        { name: 'USD Cash',         logo: '💵', cat: 'fiat',    showTicker: false },
-  'RENT_DEPOSIT':    { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat',    showTicker: false },
+  'SPY':             { name: 'S&P 500 ETF',   logo: '📊', logoUrl: '/logos/spy.png',    cat: 'acciones', showTicker: true },
+  'BRK.B':           { name: 'Berkshire',      logo: '🏦', logoUrl: '/logos/brkb.png',   cat: 'acciones', showTicker: true },
+  'MELI':            { name: 'MercadoLibre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true },
+  'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
+  'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
+  'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
+  'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
+  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar', logo: '📋', logoUrl: null,                cat: 'fiat',    showTicker: false },
+  'USD_CASH':        { name: 'USD Cash',       logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',    showTicker: false },
+  'RENT_DEPOSIT':    { name: 'Rent Deposit',   logo: '🏠', logoUrl: null,                cat: 'fiat',    showTicker: false },
 };
 
 function fmtVal(usd, rate, sym) {
@@ -1686,8 +1693,11 @@ function renderPortfolio() {
     }
     const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
+    const logoHtml = meta.logoUrl
+      ? '<img src="' + meta.logoUrl + '" style="width:38px;height:38px;border-radius:50%;object-fit:cover" onerror="this.parentNode.innerHTML=\'' + meta.logo + '\'">' 
+      : meta.logo;
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
-      '<div class="asset-logo">' + meta.logo + '</div>' +
+      '<div class="asset-logo">' + logoHtml + '</div>' +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
       '<div class="asset-sub">' + subLabel + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
@@ -1703,17 +1713,39 @@ function renderPortfolio() {
 }
 
 let valuesHidden = false;
+const MASK = '••••••';
+
+function maskElement(el) {
+  if (!el) return;
+  if (!el.dataset.real) el.dataset.real = el.textContent;
+  el.textContent = MASK;
+}
+function unmaskElement(el) {
+  if (!el) return;
+  if (el.dataset.real) { el.textContent = el.dataset.real; delete el.dataset.real; }
+}
+
 function toggleHideValues() {
   valuesHidden = !valuesHidden;
-  const panel = document.getElementById('panel-portfolio');
-  if (valuesHidden) {
-    panel.classList.add('values-hidden');
-    document.getElementById('eyeBtn').textContent = '🙈';
-  } else {
-    panel.classList.remove('values-hidden');
-    document.getElementById('eyeBtn').textContent = '👁';
-  }
+  document.getElementById('eyeBtn').textContent = valuesHidden ? '🙈' : '👁';
+
+  const ids = ['portfolioTotal','pieTotal','yTop','yMid','yBot','pl0','pl1','pl2','pl3'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    valuesHidden ? maskElement(el) : unmaskElement(el);
+  });
+
+  // portfolioChange — mask/unmask the whole text
+  const chg = document.getElementById('portfolioChange');
+  if (chg) valuesHidden ? maskElement(chg) : unmaskElement(chg);
+
+  // asset values
+  document.querySelectorAll('.asset-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+  document.querySelectorAll('.alloc-item').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 }
+
+// Patch renderPortfolio to re-apply mask after re-render
+const _origRender = typeof renderPortfolio === 'function' ? renderPortfolio : null;
 
 function setCurrency(cur) {
   currentCurrency = cur;
@@ -1801,6 +1833,9 @@ async function loadChartData() {
     const CATS = ['acciones','cripto','rsu','fiat'];
     CATS.forEach(cat => { catData[cat].points = []; });
 
+    // Store dates for tooltip
+    chartSnapDates = snaps.map(s => new Date(s.captured_at));
+
     // Build x-axis labels (show ~4 evenly spaced dates)
     const labelEl = document.getElementById('chartXLabels');
     if (labelEl && snaps.length > 0) {
@@ -1816,15 +1851,25 @@ async function loadChartData() {
 
     snaps.forEach(snap => {
       const b = snap.breakdown || {};
-      // fiat_gbp is stored as raw GBP amount, fiat_usd as raw USD
-      // convert to display currency
       const fxR = snap.fx_rate || 0.79;
-      let fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
-      const rate = isGBP ? fxR : 1;
-      catData.acciones.points.push((b.acciones || 0) * rate);
-      catData.cripto.points.push((b.cripto || 0) * rate);
-      catData.rsu.points.push((b.rsu || 0) * rate);
-      catData.fiat.points.push(fiatUSD * rate);
+      // fiat_gbp = raw GBP, fiat_usd = raw USD
+      // acciones/cripto/rsu are stored in USD
+      let fiatVal, accionesVal, criptoVal, rsuVal;
+      if (isGBP) {
+        fiatVal    = (b.fiat_gbp || 0) + (b.fiat_usd || 0) * fxR;
+        accionesVal = (b.acciones || 0) * fxR;
+        criptoVal   = (b.cripto   || 0) * fxR;
+        rsuVal      = (b.rsu      || 0) * fxR;
+      } else {
+        fiatVal    = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+        accionesVal = (b.acciones || 0);
+        criptoVal   = (b.cripto   || 0);
+        rsuVal      = (b.rsu      || 0);
+      }
+      catData.acciones.points.push(accionesVal);
+      catData.cripto.points.push(criptoVal);
+      catData.rsu.points.push(rsuVal);
+      catData.fiat.points.push(fiatVal);
     });
 
     drawChart();
@@ -1834,14 +1879,20 @@ async function loadChartData() {
   }
 }
 
+let chartSnapDates = [];  // populated by loadChartData
+
 function drawChart() {
   const canvas = document.getElementById('portfolioChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
   const W = canvas.parentElement.offsetWidth;
   const H = 90;
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
   // If no data yet, show placeholder
@@ -1984,6 +2035,53 @@ function switchPosTab(el, cat) {
   if (filters) { filters.style.opacity = '0.4'; filters.style.pointerEvents = 'none'; }
 })();
 // drawChart needs panel visible — called on switchNav to portfolio
+
+// ─── Chart tooltip ───
+(function() {
+  function getChartValue(x, W) {
+    const allCats = [...activeCats];
+    const len = Math.max(...allCats.map(cat => (catData[cat]?.points || []).length));
+    if (len < 2) return null;
+    const idx = Math.max(0, Math.min(len - 1, Math.round((x / W) * (len - 1))));
+    const val = allCats.reduce((sum, cat) => sum + (catData[cat]?.points[idx] || 0), 0);
+    return { val, idx };
+  }
+
+  function showTip(clientX, clientY) {
+    const canvas = document.getElementById('portfolioChart');
+    const tooltip = document.getElementById('chartTooltip');
+    if (!canvas || !tooltip) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top - 20 || clientY > rect.bottom + 20) return false;
+    const result = getChartValue(clientX - rect.left, rect.width);
+    if (!result) return false;
+    const sym = currentCurrency === 'GBP' ? '£' : '$';
+    document.getElementById('ttVal').textContent = sym + Math.round(result.val).toLocaleString('es-AR');
+    const date = chartSnapDates[result.idx];
+    if (date) document.getElementById('ttDate').textContent = date.toLocaleDateString('es-AR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    const wrap = document.getElementById('chartWrap');
+    const wRect = wrap.getBoundingClientRect();
+    let left = clientX - wRect.left + 10;
+    if (left + 120 > wRect.width) left = clientX - wRect.left - 125;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = '4px';
+    tooltip.classList.add('visible');
+    return true;
+  }
+
+  document.addEventListener('mousemove', function(e) {
+    if (!showTip(e.clientX, e.clientY)) {
+      const t = document.getElementById('chartTooltip');
+      if (t) t.classList.remove('visible');
+    }
+  });
+  document.addEventListener('touchmove', function(e) {
+    if (e.touches[0]) showTip(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  document.addEventListener('touchend', function() {
+    setTimeout(() => { const t = document.getElementById('chartTooltip'); if(t) t.classList.remove('visible'); }, 1500);
+  });
+})();
 
 // ─── Swiper (portfolio header bar ↔ pie) ───
 let swipeX0 = 0, allocSlide = 0;
