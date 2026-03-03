@@ -1569,21 +1569,35 @@ async function loadPortfolio() {
     const priceData = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=500');
 
     // Build price map: latest price per ticker, and "yesterday" price per ticker
+    // Strategy: for each ticker, find the most recent snapshot that's from a DIFFERENT calendar day (UTC) than the very latest one
     const prices = {};
-    const pricesYesterday = {}; // last price from a different calendar day
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    // group by ticker: first entry = latest, find first entry from a different day = yesterday
-    const seenDayPerTicker = {};
+    const pricesYesterday = {};
+    const latestTsPerTicker = {}; // ms timestamp of most recent entry per ticker
+
     priceData.forEach(row => {
       const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
-      if (!prices[t]) prices[t] = row.price_usd;
-      const rowDay = row.captured_at.slice(0, 10);
-      if (!seenDayPerTicker[t]) seenDayPerTicker[t] = rowDay;
-      // "yesterday" = first row whose day differs from the FIRST seen day (which is latest)
-      if (!pricesYesterday[t] && rowDay !== seenDayPerTicker[t]) {
+      const ts = new Date(row.captured_at).getTime();
+      if (!prices[t]) {
+        prices[t] = row.price_usd;
+        latestTsPerTicker[t] = ts;
+      }
+    });
+
+    // Second pass: find "yesterday" = last price from a calendar day (UTC) different from the latest
+    priceData.forEach(row => {
+      const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
+      if (pricesYesterday[t]) return; // already found
+      const latestTs = latestTsPerTicker[t];
+      if (!latestTs) return;
+      const latestDay = new Date(latestTs).toISOString().slice(0, 10);
+      const rowDay = new Date(row.captured_at).toISOString().slice(0, 10);
+      if (rowDay !== latestDay) {
         pricesYesterday[t] = row.price_usd;
       }
     });
+
+    console.log('[Portfolio] prices today:', prices);
+    console.log('[Portfolio] prices yesterday:', pricesYesterday);
 
     // Get latest portfolio snapshot for FX rate + change
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=2');
@@ -1667,7 +1681,7 @@ function renderPortfolio() {
   const arrow = changeUSD >= 0 ? '↑' : '↓';
   const changeClass = changeUSD >= 0 ? 'up' : 'down';
   changeEl.className = 'portfolio-change ' + changeClass;
-  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs anterior';
+  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs ayer';
 
   // Alloc bar (4 cats)
   const CATS = ['acciones','cripto','rsu','fiat'];
