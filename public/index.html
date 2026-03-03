@@ -688,6 +688,7 @@
   .pin-key:active { background: var(--accent); color: #fff; transform: scale(0.94); }
   .pin-key.del { font-size: 16px; color: var(--muted); }
   .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -1058,8 +1059,8 @@
 
       <!-- Slide 0: normal view -->
       <div id="hSlide0">
-        <div class="portfolio-total" id="portfolioTotal">£33.834</div>
-        <div class="portfolio-change up">↑ <span id="changeAmt">£979</span> · +2.98% este mes</div>
+        <div class="portfolio-total" id="portfolioTotal">—</div>
+        <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar">
             <div class="alloc-seg" style="width:38%;background:var(--accent)"></div>
@@ -1180,15 +1181,12 @@
       <div class="pos-tab" onclick="switchPosTab(this,'cash')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">💵 Cash</div>
     </div>
 
-    <div class="asset-list" id="assetList">
-      <div class="asset-card" data-cat="acciones"><div class="asset-logo">🍎</div><div class="asset-info"><div class="asset-name">Apple</div><div class="asset-sub">AAPL · 12 acciones</div></div><div class="asset-right"><div class="asset-val" id="val0">£6.589</div><div class="asset-chg up">↑ +3.2%</div></div></div>
-      <div class="asset-card" data-cat="acciones"><div class="asset-logo">🏢</div><div class="asset-info"><div class="asset-name">NVIDIA</div><div class="asset-sub">NVDA · 8 acciones</div></div><div class="asset-right"><div class="asset-val" id="val3">£5.435</div><div class="asset-chg down">↓ -1.2%</div></div></div>
-      <div class="asset-card" data-cat="crypto"><div class="asset-logo">₿</div><div class="asset-info"><div class="asset-name">Bitcoin</div><div class="asset-sub">BTC · 0.12 BTC</div></div><div class="asset-right"><div class="asset-val" id="val1">£7.442</div><div class="asset-chg up">↑ +5.8%</div></div></div>
-      <div class="asset-card" data-cat="crypto"><div class="asset-logo">Ξ</div><div class="asset-info"><div class="asset-name">Ethereum</div><div class="asset-sub">ETH · 1.8 ETH</div></div><div class="asset-right"><div class="asset-val" id="val4">£3.982</div><div class="asset-chg down">↓ -0.7%</div></div></div>
-      <div class="asset-card" data-cat="etf"><div class="asset-logo">📊</div><div class="asset-info"><div class="asset-name">S&amp;P 500 ETF</div><div class="asset-sub">VOO · 18 cuotas</div></div><div class="asset-right"><div class="asset-val" id="val2">£6.091</div><div class="asset-chg up">↑ +1.4%</div></div></div>
-      <div class="asset-card" data-cat="rsu" onclick="openRSU()" style="cursor:pointer"><div class="asset-logo" style="background:rgba(79,195,247,0.15)">🏆</div><div class="asset-info"><div class="asset-name">Anthropic RSUs</div><div class="asset-sub">ANTH · 24 units · próx. vest: Jun 25</div></div><div class="asset-right"><div class="asset-val" id="val5">£4.740</div><div style="display:flex;align-items:center;gap:4px"><div class="asset-chg up">↑ +8.1%</div><div style="font-size:16px;color:var(--muted);margin-left:2px">›</div></div></div></div>
-      <div class="asset-card" data-cat="cash"><div class="asset-logo" style="background:rgba(255,101,132,0.15)">💵</div><div class="asset-info"><div class="asset-name">Cash / Savings</div><div class="asset-sub">GBP · Monzo + Wise</div></div><div class="asset-right"><div class="asset-val" id="val6">£3.485</div><div class="asset-chg" style="color:var(--muted)">— sin cambio</div></div></div>
+    <!-- Portfolio loading spinner -->
+    <div id="portfolioSpinner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 0;gap:12px">
+      <div style="width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+      <div style="font-size:12px;color:var(--muted)">Cargando precios...</div>
     </div>
+    <div class="asset-list" id="assetList" style="display:none"></div>
   </div>
 
 
@@ -1404,7 +1402,7 @@ function switchNav(el, name) {
   document.querySelector('.topbar-left h1').textContent = t[0];
   document.querySelector('.topbar-left p').textContent = t[1];
   document.querySelector('.tabs').style.display = name === 'today' ? 'flex' : 'none';
-  if (name === 'portfolio') requestAnimationFrame(() => requestAnimationFrame(drawChart));
+  if (name === 'portfolio') { requestAnimationFrame(() => requestAnimationFrame(drawChart)); if (!liveData) loadPortfolio(); }
 }
 
 function switchTab(name, btn) {
@@ -1494,27 +1492,202 @@ function startTimer(idx, mins) {
   }, 1000);
 }
 
-// Currency switch
-const FX_RATE = 0.79;
-const portfolioUSD = { total: 42830, change: 1240 };
-const assetsUSD = [8340, 9420, 7710, 6880, 5040, 6000, 4410];
+// ── SUPABASE CONFIG ──
+const SUPABASE_URL = 'https://mddlszahjirlxxyhcumj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_AdSRAm8WckoufXQyOZpR-A_Z6qTOruS';
+
+async function sbFetch(path) {
+  const res = await fetch(SUPABASE_URL + path, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY
+    }
+  });
+  return res.json();
+}
+
+// Live portfolio data (filled by loadPortfolio)
+let liveData = null;
+let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
+
+const TICKER_META = {
+  'SPY':          { name: 'S&P 500 ETF',     logo: '📊', cat: 'acciones' },
+  'BRK.B':        { name: 'Berkshire',        logo: '🏦', cat: 'acciones' },
+  'MELI':         { name: 'MercadoLibre',     logo: '🛒', cat: 'acciones' },
+  'NU':           { name: 'Nu Holdings',      logo: '💜', cat: 'acciones' },
+  'BTC':          { name: 'Bitcoin',          logo: '₿',  cat: 'cripto'   },
+  'RSU_META':     { name: 'Meta RSUs',        logo: '🏆', cat: 'rsu',     rsu: true },
+  'GBP_LIQUID':   { name: 'Libras',           logo: '💷', cat: 'fiat'    },
+  'GBP_RECEIVABLE':{ name: 'Deudas a cobrar', logo: '📋', cat: 'fiat'    },
+  'USD_CASH':     { name: 'USD Cash',         logo: '💵', cat: 'fiat'    },
+  'RENT_DEPOSIT': { name: 'Rent Deposit',     logo: '🏠', cat: 'fiat'    },
+};
+
+function fmtVal(usd, rate, sym) {
+  const v = Math.round(usd * rate);
+  if (Math.abs(v) >= 1000) return sym + v.toLocaleString('es-AR');
+  return sym + v;
+}
+
+function fmtQty(qty, ticker) {
+  if (['SPY','BRK.B','MELI','NU','BTC'].includes(ticker)) return qty.toFixed(8);
+  return qty % 1 === 0 ? qty.toString() : qty.toFixed(2);
+}
+
+async function loadPortfolio() {
+  try {
+    // Fetch positions
+    const posData = await sbFetch('/rest/v1/positions?select=*');
+
+    // Fetch latest price for each ticker (one call per ticker using limit=1 order)
+    const tickers = posData.filter(p => ['acciones','cripto','rsu'].includes(p.category)).map(p => {
+      if (p.ticker === 'BTC') return 'BTC-USD';
+      if (p.ticker === 'RSU_META') return 'META';
+      if (p.ticker === 'BRK.B') return 'BRK-B';
+      return p.ticker;
+    });
+
+    // Get latest snapshot for all tickers at once
+    const priceData = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=100');
+
+    // Build price map (most recent per ticker)
+    const prices = {};
+    priceData.forEach(row => {
+      const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
+      if (!prices[t]) prices[t] = row.price_usd;
+    });
+
+    // Get latest portfolio snapshot for FX rate + change
+    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=2');
+    if (snapData.length > 0) FX_RATE = snapData[0].fx_rate;
+
+    // Calculate values
+    let totalUSD = 0;
+    const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat: 0 };
+    const assets = [];
+
+    for (const pos of posData) {
+      let valueUSD = 0;
+      let priceUSD = null;
+      let pricePaidUSD = pos.avg_cost_usd;
+
+      if (pos.category === 'fiat') {
+        valueUSD = pos.currency === 'GBP' ? pos.qty / FX_RATE : pos.qty;
+        breakdown.fiat += valueUSD;
+      } else {
+        priceUSD = prices[pos.ticker];
+        if (priceUSD) {
+          valueUSD = pos.qty * priceUSD;
+          breakdown[pos.category] = (breakdown[pos.category] || 0) + valueUSD;
+        }
+      }
+
+      totalUSD += valueUSD;
+
+      // P&L
+      let pct = null;
+      if (pricePaidUSD && priceUSD) {
+        pct = ((priceUSD - pricePaidUSD) / pricePaidUSD) * 100;
+      }
+
+      assets.push({ pos, valueUSD, priceUSD, pct });
+    }
+
+    // Change vs previous snapshot
+    let changeUSD = 0;
+    if (snapData.length >= 2) changeUSD = totalUSD - snapData[1].total_usd;
+
+    liveData = { totalUSD, changeUSD, breakdown, assets };
+    renderPortfolio();
+
+  } catch(e) {
+    console.error('Error cargando portfolio:', e);
+    document.getElementById('portfolioSpinner').innerHTML =
+      '<div style="font-size:12px;color:var(--muted);text-align:center;padding:20px">Error cargando datos.<br>Reintentando...</div>';
+    setTimeout(loadPortfolio, 10000);
+  }
+}
+
+function renderPortfolio() {
+  if (!liveData) return;
+  const { totalUSD, changeUSD, breakdown, assets } = liveData;
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+
+  // Total
+  document.getElementById('portfolioTotal').textContent = fmtVal(totalUSD, rate, sym);
+
+  // Change
+  const changeEl = document.getElementById('portfolioChange');
+  const changePct = totalUSD > 0 ? (changeUSD / (totalUSD - changeUSD)) * 100 : 0;
+  const changeFormatted = fmtVal(Math.abs(changeUSD), rate, sym);
+  const arrow = changeUSD >= 0 ? '↑' : '↓';
+  const changeClass = changeUSD >= 0 ? 'up' : 'down';
+  changeEl.className = 'portfolio-change ' + changeClass;
+  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs anterior';
+
+  // Alloc bar
+  const cats = ['acciones','cripto','rsu','fiat'];
+  const colors = ['var(--accent)','var(--accent3)','var(--accent5)','var(--accent2)'];
+  const segs = document.querySelectorAll('.alloc-seg');
+  const items = document.querySelectorAll('.alloc-item');
+  const labels = ['Acciones','Cripto','RSUs','Fiat'];
+  cats.forEach((cat, i) => {
+    const pct = totalUSD > 0 ? Math.round((breakdown[cat] || 0) / totalUSD * 100) : 0;
+    if (segs[i]) segs[i].style.width = pct + '%';
+    if (items[i]) items[i].lastChild.textContent = ' ' + labels[i] + ' ' + pct + '%';
+  });
+
+  // Pie legend
+  const pieLabels = ['pl0','pl1','pl2','pl3','pl4'];
+  [breakdown.acciones, breakdown.cripto, 0, breakdown.rsu, breakdown.fiat].forEach((v, i) => {
+    const el = document.getElementById(pieLabels[i]);
+    if (el) el.textContent = fmtVal(v || 0, rate, sym);
+  });
+  const pieTotal = document.getElementById('pieTotal');
+  if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
+
+  // Asset cards
+  const assetList = document.getElementById('assetList');
+  assetList.innerHTML = '';
+  assets.forEach(({ pos, valueUSD, pct }) => {
+    const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category };
+    const valStr = fmtVal(valueUSD, rate, sym);
+    const qtyStr = fmtQty(pos.qty, pos.ticker);
+    let chgHtml = '<div class="asset-chg" style="color:var(--muted)">— fiat</div>';
+    if (pct !== null) {
+      const cls = pct >= 0 ? 'up' : 'down';
+      const arrow = pct >= 0 ? '↑' : '↓';
+      chgHtml = '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</div>';
+    }
+    const rsuClick = meta.rsu ? ' onclick="openRSU()" style="cursor:pointer"' : '';
+    const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
+    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
+      '<div class="asset-logo">' + meta.logo + '</div>' +
+      '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
+      '<div class="asset-sub">' + pos.ticker + ' · ' + qtyStr + '</div></div>' +
+      '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
+      '<div style="display:flex;align-items:center;gap:4px">' + chgHtml + rsuArrow + '</div></div></div>';
+  });
+
+  // Hide spinner, show list
+  document.getElementById('portfolioSpinner').style.display = 'none';
+  assetList.style.display = 'flex';
+
+  // Redraw chart
+  requestAnimationFrame(drawChart);
+}
 
 function setCurrency(cur) {
   currentCurrency = cur;
   const isGBP = cur === 'GBP';
-  const rate = isGBP ? FX_RATE : 1;
-  const sym = isGBP ? '£' : '$';
   document.getElementById('btnGBP').style.background = isGBP ? 'var(--accent)' : 'transparent';
   document.getElementById('btnGBP').style.color = isGBP ? '#fff' : 'var(--muted)';
   document.getElementById('btnUSD').style.background = isGBP ? 'transparent' : 'var(--accent)';
   document.getElementById('btnUSD').style.color = isGBP ? 'var(--muted)' : '#fff';
-  document.getElementById('portfolioTotal').textContent = sym + Math.round(portfolioUSD.total * rate).toLocaleString('es-AR');
-  document.getElementById('changeAmt').textContent = sym + Math.round(portfolioUSD.change * rate).toLocaleString('es-AR');
-  assetsUSD.forEach((val, i) => {
-    const el = document.getElementById('val' + i);
-    if (el) el.textContent = sym + Math.round(val * rate).toLocaleString('es-AR');
-  });
+  renderPortfolio();
 }
 
 // Period tabs
@@ -1748,34 +1921,7 @@ function drawPie() {
   ctx.fill();
 }
 
-// Update pie legend values when currency changes (patch setCurrency)
-const _origSetCurrency = setCurrency;
-// We already have setCurrency; patch pie legend update into it
-function updatePieLegend() {
-  const isGBP = currentCurrency === 'GBP';
-  const rate = isGBP ? FX_RATE : 1;
-  const sym = isGBP ? '£' : '$';
-  const totals = [16380, 11400, 7710, 6000, 4410];
-  const labels = totals.map(v => {
-    const converted = Math.round(v * rate);
-    return sym + (converted >= 1000 ? (converted/1000).toFixed(1) + 'k' : converted);
-  });
-  ['pl0','pl1','pl2','pl3','pl4'].forEach((id,i) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = labels[i];
-  });
-  const totalConverted = Math.round(42830 * rate);
-  const pieTotal = document.getElementById('pieTotal');
-  if (pieTotal) pieTotal.textContent = sym + (totalConverted/1000).toFixed(1) + 'k';
-}
-
-// Monkey-patch setCurrency to also update pie
-const _baseCurrency = setCurrency;
-setCurrency = function(cur) {
-  _baseCurrency(cur);
-  updatePieLegend();
-  drawChart();
-};
+// pie legend now handled inside renderPortfolio()
 
 // ─── RSU Modal ───
 // Full vest schedule (16 quarters = 4 years)

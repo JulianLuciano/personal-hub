@@ -8,7 +8,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Exposes PIN from environment variable — never stored in code
 app.get('/api/config', (req, res) => {
-  res.json({ pin: String(process.env.PIN || '0000') });
+  res.json({ pin: String(process.env.PIN || '1521') });
 });
 
 app.get('*', (req, res) => {
