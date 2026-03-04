@@ -2815,10 +2815,13 @@ function renderPosModalValues(ticker) {
   const sym = isGBP ? '\u00a3' : '$';
 
   // Price in selected currency
-  const priceDisplay = priceUSD
-    ? (sym + (priceUSD * rate).toFixed(2))
-    : '\u2014';
-  document.getElementById('posModalPrice').textContent = priceDisplay;
+  const fmtPrice = v => {
+    const n = (v * rate).toFixed(2);
+    const parts = n.split('.');
+    parts[0] = Number(parts[0]).toLocaleString('es-AR');
+    return sym + parts[0] + '.' + parts[1];
+  };
+  document.getElementById('posModalPrice').textContent = priceUSD ? fmtPrice(priceUSD) : '\u2014';
 
   // Position value
   document.getElementById('posModalValue').textContent = fmtVal(valueUSD, rate, sym);
@@ -2842,9 +2845,14 @@ function renderPosModalValues(ticker) {
 
   // Avg cost per share in selected currency
   const avgEl = document.getElementById('posModalAvg');
-  avgEl.textContent = pos.avg_cost_usd
-    ? sym + (Number(pos.avg_cost_usd) * rate).toFixed(2)
-    : '\u2014';
+  if (pos.avg_cost_usd) {
+    const avgVal = Number(pos.avg_cost_usd) * rate;
+    const avgFixed = avgVal.toFixed(2).split('.');
+    avgFixed[0] = Number(avgFixed[0]).toLocaleString('es-AR');
+    avgEl.textContent = sym + avgFixed[0] + '.' + avgFixed[1];
+  } else {
+    avgEl.textContent = '\u2014';
+  }
 
   // Portfolio share (always %)
   const share = liveData && liveData.totalUSD > 0 ? (valueUSD / liveData.totalUSD * 100) : 0;
