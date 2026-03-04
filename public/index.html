@@ -26,7 +26,7 @@
     --surface2: #eeeef3;
     --border: rgba(0,0,0,0.07);
     --text: #0a0a0f;
-    --muted: rgba(10,10,15,0.4);
+    --muted: rgba(10,10,15,0.55);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -332,7 +332,7 @@
     background: var(--surface);
     border-top: 1px solid var(--border);
     display: flex;
-    padding: 12px 0 28px;
+    padding: 7px 0 20px;
     z-index: 100;
   }
   .nav-item {
@@ -342,7 +342,7 @@
     align-items: center;
     gap: 4px;
     cursor: pointer;
-    padding: 4px 0;
+    padding: 2px 0;
   }
   .nav-icon { font-size: 22px; opacity: 0.4; transition: all 0.2s; }
   .nav-label { font-size: 10px; color: var(--muted); }
@@ -557,7 +557,7 @@
     margin-bottom: 16px;
   }
   .period-tab {
-    padding: 6px 12px;
+    padding: 6px 10px;
     border-radius: 100px;
     font-size: 12px;
     font-weight: 500;
@@ -1081,7 +1081,7 @@
       <div id="hSlide0">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
-          <div onclick="toggleHideValues()" id="eyeBtn" style="font-size:20px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px" title="Ocultar valores">👁</div>
+          <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
         </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
@@ -1137,7 +1137,7 @@
     <div class="chart-card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="margin-bottom:0">Evolución</h3>
-        <div class="period-tabs" style="margin-bottom:0">
+        <div class="period-tabs" style="margin-bottom:0;gap:5px">
           <div class="period-tab active">1S</div>
           <div class="period-tab">1M</div>
           <div class="period-tab">3M</div>
@@ -1146,18 +1146,6 @@
         </div>
       </div>
 
-      <!-- Category filter chips -->
-      <!-- Total toggle -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:500">Mostrar líneas</span>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:var(--muted)">Individual</span>
-          <div id="totalToggle" onclick="toggleTotalMode()" style="width:44px;height:26px;border-radius:100px;background:var(--accent);position:relative;cursor:pointer;transition:background 0.2s;border:1px solid var(--accent)">
-            <div id="totalToggleKnob" style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);transform:translateX(18px)"></div>
-          </div>
-          <span style="font-size:12px;color:var(--muted)">Total</span>
-        </div>
-      </div>
       <!-- Category chips -->
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" id="catFilters">
         <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
@@ -1217,7 +1205,7 @@
             <span style="width:6px;height:6px;border-radius:50%;background:#ff6584;display:inline-block;flex-shrink:0"></span>Cripto
           </div>
           <div class="eq-cat-pill active" data-cat="rsu" onclick="toggleEquityCat(this)"
-            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap">
+            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap;opacity:0.35">
             <span style="width:6px;height:6px;border-radius:50%;background:#f7b731;display:inline-block;flex-shrink:0"></span>RSUs
           </div>
         </div>
@@ -1983,7 +1971,7 @@ const EQUITY_TICKER_COLORS = {
   'RSU_META': '#f7b731',
 };
 
-let equityActiveCats = new Set(['acciones','cripto','rsu']);
+let equityActiveCats = new Set(['acciones','cripto']);
 let equityPieCollapsed = false;
 
 function toggleEquityPie() {
@@ -2124,7 +2112,7 @@ function renderEquityPie() {
 }
 
 let valuesHidden = false;
-const MASK = '******';
+const MASK = '*****';
 
 function maskElement(el) {
   if (!el) return;
@@ -2163,7 +2151,7 @@ function unmaskAllocItem(el) {
 
 function toggleHideValues() {
   valuesHidden = !valuesHidden;
-  document.getElementById('eyeBtn').textContent = valuesHidden ? '🙈' : '👁';
+  document.getElementById('eyeBtn').innerHTML = valuesHidden ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>` : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
   // Only mask pure monetary value elements — NOT category labels/pct, NOT axis labels
   const ids = ['portfolioTotal','pieTotal','pl0','pl1','pl2','pl3','pl4'];
@@ -2643,12 +2631,12 @@ function switchPosTab(el, cat) {
     if (date) document.getElementById('ttDate').textContent = date.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
 
     if (totalMode) {
-      document.getElementById('ttVal').textContent = valuesHidden ? '******' : sym + Math.round(result.val).toLocaleString('es-AR');
+      document.getElementById('ttVal').textContent = valuesHidden ? '*****' : sym + Math.round(result.val).toLocaleString('es-AR');
     } else {
       // Show per-cat breakdown
       const cats = [...activeCats];
       if (valuesHidden) {
-        document.getElementById('ttVal').textContent = '******';
+        document.getElementById('ttVal').textContent = '*****';
       } else {
         document.getElementById('ttVal').innerHTML = cats.map(cat => {
           const v = result.catVals[cat] || 0;
