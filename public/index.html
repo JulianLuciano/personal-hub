@@ -1451,7 +1451,7 @@
       </div>
 
       <!-- Price + daily change -->
-      <div style="background:var(--surface2);border-radius:16px;padding:16px;margin-bottom:12px">
+      <div style="background:var(--surface2);border-radius:16px;padding:16px;margin-bottom:12px;overflow:hidden">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Precio actual</div>
@@ -2220,6 +2220,16 @@ function toggleHideValues() {
 
   // Re-apply axis mask state (axis shows/hides based on valuesHidden)
   applyAxisMask();
+  // Redraw vest chart if RSU modal is open (to show/hide bar labels)
+  if (document.getElementById('rsuModal').classList.contains('open') && vestSchedule.length) {
+    const _isGBP = rsuCurrency === 'GBP';
+    const _rate = _isGBP ? FX_RATE : 1;
+    const _sym = _isGBP ? '£' : '$';
+    const _nm = rsuNet ? NET_RATE : 1;
+    const _upcoming = vestSchedule.filter(v => !v.vested);
+    const _slice = _upcoming.slice(0, visibleQuarters);
+    drawVestChart(_rate, _sym, _slice, getRSUPriceUSD(), _nm);
+  }
 }
 
 function applyAxisMask() {
@@ -3013,11 +3023,15 @@ function closeRSU() {
 function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
   const canvas = document.getElementById('vestChart');
   if (!canvas) return;
-  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
   const W = canvas.parentElement.offsetWidth - 32;
   const H = 130;
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
   const vals = slice.map(v => Math.round(v.units * RSU_PRICE_USD * rate * (netMult || 1)));
@@ -3027,6 +3041,7 @@ function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
   const barW = Math.max(4, (W / n) * (n > 10 ? 0.7 : 0.55));
   const gap = W / n;
   const padB = 8, padT = 18;
+  const showLabels = !valuesHidden;
 
   vals.forEach((v, i) => {
     const x = i * gap + (gap - barW) / 2;
@@ -3037,6 +3052,13 @@ function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
     ctx.beginPath();
     ctx.roundRect(x, H - padB - accumH, barW, accumH, [4,4,0,0]);
     ctx.fill();
+    // Accumulated label
+    if (showLabels) {
+      ctx.fillStyle = 'rgba(79,195,247,0.7)';
+      ctx.font = `${n > 10 ? 7 : 8}px DM Sans, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(sym + (accums[i]/1000).toFixed(1)+'k', x + barW/2, H - padB - accumH - 3);
+    }
     // Period bar
     if (v > 0) {
       const periodH = (v / maxVal) * availH;
@@ -3044,6 +3066,13 @@ function drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult) {
       ctx.beginPath();
       ctx.roundRect(x, H - padB - periodH, barW, periodH, [4,4,0,0]);
       ctx.fill();
+      // Period label
+      if (showLabels) {
+        ctx.fillStyle = '#4fc3f7';
+        ctx.font = `bold ${n > 10 ? 8 : 9}px DM Sans, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(sym + (v/1000).toFixed(1)+'k', x + barW/2, H - padB - periodH - 3);
+      }
     }
   });
 }
@@ -3260,39 +3289,32 @@ function initDragClose(overlayId, closeFn) {
   const handle = sheet && sheet.querySelector('.modal-handle');
   if (!sheet || !handle) return;
 
-  // Create an invisible drag zone that sits over handle + header (~80px tall)
-  // The visual handle pill stays untouched
-  const dragZone = document.createElement('div');
-  dragZone.style.cssText = [
-    'position:absolute',
-    'top:0', 'left:0', 'right:0',
-    'height:80px',
-    'z-index:10',
-    'touch-action:none',
-    'cursor:grab'
-  ].join(';');
-  // Sheet needs position:relative for absolute child
-  sheet.style.position = 'relative';
-  sheet.insertBefore(dragZone, sheet.firstChild);
+  // Drag detection: listen on the sheet, but only activate when touch starts
+  // within the top 80px (handle + header zone). Clicks pass through normally
+  // because we only call preventDefault during an active drag move.
+  let startY = 0, startClientTop = 0, currentY = 0, active = false;
 
-  let startY = 0, currentY = 0, active = false;
-
-  function onDown(e) {
+  sheet.addEventListener('touchstart', function(e) {
+    const rect = sheet.getBoundingClientRect();
+    const localY = (e.touches[0].clientY - rect.top);
+    if (localY > 80) return; // only top zone triggers drag
     active = true;
-    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startY = e.touches[0].clientY;
+    startClientTop = rect.top;
     currentY = 0;
     sheet.style.transition = 'none';
-    e.preventDefault();
-  }
-  function onMove(e) {
+    // Don't preventDefault here — lets clicks still fire on buttons inside
+  }, { passive: true });
+
+  sheet.addEventListener('touchmove', function(e) {
     if (!active) return;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    const dy = y - startY;
-    if (dy < 0) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy < 0) { active = false; sheet.style.transform = ''; return; }
     currentY = dy;
     sheet.style.transform = 'translateY(' + dy + 'px)';
-    e.preventDefault();
-  }
+    e.preventDefault(); // now safe to prevent scroll
+  }, { passive: false });
+
   function onUp() {
     if (!active) return;
     active = false;
@@ -3310,10 +3332,8 @@ function initDragClose(overlayId, closeFn) {
     }
   }
 
-  dragZone.addEventListener('touchstart', onDown, { passive: false });
-  dragZone.addEventListener('touchmove',  onMove, { passive: false });
-  dragZone.addEventListener('touchend',   onUp);
-  dragZone.addEventListener('touchcancel', onUp);
+  sheet.addEventListener('touchend',    onUp);
+  sheet.addEventListener('touchcancel', onUp);
 
   // Also close on backdrop tap
   overlay.addEventListener('click', function(e) {
