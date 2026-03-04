@@ -1433,7 +1433,7 @@
           <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalPnlPct">—</div>
         </div>
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Precio promedio</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Precio prom. compra</div>
           <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalAvg">—</div>
         </div>
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
@@ -2872,11 +2872,16 @@ async function openPosDetail(ticker) {
 
   const meta = TICKER_META[ticker] || { name: ticker, logo: '\ud83d\udcb0', logoUrl: null };
 
-  // Logo
+  // Logo — mirror portfolio card logic: whiteBg = white circle + contain + padding, else cover
   const logoEl = document.getElementById('posModalLogo');
   if (meta.logoUrl) {
-    logoEl.innerHTML = '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;object-fit:contain;background:#fff;padding:3px">';
+    const fit = meta.whiteBg ? 'contain' : 'cover';
+    const pad = meta.whiteBg ? '4px' : '0';
+    const bg = meta.whiteBg ? '#fff' : 'transparent';
+    logoEl.style.background = bg;
+    logoEl.innerHTML = '<img src="' + meta.logoUrl + '" style="width:48px;height:48px;border-radius:50%;object-fit:' + fit + ';padding:' + pad + ';background:' + bg + '">';
   } else {
+    logoEl.style.background = '#ffffff22';
     logoEl.textContent = meta.logo;
   }
   document.getElementById('posModalName').textContent = meta.name;
@@ -2944,10 +2949,11 @@ async function drawPosChart(ticker, meta) {
     ctx.clearRect(0, 0, W, H);
 
     const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
-    const step = W / (prices.length - 1);
+    const padT = 6, padB = 6;
+    const step = (W - 2) / (prices.length - 1);
     const coords = prices.map((v, i) => ({
-      x: i * step,
-      y: H - 4 - ((v - min) / range) * (H - 8)
+      x: 1 + i * step,
+      y: padT + (1 - (v - min) / range) * (H - padT - padB)
     }));
 
     const isUp = prices[prices.length-1] >= prices[0];
@@ -2965,7 +2971,7 @@ async function drawPosChart(ticker, meta) {
     ctx.beginPath();
     ctx.moveTo(coords[0].x, coords[0].y);
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    ctx.strokeStyle = lineColor; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
 
     // Date label
     if (rows.length > 0) {
