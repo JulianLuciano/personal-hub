@@ -1685,9 +1685,7 @@
         <div class="ai-quick-btn" onclick="aiQuick('¿Cuál es mi P&L total y qué posición aporta más?')">P&L</div>
       </div>
       <div id="aiInputRow">
-        <textarea id="aiInput" placeholder="Preguntá sobre tu portfolio..." rows="1"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSendMsg()}"
-          oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+        <textarea id="aiInput" placeholder="Escribe aquí... (Shift+Enter para enviar)" rows="1"></textarea>
         <button id="aiSend" onclick="aiSendMsg()">
           <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -3685,10 +3683,80 @@ function buildPortfolioContext() {
 
 function openAIChat() {
   document.getElementById('aiModal').classList.add('open');
+  const app = document.getElementById('app');
+  app.style.overflow = 'hidden';
+  app.style.touchAction = 'none';
   setTimeout(() => document.getElementById('aiInput').focus(), 300);
 }
+
+// Wire textarea keyboard behavior once DOM is ready
+(function() {
+  function setupAiInput() {
+    const input = document.getElementById('aiInput');
+    if (!input) return;
+
+    function resize() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    }
+
+    input.addEventListener('input', resize);
+
+    input.addEventListener('keydown', function(e) {
+      // Shift+Enter → send
+      if (e.key === 'Enter' && e.shiftKey) {
+        e.preventDefault();
+        aiSendMsg();
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        const val = input.value;
+        const cursor = input.selectionStart;
+        // Find current line
+        const lineStart = val.lastIndexOf('\n', cursor - 1) + 1;
+        const currentLine = val.slice(lineStart, cursor);
+
+        // If current line is ONLY a bullet/number prefix (no content) → break out of list
+        if (/^(\d+\. |[-•] )$/.test(currentLine)) {
+          e.preventDefault();
+          input.value = val.slice(0, lineStart) + val.slice(cursor);
+          input.selectionStart = input.selectionEnd = lineStart;
+          resize();
+          return;
+        }
+
+        // If current line starts with a numbered bullet → auto-continue
+        const numberedMatch = currentLine.match(/^(\d+)\. /);
+        if (numberedMatch) {
+          e.preventDefault();
+          const nextNum = parseInt(numberedMatch[1]) + 1;
+          const prefix = nextNum + '. ';
+          const insert = '\n' + prefix;
+          input.value = val.slice(0, cursor) + insert + val.slice(cursor);
+          input.selectionStart = input.selectionEnd = cursor + insert.length;
+          resize();
+          return;
+        }
+
+        // Default: let Enter insert newline naturally (no preventDefault)
+        setTimeout(resize, 0);
+      }
+    });
+  }
+
+  // Run after DOM — script is at bottom so this fires immediately
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupAiInput);
+  } else {
+    setupAiInput();
+  }
+})();
 function closeAIChat() {
   document.getElementById('aiModal').classList.remove('open');
+  const app = document.getElementById('app');
+  app.style.overflow = '';
+  app.style.touchAction = '';
 }
 function aiQuick(msg) {
   document.getElementById('aiInput').value = msg;
@@ -3845,9 +3913,10 @@ function aiAddMsg(role, text) {
   const appEl     = document.getElementById('app');
 
   document.addEventListener('touchstart', function(e) {
+    // Disable pull-to-refresh when any modal is open
+    if (document.querySelector('.modal-overlay.open')) return;
     // ONLY activate when scroll is truly at the top
     if (appEl.scrollTop > 0) return;
-    // And only for downward swipes starting from within the app
     active = true;
     startY = e.touches[0].clientY;
     currentPull = 0;
