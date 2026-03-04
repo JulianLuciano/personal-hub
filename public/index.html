@@ -93,6 +93,37 @@
     color: var(--text);
   }
 
+
+  /* Pull-to-refresh indicator */
+  #ptr-indicator {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 0;
+    overflow: hidden;
+    z-index: 999;
+    transition: height 0.15s ease;
+    pointer-events: none;
+  }
+  #ptr-indicator.visible { height: 52px; }
+  #ptr-spinner {
+    width: 22px; height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #ptr-indicator.visible #ptr-spinner { opacity: 1; }
+  #ptr-indicator.releasing #ptr-spinner { border-top-color: var(--accent3); }
+  @keyframes ptr-spin { to { transform: rotate(360deg); } }
+  #ptr-indicator.refreshing #ptr-spinner {
+    animation: ptr-spin 0.7s linear infinite;
+    border-top-color: var(--accent);
+  }
+
   /* TABS */
   .tabs {
     display: flex;
@@ -763,6 +794,9 @@
 </div>
 
 <div class="phone-frame" id="app">
+
+  <!-- Pull-to-refresh indicator -->
+  <div id="ptr-indicator"><div id="ptr-spinner"></div></div>
 
   <!-- TOP BAR -->
   <div class="topbar">
@@ -3310,6 +3344,60 @@ async function drawPosChart(ticker, meta) {
   }
 }
 
+
+
+// ── PULL-TO-REFRESH ──────────────────────────────────────────────────────────
+(function() {
+  const THRESHOLD = 72;   // px of pull needed to trigger refresh
+  const MAX_PULL  = 90;   // max visual pull distance
+  let startY = 0, pulling = false, triggered = false;
+
+  const indicator = document.getElementById('ptr-indicator');
+  const spinner   = document.getElementById('ptr-spinner');
+  const appEl     = document.getElementById('app');
+
+  document.addEventListener('touchstart', function(e) {
+    // Only trigger if scrolled to very top of the app div
+    if (appEl.scrollTop > 2) return;
+    startY   = e.touches[0].clientY;
+    pulling  = true;
+    triggered = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { pulling = false; return; }
+
+    const pull = Math.min(dy * 0.45, MAX_PULL); // dampen
+    spinner.style.transform = `rotate(${pull * 3}deg)`;
+    indicator.classList.add('visible');
+
+    if (pull >= THRESHOLD * 0.45) {
+      indicator.classList.add('releasing');
+    } else {
+      indicator.classList.remove('releasing');
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    if (!pulling) return;
+    pulling = false;
+    const dy = e.changedTouches[0].clientY - startY;
+    const pull = Math.min(dy * 0.45, MAX_PULL);
+
+    if (pull >= THRESHOLD * 0.45) {
+      // Trigger refresh
+      indicator.classList.add('refreshing');
+      indicator.classList.remove('releasing');
+      setTimeout(() => location.reload(), 300);
+    } else {
+      // Snap back
+      indicator.classList.remove('visible', 'releasing');
+      spinner.style.transform = '';
+    }
+  }, { passive: true });
+})();
 
 // ── MODAL DRAG-TO-CLOSE ─────────────────────────────────────────────────────
 // Strategy: attach touch listeners to the handle pill only (touch-action:none),
