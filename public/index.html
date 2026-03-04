@@ -114,35 +114,13 @@
   #aiBubble:active { transform: scale(0.92); }
   #aiBubble svg { width: 22px; height: 22px; }
 
-  #aiModal {
-    position: fixed; inset: 0;
-    z-index: 300;
-    display: flex; flex-direction: column;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  #aiModal.open {
-    pointer-events: all;
-    opacity: 1;
-  }
-  #aiBackdrop {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(3px);
-  }
+  /* aiModal uses standard .modal-overlay system */
   #aiSheet {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
     height: 82vh;
-    background: var(--surface);
-    border-radius: 20px 20px 0 0;
     display: flex; flex-direction: column;
     overflow: hidden;
-    transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+    padding: 0;        /* override .modal padding */
   }
-  #aiModal.open #aiSheet { transform: translateY(0); }
   #aiSheetHeader {
     padding: 14px 16px 10px;
     border-bottom: 1px solid var(--border);
@@ -181,6 +159,16 @@
     background: var(--surface2); color: var(--muted);
     font-style: italic;
   }
+  .ai-msg .ai-h1 { font-size: 15px; font-weight: 800; margin: 6px 0 2px; font-family: var(--font-num); }
+  .ai-msg .ai-h2 { font-size: 14px; font-weight: 700; margin: 5px 0 2px; font-family: var(--font-num); }
+  .ai-msg .ai-h3 { font-size: 13px; font-weight: 700; margin: 4px 0 1px; color: var(--accent3); }
+  .ai-msg .ai-li { padding-left: 4px; margin: 1px 0; }
+  .ai-table { border-collapse: collapse; font-size: 11px; width: 100%; margin: 6px 0; }
+  .ai-table th { background: rgba(108,99,255,0.2); padding: 4px 6px; text-align: left; font-weight: 700; }
+  .ai-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+  .ai-table tr:last-child td { border-bottom: none; }
+  .ai-msg strong { font-weight: 700; color: var(--text); }
+  .ai-msg em { font-style: italic; color: var(--muted); }
   .ai-dots span {
     animation: ai-dot-blink 1.2s infinite;
     opacity: 0;
@@ -1673,16 +1661,16 @@
 
   <!-- AI CHAT BUBBLE -->
   <button id="aiBubble" onclick="openAIChat()" title="Analizar portfolio con IA">
-    <img src="/logos/claude.png" style="width:26px;height:26px;object-fit:contain;filter:brightness(0) invert(1)" alt="Claude">
+    <img src="/logos/claude.png" style="width:26px;height:26px;object-fit:contain" alt="Claude">
   </button>
 
   <!-- AI CHAT MODAL -->
   <div id="aiModal" class="modal-overlay">
-    <div id="aiBackdrop" onclick="closeAIChat()"></div>
     <div id="aiSheet" class="modal">
+      <div class="modal-handle"></div>
       <div id="aiSheetHeader">
         <div style="width:24px;height:24px;background:linear-gradient(135deg,#e8824a,#d4602a);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <img src="/logos/claude.png" style="width:16px;height:16px;object-fit:contain;filter:brightness(0) invert(1)" alt="Claude">
+          <img src="/logos/claude.png" style="width:16px;height:16px;object-fit:contain" alt="Claude">
         </div>
         <div class="ai-title">Análisis de Portfolio</div>
         <button class="ai-close" onclick="closeAIChat()">×</button>
@@ -3697,7 +3685,7 @@ function buildPortfolioContext() {
 
 function openAIChat() {
   document.getElementById('aiModal').classList.add('open');
-  setTimeout(() => document.getElementById('aiInput').focus(), 350);
+  setTimeout(() => document.getElementById('aiInput').focus(), 300);
 }
 function closeAIChat() {
   document.getElementById('aiModal').classList.remove('open');
@@ -3783,11 +3771,51 @@ async function getAnthropicKey() {
   return window._anthropicKey;
 }
 
+function aiRenderMarkdown(text) {
+  // Tables: | col | col |
+  text = text.replace(/
+(\|.+\|)
+(\|[-| :]+\|)
+((?:\|.+\|
+?)*)/g, (_, header, sep, body) => {
+    const ths = header.split('|').filter(c => c.trim()).map(c => '<th>' + c.trim() + '</th>').join('');
+    const rows = body.trim().split('\n').map(row => {
+      const tds = row.split('|').filter(c => c.trim() !== '' || row.indexOf(c) > 0).filter((_, i, a) => i > 0 && i < a.length - 1 || a.length <= 2)
+      // simpler: split by | drop first/last empty
+      const cells = row.split('|').slice(1,-1).map(c => '<td>' + c.trim() + '</td>').join('');
+      return '<tr>' + cells + '</tr>';
+    }).join('');
+    return '<table class="ai-table"><thead><tr>' + ths + '</tr></thead><tbody>' + rows + '</tbody></table>';
+  });
+  // Bold **text**
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic *text*
+  text = text.replace(/\*([^*
+]+?)\*/g, '<em>$1</em>');
+  // Headers ### ## #
+  text = text.replace(/^### (.+)$/gm, '<div class="ai-h3">$1</div>');
+  text = text.replace(/^## (.+)$/gm, '<div class="ai-h2">$1</div>');
+  text = text.replace(/^# (.+)$/gm, '<div class="ai-h1">$1</div>');
+  // Bullet lists - item
+  text = text.replace(/^[-•] (.+)$/gm, '<div class="ai-li">• $1</div>');
+  // Newlines to <br> (but not after block elements)
+  text = text.replace(/
+/g, '<br>');
+  // Clean up extra <br> after block divs
+  text = text.replace(/(<\/div>)<br>/g, '$1');
+  text = text.replace(/<br>(<div)/g, '$1');
+  return text;
+}
+
 function aiAddMsg(role, text) {
   const msgs = document.getElementById('aiMessages');
   const el = document.createElement('div');
   el.className = 'ai-msg ' + role;
-  el.textContent = text;
+  if (role === 'assistant' && text) {
+    el.innerHTML = aiRenderMarkdown(text);
+  } else {
+    el.textContent = text;
+  }
   msgs.appendChild(el);
   msgs.scrollTop = msgs.scrollHeight;
   return el;
