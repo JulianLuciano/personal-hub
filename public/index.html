@@ -1087,7 +1087,7 @@
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar" id="allocBar">
             <div class="alloc-seg" style="width:9%;background:#43e97b"></div>
-            <div class="alloc-seg" style="width:1%;background:#6c63ff"></div>
+            <div class="alloc-seg" style="width:1%;background:#ff6584"></div>
             <div class="alloc-seg" style="width:26%;background:#f7b731"></div>
             <!-- cash: liquid part + locked part with stripe pattern -->
             <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px" id="cashAllocSegs">
@@ -1096,7 +1096,7 @@
           </div>
           <div class="alloc-legend" style="margin-top:10px">
             <div class="alloc-item"><div class="alloc-dot" style="background:#43e97b"></div>Acciones —%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:#6c63ff"></div>Cripto —%</div>
+            <div class="alloc-item"><div class="alloc-dot" style="background:#ff6584"></div>Cripto —%</div>
             <div class="alloc-item"><div class="alloc-dot" style="background:#f7b731"></div>RSUs —%</div>
             <div class="alloc-item"><div class="alloc-dot" style="background:#4fc3f7"></div>Cash —%</div>
           </div>
@@ -1120,7 +1120,7 @@
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:6px" id="pieLegend">
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#6c63ff"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#ff6584"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Líquido</span></div><span style="font-weight:600" id="pl3">—</span></div>
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#2a8f9f;border:1px dashed #4fc3f7"></div><span style="color:var(--muted)">Ilíquido</span></div><span style="font-weight:600" id="pl4">—</span></div>
@@ -1163,8 +1163,8 @@
         <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
           <span style="width:7px;height:7px;border-radius:50%;background:#43e97b;display:inline-block"></span>Acciones
         </div>
-        <div class="cat-chip active" data-cat="cripto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #6c63ff;color:#6c63ff;background:rgba(108,99,255,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#6c63ff;display:inline-block"></span>Cripto
+        <div class="cat-chip active" data-cat="cripto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.1);transition:all 0.2s">
+          <span style="width:7px;height:7px;border-radius:50%;background:#ff6584;display:inline-block"></span>Cripto
         </div>
         <div class="cat-chip active" data-cat="rsu" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.1);transition:all 0.2s">
           <span style="width:7px;height:7px;border-radius:50%;background:#f7b731;display:inline-block"></span>RSUs
@@ -1191,6 +1191,52 @@
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px" id="chartXLabels">
         <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <!-- EQUITY BREAKDOWN PIE CHART -->
+    <div class="chart-card" id="equityPieCard" style="margin-bottom:16px">
+      <!-- Header: toggle collapse -->
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleEquityPie()">
+        <h3 style="margin-bottom:0">Renta variable</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div id="equityPieChevron" style="font-size:14px;color:var(--muted);transition:transform 0.25s">▼</div>
+        </div>
+      </div>
+
+      <!-- Collapsible body -->
+      <div id="equityPieBody" style="overflow:hidden;transition:max-height 0.35s ease,opacity 0.25s;max-height:400px;opacity:1">
+        <!-- Category filter pills -->
+        <div style="display:flex;gap:6px;margin-top:14px;margin-bottom:12px;flex-wrap:wrap" id="equityCatFilters">
+          <div class="eq-cat-pill active" data-cat="acciones" onclick="toggleEquityCat(this)"
+            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.12);transition:all 0.2s;white-space:nowrap">
+            <span style="width:6px;height:6px;border-radius:50%;background:#43e97b;display:inline-block;flex-shrink:0"></span>Acciones
+          </div>
+          <div class="eq-cat-pill active" data-cat="cripto" onclick="toggleEquityCat(this)"
+            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.12);transition:all 0.2s;white-space:nowrap">
+            <span style="width:6px;height:6px;border-radius:50%;background:#ff6584;display:inline-block;flex-shrink:0"></span>Cripto
+          </div>
+          <div class="eq-cat-pill active" data-cat="rsu" onclick="toggleEquityCat(this)"
+            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap">
+            <span style="width:6px;height:6px;border-radius:50%;background:#f7b731;display:inline-block;flex-shrink:0"></span>RSUs
+          </div>
+        </div>
+
+        <!-- Chart + legend -->
+        <div style="display:flex;align-items:center;gap:16px">
+          <!-- Donut canvas -->
+          <div style="position:relative;flex-shrink:0;width:140px;height:140px">
+            <canvas id="equityPie" width="140" height="140"></canvas>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center">
+              <div style="font-family:'Syne',sans-serif;font-size:11px;font-weight:800;line-height:1.2" id="equityPieCenter">—</div>
+              <div style="font-size:8px;color:var(--muted);margin-top:1px" id="equityPieCenterSub">total</div>
+            </div>
+          </div>
+          <!-- Legend list -->
+          <div style="flex:1;display:flex;flex-direction:column;gap:7px;min-width:0" id="equityPieLegend">
+            <!-- rendered by JS -->
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1918,8 +1964,163 @@ function renderPortfolio() {
   document.getElementById('portfolioSpinner').style.display = 'none';
   assetList.style.display = 'flex';
 
+  // Render equity breakdown pie
+  renderEquityPie();
+
   // Load chart data from Supabase
   loadChartData();
+}
+
+// ── EQUITY PIE (ticker-level) ──────────────────────────────────────────
+
+// Colors per ticker (acciones palette: shades of green; cripto=red; rsu=amber)
+const EQUITY_TICKER_COLORS = {
+  'SPY':      '#43e97b',
+  'BRK.B':    '#00c853',
+  'MELI':     '#1de9b6',
+  'NU':       '#69f0ae',
+  'BTC':      '#ff6584',
+  'RSU_META': '#f7b731',
+};
+
+let equityActiveCats = new Set(['acciones','cripto','rsu']);
+let equityPieCollapsed = false;
+
+function toggleEquityPie() {
+  equityPieCollapsed = !equityPieCollapsed;
+  const body = document.getElementById('equityPieBody');
+  const chevron = document.getElementById('equityPieChevron');
+  if (equityPieCollapsed) {
+    body.style.maxHeight = '0';
+    body.style.opacity = '0';
+    chevron.style.transform = 'rotate(-90deg)';
+  } else {
+    body.style.maxHeight = '400px';
+    body.style.opacity = '1';
+    chevron.style.transform = 'rotate(0deg)';
+    // Redraw after expand
+    setTimeout(renderEquityPie, 50);
+  }
+}
+
+function toggleEquityCat(el) {
+  const cat = el.dataset.cat;
+  if (equityActiveCats.has(cat)) {
+    if (equityActiveCats.size <= 1) return; // keep at least one active
+    equityActiveCats.delete(cat);
+    el.style.opacity = '0.35';
+  } else {
+    equityActiveCats.add(cat);
+    el.style.opacity = '1';
+  }
+  renderEquityPie();
+}
+
+function renderEquityPie() {
+  if (!liveData) return;
+  const { assets } = liveData;
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+
+  // Build slices only from equity categories that are active
+  const CAT_MAP = {
+    'acciones': 'acciones',
+    'cripto':   'cripto',
+    'rsu':      'rsu',
+  };
+
+  const slices = [];
+  let totalUSD = 0;
+  assets.forEach(({ pos, valueUSD }) => {
+    const cat = CAT_MAP[pos.category];
+    if (!cat || !equityActiveCats.has(cat)) return;
+    if (valueUSD <= 0.5) return;
+    const color = EQUITY_TICKER_COLORS[pos.ticker] || '#aaa';
+    const label = (pos.ticker === 'RSU_META') ? 'META RSU' : pos.ticker;
+    slices.push({ ticker: pos.ticker, label, color, valueUSD, cat });
+    totalUSD += valueUSD;
+  });
+
+  // Sort descending
+  slices.sort((a, b) => b.valueUSD - a.valueUSD);
+
+  // Draw donut
+  const canvas = document.getElementById('equityPie');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const SIZE = 140;
+  canvas.width = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  const cx = SIZE / 2, cy = SIZE / 2, R = 56, r = 36;
+
+  if (totalUSD === 0) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, Math.PI * 2, 0, true);
+    ctx.fillStyle = 'var(--surface2)';
+    ctx.fill();
+  } else {
+    let angle = -Math.PI / 2;
+    slices.forEach(s => {
+      const sweep = (s.valueUSD / totalUSD) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, angle, angle + sweep);
+      ctx.arc(cx, cy, r, angle + sweep, angle, true);
+      ctx.closePath();
+      ctx.fillStyle = s.color;
+      ctx.fill();
+      // Gap
+      ctx.beginPath();
+      ctx.arc(cx, cy, R + 1, angle, angle + sweep);
+      ctx.arc(cx, cy, r - 1, angle + sweep, angle, true);
+      ctx.closePath();
+      ctx.strokeStyle = 'var(--bg)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      angle += sweep;
+    });
+  }
+
+  // Center label
+  const center = document.getElementById('equityPieCenter');
+  const centerSub = document.getElementById('equityPieCenterSub');
+  if (center) {
+    center.textContent = fmtVal(totalUSD, rate, sym);
+    delete center.dataset.real;
+    if (valuesHidden) maskElement(center);
+  }
+  if (centerSub) {
+    centerSub.textContent = equityActiveCats.size < 3 ? [...equityActiveCats].join('+') : 'renta variable';
+  }
+
+  // Legend
+  const legend = document.getElementById('equityPieLegend');
+  if (!legend) return;
+  legend.innerHTML = '';
+  slices.forEach(s => {
+    const pct = totalUSD > 0 ? ((s.valueUSD / totalUSD) * 100).toFixed(1) : '0.0';
+    const valStr = fmtVal(s.valueUSD, rate, sym);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0';
+    row.innerHTML =
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0"></div>' +
+      '<span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + s.label + '</span>' +
+      '<span style="font-size:11px;font-weight:700;flex-shrink:0">' + pct + '%</span>' +
+      '<span class="equity-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:42px;text-align:right">' + valStr + '</span>';
+    legend.appendChild(row);
+  });
+
+  // Re-apply hide mask
+  if (valuesHidden) {
+    legend.querySelectorAll('.equity-val').forEach(maskElement);
+  }
 }
 
 let valuesHidden = false;
@@ -1978,6 +2179,11 @@ function toggleHideValues() {
   // asset monetary values only
   document.querySelectorAll('.asset-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 
+  // equity pie center + legend values
+  const equityCenter = document.getElementById('equityPieCenter');
+  if (equityCenter) valuesHidden ? maskElement(equityCenter) : unmaskElement(equityCenter);
+  document.querySelectorAll('.equity-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
   // Re-apply axis mask state (axis shows/hides based on valuesHidden)
   applyAxisMask();
 }
@@ -2007,6 +2213,7 @@ function setCurrency(cur) {
   document.getElementById('btnUSD').style.background = !isGBP ? 'var(--accent)' : 'transparent';
   document.getElementById('btnUSD').style.color = !isGBP ? '#fff' : 'var(--muted)';
   renderPortfolio();
+  renderEquityPie();
   loadChartData();
 }
 
@@ -2023,13 +2230,13 @@ document.querySelectorAll('.period-tab').forEach(t => {
 // Category data for chart — populated from Supabase portfolio_snapshots
 const CAT_COLORS = {
   acciones: '#43e97b',
-  cripto:   '#6c63ff',
+  cripto:   '#ff6584',
   rsu:      '#f7b731',
   fiat:     '#4fc3f7',
 };
 const catData = {
   acciones:     { color: '#43e97b', points: [] },
-  cripto:       { color: '#6c63ff', points: [] },
+  cripto:       { color: '#ff6584', points: [] },
   rsu:          { color: '#f7b731', points: [] },
   fiat:         { color: '#4fc3f7', points: [] },
   fiat_locked:  { color: '#4fc3f7', points: [], dashed: true },
@@ -2373,7 +2580,7 @@ function toggleCat(el) {
     activeCats.add(cat);
     el.style.opacity = '1';
     // Restore color bg
-    const colors = { acciones: 'rgba(67,233,123,0.1)', cripto: 'rgba(108,99,255,0.1)', rsu: 'rgba(247,183,49,0.1)', fiat: 'rgba(79,195,247,0.1)' };
+    const colors = { acciones: 'rgba(67,233,123,0.1)', cripto: 'rgba(255,101,132,0.1)', rsu: 'rgba(247,183,49,0.1)', fiat: 'rgba(79,195,247,0.1)' };
     el.style.background = colors[cat];
   }
   drawChart();
@@ -2421,7 +2628,7 @@ function switchPosTab(el, cat) {
   }
 
   const CAT_LABEL_MAP = { acciones: 'Acc', cripto: 'Cri', rsu: 'RSU', fiat: 'Cash' };
-  const CAT_COLOR_MAP = { acciones: '#43e97b', cripto: '#6c63ff', rsu: '#f7b731', fiat: '#4fc3f7' };
+  const CAT_COLOR_MAP = { acciones: '#43e97b', cripto: '#ff6584', rsu: '#f7b731', fiat: '#4fc3f7' };
 
   function showTip(clientX, clientY) {
     const canvas = document.getElementById('portfolioChart');
@@ -2509,7 +2716,7 @@ function drawPie() {
   const lockedPct = (bd.fiat_locked||0);
   const slices = [
     { pct: (bd.acciones||0)/tot, color: '#43e97b', pattern: null },
-    { pct: (bd.cripto||0)/tot,   color: '#6c63ff', pattern: null },
+    { pct: (bd.cripto||0)/tot,   color: '#ff6584', pattern: null },
     { pct: (bd.rsu||0)/tot,      color: '#f7b731', pattern: null },
     { pct: liquidPct/tot,        color: '#4fc3f7', pattern: null },
     { pct: lockedPct/tot,        color: '#2a8f9f', pattern: 'stripe' },
