@@ -95,6 +95,122 @@
   }
 
 
+
+  /* ── AI CHAT WIDGET ───────────────────────────────────── */
+  #aiBubble {
+    position: fixed;
+    bottom: calc(68px + 16px); /* above bottom nav */
+    right: 16px;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6c63ff, #ff6584);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(108,99,255,0.45);
+    z-index: 200;
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: none;
+  }
+  #aiBubble:active { transform: scale(0.92); }
+  #aiBubble svg { width: 22px; height: 22px; }
+
+  #aiModal {
+    position: fixed; inset: 0;
+    z-index: 300;
+    display: flex; flex-direction: column;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #aiModal.open {
+    pointer-events: all;
+    opacity: 1;
+  }
+  #aiBackdrop {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(3px);
+  }
+  #aiSheet {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 82vh;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  }
+  #aiModal.open #aiSheet { transform: translateY(0); }
+  #aiSheetHeader {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  #aiSheetHeader .ai-title {
+    flex: 1;
+    font-family: var(--font-num); font-weight: 700; font-size: 15px;
+  }
+  #aiSheetHeader .ai-close {
+    background: none; border: none; color: var(--muted);
+    font-size: 22px; cursor: pointer; padding: 0; line-height: 1;
+  }
+  #aiMessages {
+    flex: 1; overflow-y: auto;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .ai-msg {
+    max-width: 90%; padding: 10px 13px;
+    border-radius: 14px; font-size: 13px; line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .ai-msg.user {
+    align-self: flex-end;
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .ai-msg.assistant {
+    align-self: flex-start;
+    background: var(--surface2); color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+  .ai-msg.thinking {
+    align-self: flex-start;
+    background: var(--surface2); color: var(--muted);
+    font-style: italic;
+  }
+  #aiInputRow {
+    display: flex; gap: 8px; padding: 10px 14px 16px;
+    border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  #aiInput {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 20px; padding: 9px 14px; color: var(--text);
+    font-size: 13px; font-family: 'DM Sans', sans-serif;
+    resize: none; outline: none; max-height: 100px; overflow-y: auto;
+  }
+  #aiSend {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; align-self: flex-end;
+    transition: background 0.15s, transform 0.1s;
+  }
+  #aiSend:active { transform: scale(0.9); }
+  #aiSend svg { width: 16px; height: 16px; }
+  .ai-quick-btns {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 0 14px 10px;
+  }
+  .ai-quick-btn {
+    font-size: 11px; padding: 5px 10px; border-radius: 100px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .ai-quick-btn:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
   /* Pull-to-refresh indicator */
   #ptr-indicator {
     position: fixed;
@@ -1143,12 +1259,11 @@
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar" id="allocBar">
-            <div class="alloc-seg" style="width:9%;background:#43e97b"></div>
-            <div class="alloc-seg" style="width:1%;background:#ff6584"></div>
-            <div class="alloc-seg" style="width:26%;background:#f7b731"></div>
+            <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
+            <div class="alloc-seg" style="width:0%;background:#ff6584"></div>
+            <div class="alloc-seg" style="width:0%;background:#f7b731"></div>
             <!-- cash: liquid part + locked part with stripe pattern -->
-            <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px" id="cashAllocSegs">
-              <div class="alloc-seg" style="flex:1;background:#4fc3f7"></div>
+            <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px;width:0%" id="cashAllocSegs">
             </div>
           </div>
           <div class="alloc-legend" style="margin-top:10px">
@@ -1545,6 +1660,50 @@
     </div>
   </div>
 
+
+  <!-- AI CHAT BUBBLE -->
+  <button id="aiBubble" onclick="openAIChat()" title="Analizar portfolio con IA">
+    <!-- Anthropic-style icon: stylized A -->
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M13.827 3.52l8.065 13.95A2.25 2.25 0 0 1 19.94 21H4.059a2.25 2.25 0 0 1-1.952-3.53l8.065-13.95a2.25 2.25 0 0 1 3.655 0z" fill="white" opacity="0.9"/>
+      <path d="M9.5 15.5l2.5-5 2.5 5M10.5 13.5h3" stroke="#6c63ff" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+  <!-- AI CHAT MODAL -->
+  <div id="aiModal">
+    <div id="aiBackdrop" onclick="closeAIChat()"></div>
+    <div id="aiSheet">
+      <div id="aiSheetHeader">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M13.827 3.52l8.065 13.95A2.25 2.25 0 0 1 19.94 21H4.059a2.25 2.25 0 0 1-1.952-3.53l8.065-13.95a2.25 2.25 0 0 1 3.655 0z" fill="url(#ag)" opacity="0.9"/>
+          <defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6c63ff"/><stop offset="100%" stop-color="#ff6584"/></linearGradient></defs>
+        </svg>
+        <div class="ai-title">Análisis de Portfolio</div>
+        <button class="ai-close" onclick="closeAIChat()">×</button>
+      </div>
+      <div id="aiMessages">
+        <div class="ai-msg assistant">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>
+      </div>
+      <div class="ai-quick-btns">
+        <div class="ai-quick-btn" onclick="aiQuick('¿Cómo está la composición actual de mi portfolio?')">Composición</div>
+        <div class="ai-quick-btn" onclick="aiQuick('¿Cuál es mi posición con más riesgo?')">Riesgo</div>
+        <div class="ai-quick-btn" onclick="aiQuick('¿Cómo está mi diversificación por clase de activo?')">Diversificación</div>
+        <div class="ai-quick-btn" onclick="aiQuick('¿Cuál es mi P&L total y qué posición aporta más?')">P&L</div>
+      </div>
+      <div id="aiInputRow">
+        <textarea id="aiInput" placeholder="Preguntá sobre tu portfolio..." rows="1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSendMsg()}"
+          oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+        <button id="aiSend" onclick="aiSendMsg()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
     <div class="nav-item active" onclick="switchNav(this, 'today')">
@@ -1903,7 +2062,7 @@ async function loadPortfolio() {
 // Market open/closed detection
 function getMarketStatus(ticker, category) {
   if (category === 'cripto') return 'open'; // 24/7
-  if (category === 'fiat' || category === 'rsu') return null; // no dot
+  if (category === 'fiat') return null; // no dot
 
   const now = new Date();
   // Use UTC offsets: NYSE = UTC-5 (EST) / UTC-4 (EDT), LSE = UTC+0 (GMT) / UTC+1 (BST)
@@ -3440,6 +3599,133 @@ async function drawPosChart(ticker, meta) {
 }
 
 
+
+
+// ── AI CHAT ────────────────────────────────────────────────────────────────
+const aiHistory = [];
+
+function buildPortfolioContext() {
+  if (!liveData) return 'Portfolio data not loaded yet.';
+  const { totalUSD, breakdown, assets } = liveData;
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+  const fmt = v => sym + Math.round(v * rate).toLocaleString('es-AR');
+
+  const lines = [
+    `## Portfolio de Julián — datos en tiempo real`,
+    `**Patrimonio total:** ${fmt(totalUSD)}`,
+    `**FX Rate:** 1 USD = ${FX_RATE.toFixed(4)} GBP`,
+    ``,
+    `### Composición por categoría`,
+    `- Acciones: ${fmt(breakdown.acciones || 0)} (${totalUSD > 0 ? ((breakdown.acciones||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- Cripto: ${fmt(breakdown.cripto || 0)} (${totalUSD > 0 ? ((breakdown.cripto||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- RSUs Meta: ${fmt(breakdown.rsu || 0)} (${totalUSD > 0 ? ((breakdown.rsu||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- Cash líquido: ${fmt(breakdown.fiat_liquid || 0)} (${totalUSD > 0 ? ((breakdown.fiat_liquid||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- Cash bloqueado: ${fmt(breakdown.fiat_locked || 0)} (${totalUSD > 0 ? ((breakdown.fiat_locked||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    ``,
+    `### Posiciones detalladas`,
+  ];
+
+  assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pct, dayPct }) => {
+    const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
+    const pnlPct = pct !== null ? ` | P&L: ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '';
+    const dayStr = dayPct !== null ? ` | Hoy: ${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '';
+    const priceStr = priceUSD ? ` | Precio actual: $${priceUSD.toLocaleString('en-US', {maximumFractionDigits:2})}` : '';
+    const avgStr = pos.avg_cost_usd ? ` | Precio prom compra: $${Number(pos.avg_cost_usd).toFixed(2)}` : '';
+    const invStr = pos.initial_investment_usd ? ` | Inversión original: $${Number(pos.initial_investment_usd).toFixed(0)}` : '';
+    lines.push(`- **${meta.name}** (${pos.ticker}): ${fmt(valueUSD)} | Qty: ${pos.qty}${priceStr}${avgStr}${invStr}${pnlPct}${dayStr}`);
+  });
+
+  return lines.join('\n');
+}
+
+function openAIChat() {
+  document.getElementById('aiModal').classList.add('open');
+  setTimeout(() => document.getElementById('aiInput').focus(), 350);
+}
+function closeAIChat() {
+  document.getElementById('aiModal').classList.remove('open');
+}
+function aiQuick(msg) {
+  document.getElementById('aiInput').value = msg;
+  aiSendMsg();
+}
+
+async function aiSendMsg() {
+  const input = document.getElementById('aiInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Add user message
+  aiAddMsg('user', msg);
+  aiHistory.push({ role: 'user', content: msg });
+
+  // Thinking indicator
+  const thinkingEl = aiAddMsg('thinking', '...');
+
+  try {
+    const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
+
+${buildPortfolioContext()}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': await getAnthropicKey(),
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: aiHistory.slice(-8) // keep last 8 turns for context
+      })
+    });
+
+    const data = await res.json();
+    thinkingEl.remove();
+
+    if (data.error) {
+      aiAddMsg('assistant', '⚠️ Error: ' + (data.error.message || 'No se pudo conectar con la IA.'));
+      aiHistory.pop();
+      return;
+    }
+
+    const reply = data.content?.[0]?.text || '(sin respuesta)';
+    aiAddMsg('assistant', reply);
+    aiHistory.push({ role: 'assistant', content: reply });
+
+  } catch(e) {
+    thinkingEl.remove();
+    aiAddMsg('assistant', '⚠️ Error de conexión: ' + e.message);
+    aiHistory.pop();
+  }
+}
+
+async function getAnthropicKey() {
+  // Fetch from server endpoint (keeps key out of frontend code)
+  if (window._anthropicKey) return window._anthropicKey;
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  window._anthropicKey = cfg.anthropicKey;
+  return window._anthropicKey;
+}
+
+function aiAddMsg(role, text) {
+  const msgs = document.getElementById('aiMessages');
+  const el = document.createElement('div');
+  el.className = 'ai-msg ' + role;
+  el.textContent = text;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+// ── END AI CHAT ─────────────────────────────────────────────────────────────
 
 // ── PULL-TO-REFRESH ──────────────────────────────────────────────────────────
 (function() {
