@@ -560,12 +560,18 @@
     gap: 2px;
     margin-bottom: 12px;
   }
-  .alloc-seg { height: 100%; border-radius: 100px; }
+  .alloc-seg { height: 100%; border-radius: 100px; transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
   .alloc-legend { display: flex; flex-wrap: wrap; gap: 10px; }
   .alloc-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
   .alloc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
   .asset-list { display: flex; flex-direction: column; gap: 10px; }
+  .market-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    display: inline-block; margin-left: 4px; vertical-align: middle;
+  }
+  .market-dot.open  { background: #43e97b; box-shadow: 0 0 4px #43e97b88; }
+  .market-dot.closed { background: #ff6584; }
   .asset-card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1893,6 +1899,38 @@ async function loadPortfolio() {
   }
 }
 
+
+// Market open/closed detection
+function getMarketStatus(ticker, category) {
+  if (category === 'cripto') return 'open'; // 24/7
+  if (category === 'fiat' || category === 'rsu') return null; // no dot
+
+  const now = new Date();
+  // Use UTC offsets: NYSE = UTC-5 (EST) / UTC-4 (EDT), LSE = UTC+0 (GMT) / UTC+1 (BST)
+  const utcH = now.getUTCHours(), utcM = now.getUTCMinutes(), utcD = now.getUTCDay();
+  if (utcD === 0 || utcD === 6) return 'closed'; // weekend
+
+  const totalUtcMins = utcH * 60 + utcM;
+
+  // LSE: ARKK.L — 08:00–16:30 London time
+  // BST (last Sun Mar → last Sun Oct): UTC+1, otherwise UTC+0
+  if (ticker === 'ARKK.L') {
+    const month = now.getUTCMonth(); // 0=Jan
+    const isBST = month >= 2 && month <= 9; // approx Mar–Oct
+    const offsetMins = isBST ? 60 : 0;
+    const localMins = totalUtcMins + offsetMins;
+    return (localMins >= 480 && localMins < 990) ? 'open' : 'closed'; // 8:00–16:30
+  }
+
+  // NYSE: SPY, BRK.B, MELI, NU — 09:30–16:00 ET
+  // EDT (2nd Sun Mar → 1st Sun Nov): UTC-4, otherwise EST UTC-5
+  const month = now.getUTCMonth();
+  const isEDT = month >= 2 && month <= 9; // approx Mar–Oct
+  const offsetMins = isEDT ? -240 : -300;
+  const localMins = totalUtcMins + offsetMins;
+  return (localMins >= 570 && localMins < 960) ? 'open' : 'closed'; // 9:30–16:00
+}
+
 function renderPortfolio() {
   if (!liveData) return;
   const { totalUSD, changeUSD, breakdown, assets } = liveData;
@@ -1921,7 +1959,16 @@ function renderPortfolio() {
   // First 3 cats (acciones, cripto, rsu) use segs[0..2]
   ['acciones','cripto','rsu'].forEach((cat, i) => {
     const pct = totalUSD > 0 ? Math.round((breakdown[cat] || 0) / totalUSD * 100) : 0;
-    if (segs[i]) segs[i].style.width = pct + '%';
+    if (segs[i]) {
+      if (!segs[i].dataset.animated) {
+        segs[i].dataset.animated = '1';
+        segs[i].style.width = '0%';
+        const targetPct = pct;
+        requestAnimationFrame(() => setTimeout(() => { segs[i].style.width = targetPct + '%'; }, 30 + i * 60));
+      } else {
+        segs[i].style.width = pct + '%';
+      }
+    }
     if (items[i]) items[i].lastChild.textContent = ' ' + CAT_LABELS[i] + ' ' + pct + '%';
   });
   // Cash seg: split into liquid (solid) + locked (striped)
@@ -1941,7 +1988,17 @@ function renderPortfolio() {
   // Update the cashAllocSegs container width via the parent flex container
   // The cashAllocSegs already fills remaining space; set width on its wrapper:
   const cashWrapper = document.getElementById('cashAllocSegs');
-  if (cashWrapper) cashWrapper.style.width = Math.round(cashPct) + '%';
+  if (cashWrapper) {
+    cashWrapper.style.transition = 'width 0.7s cubic-bezier(0.4,0,0.2,1)';
+    // Animate from 0 on first render
+    if (!cashWrapper.dataset.animated) {
+      cashWrapper.style.width = '0%';
+      cashWrapper.dataset.animated = '1';
+      requestAnimationFrame(() => setTimeout(() => { cashWrapper.style.width = Math.round(cashPct) + '%'; }, 30));
+    } else {
+      cashWrapper.style.width = Math.round(cashPct) + '%';
+    }
+  }
   if (items[3]) items[3].lastChild.textContent = ' Cash ' + Math.round(cashPct) + '%';
 
   // Pie legend: pl0=acciones pl1=cripto pl2=rsu pl3=cash liquid pl4=cash locked
@@ -2008,7 +2065,10 @@ function renderPortfolio() {
     assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
-      '<div class="asset-sub">' + subLabel + '</div></div>' +
+      '<div class="asset-sub">' + subLabel + (() => {
+        const status = getMarketStatus(pos.ticker, pos.category);
+        return status ? '<span class="market-dot ' + status + '" title="Mercado ' + (status === 'open' ? 'abierto' : 'cerrado') + '"></span>' : '';
+      })() + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
       '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>';
   });
@@ -2784,11 +2844,38 @@ function switchPosTab(el, cat) {
       clearDotOverlay();
     }
   });
+  let tooltipPinned = false;
   document.addEventListener('touchmove', function(e) {
-    if (e.touches[0]) showTip(e.touches[0].clientX, e.touches[0].clientY);
+    if (e.touches[0]) {
+      tooltipPinned = false;
+      showTip(e.touches[0].clientX, e.touches[0].clientY);
+    }
   }, { passive: true });
-  document.addEventListener('touchend', function() {
-    setTimeout(() => { const t = document.getElementById('chartTooltip'); if(t) t.classList.remove('visible'); }, 1500);
+  document.addEventListener('touchend', function(e) {
+    const t = document.getElementById('chartTooltip');
+    if (!t) return;
+    const canvas = document.getElementById('portfolioChart');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const tx = e.changedTouches[0].clientX, ty = e.changedTouches[0].clientY;
+    // If tap was on/near the chart, pin the tooltip
+    if (tx >= rect.left && tx <= rect.right && ty >= rect.top - 20 && ty <= rect.bottom + 20) {
+      if (tooltipPinned) {
+        // Second tap on chart — unpin
+        tooltipPinned = false;
+        t.classList.remove('visible');
+        clearDotOverlay();
+      } else {
+        tooltipPinned = true;
+        // Keep visible — showTip already called in touchmove or call now for static taps
+        showTip(tx, ty);
+      }
+    } else {
+      // Tap outside chart — unpin
+      tooltipPinned = false;
+      t.classList.remove('visible');
+      clearDotOverlay();
+    }
   });
 })();
 
