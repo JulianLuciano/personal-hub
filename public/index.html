@@ -1122,7 +1122,8 @@
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#6c63ff"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
             <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Cash</span></div><span style="font-weight:600" id="pl3">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Líquido</span></div><span style="font-weight:600" id="pl3">—</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#2a8f9f;border:1px dashed #4fc3f7"></div><span style="color:var(--muted)">Ilíquido</span></div><span style="font-weight:600" id="pl4">—</span></div>
           </div>
         </div>
         <div style="display:flex;justify-content:center;gap:5px;margin-top:10px">
@@ -1602,9 +1603,15 @@ async function sbFetch(path) {
   const res = await fetch(SUPABASE_URL + path, {
     headers: {
       'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_KEY
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Accept': 'application/json'
     }
   });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[sbFetch] HTTP ' + res.status + ' for ' + path + ':', errText);
+    throw new Error('HTTP ' + res.status + ': ' + errText.slice(0, 200));
+  }
   return res.json();
 }
 
@@ -1796,8 +1803,9 @@ function renderPortfolio() {
   const changePct = totalUSD > 0 ? (changeUSD / (totalUSD - changeUSD)) * 100 : 0;
   const changeFormatted = fmtVal(Math.abs(changeUSD), rate, sym);
   const arrow = changeUSD >= 0 ? '↑' : '↓';
-  const changeClass = changeUSD >= 0 ? 'up' : 'down';
-  changeEl.className = 'portfolio-change ' + changeClass;
+  const changeColor = changeUSD > 0 ? 'var(--accent3)' : changeUSD < 0 ? 'var(--accent2)' : 'var(--muted)';
+  changeEl.className = 'portfolio-change';
+  changeEl.style.color = changeColor;
   changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs ayer';
 
   // Alloc bar (4 cats)
@@ -1831,8 +1839,8 @@ function renderPortfolio() {
   if (cashWrapper) cashWrapper.style.width = Math.round(cashPct) + '%';
   if (items[3]) items[3].lastChild.textContent = ' Cash ' + Math.round(cashPct) + '%';
 
-  // Pie legend (4 cats: pl0=acciones pl1=cripto pl2=rsu pl3=fiat)
-  [breakdown.acciones, breakdown.cripto, breakdown.rsu, breakdown.fiat].forEach((v, i) => {
+  // Pie legend: pl0=acciones pl1=cripto pl2=rsu pl3=cash liquid pl4=cash locked
+  [breakdown.acciones, breakdown.cripto, breakdown.rsu, breakdown.fiat_liquid, breakdown.fiat_locked].forEach((v, i) => {
     const el = document.getElementById('pl' + i);
     if (el) el.textContent = fmtVal(v || 0, rate, sym);
   });
@@ -1849,6 +1857,7 @@ function renderPortfolio() {
   assetList.innerHTML = '';
   sorted.forEach(({ pos, valueUSD, pct, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category, showTicker: true };
+    const isLockedFiat = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
     const valStr = fmtVal(valueUSD, rate, sym);
     const qtyStr = fmtQty(pos.qty, pos.ticker);
     // Subtitle: show ticker+qty for stocks/crypto, nothing for fiat
@@ -1876,7 +1885,6 @@ function renderPortfolio() {
     } else {
       chgHtml = '<div class="asset-chg" style="color:var(--muted)">—</div>';
     }
-    const isLockedFiat = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
     const ticker = pos.ticker;
     const rsuClick = meta.rsu
       ? ' onclick="openRSU()" style="cursor:pointer"'
@@ -1959,21 +1967,36 @@ function toggleHideValues() {
   valuesHidden = !valuesHidden;
   document.getElementById('eyeBtn').textContent = valuesHidden ? '🙈' : '👁';
 
-  const ids = ['portfolioTotal','pieTotal','yTop','yMid','yBot','pl0','pl1','pl2','pl3'];
+  // Only mask pure monetary value elements — NOT category labels/pct, NOT axis labels
+  const ids = ['portfolioTotal','pieTotal','pl0','pl1','pl2','pl3','pl4'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     valuesHidden ? maskElement(el) : unmaskElement(el);
   });
 
-  // portfolioChange
+  // portfolioChange (monetary + pct change)
   const chg = document.getElementById('portfolioChange');
   if (chg) valuesHidden ? maskElement(chg) : unmaskElement(chg);
 
-  // asset values
+  // asset monetary values only
   document.querySelectorAll('.asset-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 
-  // alloc-items: preserve the color dot, only mask the text part
-  document.querySelectorAll('.alloc-item').forEach(el => valuesHidden ? maskAllocItem(el) : unmaskAllocItem(el));
+  // Re-apply axis mask state (axis shows/hides based on valuesHidden)
+  applyAxisMask();
+}
+
+function applyAxisMask() {
+  const ids = ['yTop','yMid','yBot'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (valuesHidden) {
+      if (!el.dataset.real) el.dataset.real = el.textContent;
+      el.textContent = '·····';
+    } else {
+      if (el.dataset.real) { el.textContent = el.dataset.real; delete el.dataset.real; }
+    }
+  });
 }
 
 // Patch renderPortfolio to re-apply mask after re-render
@@ -2039,9 +2062,16 @@ function fmtY(v) {
 
 function setYAxis(min, max) {
   const mid = (min + max) / 2;
-  document.getElementById('yTop').textContent = fmtY(max);
-  document.getElementById('yMid').textContent = fmtY(mid);
-  document.getElementById('yBot').textContent = fmtY(min);
+  const elTop = document.getElementById('yTop');
+  const elMid = document.getElementById('yMid');
+  const elBot = document.getElementById('yBot');
+  // Clear any saved real values first so applyAxisMask saves the new ones
+  [elTop, elMid, elBot].forEach(el => { if (el) delete el.dataset.real; });
+  if (elTop) elTop.textContent = fmtY(max);
+  if (elMid) elMid.textContent = fmtY(mid);
+  if (elBot) elBot.textContent = fmtY(min);
+  // Re-apply mask if needed
+  if (typeof valuesHidden !== 'undefined' && valuesHidden) applyAxisMask();
 }
 
 // Load chart data from portfolio_snapshots based on period
@@ -2126,7 +2156,8 @@ async function loadChartData() {
 }
 
 let chartSnapDates = [];  // populated by loadChartData
-let chartLastCoords = [];  // last drawn line coords for hover dot
+let chartLastCoords = [];  // last drawn line coords for hover dot (totalMode)
+let chartAllCatCoords = {};  // individual mode: cat -> coords array
 
 function clearDotOverlay() {
   const ov = document.getElementById('chartDotOverlay');
@@ -2143,7 +2174,7 @@ function clearDotOverlay() {
 
 function drawDotAt(idx) {
   const ov = document.getElementById('chartDotOverlay');
-  if (!ov || !chartLastCoords.length) return;
+  if (!ov) return;
   const dpr = window.devicePixelRatio || 1;
   const W = ov.parentElement.offsetWidth;
   const H = 90;
@@ -2154,33 +2185,54 @@ function drawDotAt(idx) {
   const ctx = ov.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
-  if (idx < 0 || idx >= chartLastCoords.length) return;
-  const pt = chartLastCoords[idx];
-  // Vertical line
-  ctx.beginPath();
-  ctx.moveTo(pt.x, 0);
-  ctx.lineTo(pt.x, H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  // Outer ring
-  ctx.beginPath();
-  ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
-  ctx.fillStyle = (pt.color || '#43e97b') + '33';
-  ctx.fill();
-  // Inner dot
-  ctx.beginPath();
-  ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = pt.color || '#43e97b';
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+
+  // Collect all coord sets to draw dots on
+  let coordSets = [];
+  if (totalMode) {
+    if (chartLastCoords.length) coordSets = [chartLastCoords];
+  } else {
+    coordSets = Object.values(chartAllCatCoords);
+  }
+  if (!coordSets.length) return;
+
+  // Draw shared vertical crosshair at x of first set
+  const firstPt = coordSets[0][Math.min(idx, coordSets[0].length - 1)];
+  if (firstPt) {
+    ctx.beginPath();
+    ctx.moveTo(firstPt.x, 0);
+    ctx.lineTo(firstPt.x, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw dot on each line
+  coordSets.forEach(coords => {
+    if (!coords.length) return;
+    const pt = coords[Math.min(idx, coords.length - 1)];
+    if (!pt) return;
+    const color = pt.color || '#43e97b';
+    // Outer ring
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = color + '33';
+    ctx.fill();
+    // Inner dot
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
 }
 
 function drawChart() {
+  chartLastCoords = [];
+  chartAllCatCoords = {};
   const canvas = document.getElementById('portfolioChart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
@@ -2305,7 +2357,8 @@ function drawChart() {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    if (!chartLastCoords.length) chartLastCoords = coords.map(c => ({ ...c, color: d.color }));
+    chartAllCatCoords[cat] = coords.map(c => ({ ...c, color: d.color }));
+    if (!chartLastCoords.length) chartLastCoords = chartAllCatCoords[cat];
   });
   clearDotOverlay();
 }
@@ -2364,8 +2417,14 @@ function switchPosTab(el, cat) {
     if (len < 2) return null;
     const idx = Math.max(0, Math.min(len - 1, Math.round((x / W) * (len - 1))));
     const val = allCats.reduce((sum, cat) => sum + (catData[cat]?.points[idx] || 0), 0);
-    return { val, idx };
+    // Per-cat values for individual mode
+    const catVals = {};
+    allCats.forEach(cat => { catVals[cat] = catData[cat]?.points[idx] || 0; });
+    return { val, idx, catVals };
   }
+
+  const CAT_LABEL_MAP = { acciones: 'Acc', cripto: 'Cri', rsu: 'RSU', fiat: 'Cash' };
+  const CAT_COLOR_MAP = { acciones: '#43e97b', cripto: '#6c63ff', rsu: '#f7b731', fiat: '#4fc3f7' };
 
   function showTip(clientX, clientY) {
     const canvas = document.getElementById('portfolioChart');
@@ -2376,14 +2435,30 @@ function switchPosTab(el, cat) {
     const result = getChartValue(clientX - rect.left, rect.width);
     if (!result) return false;
     const sym = currentCurrency === 'GBP' ? '£' : '$';
-    document.getElementById('ttVal').textContent = valuesHidden ? '******' : sym + Math.round(result.val).toLocaleString('es-AR');
     const date = chartSnapDates[result.idx];
-    if (date) document.getElementById('ttDate').textContent = date.toLocaleDateString('es-AR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    if (date) document.getElementById('ttDate').textContent = date.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+
+    if (totalMode) {
+      document.getElementById('ttVal').textContent = valuesHidden ? '******' : sym + Math.round(result.val).toLocaleString('es-AR');
+    } else {
+      // Show per-cat breakdown
+      const cats = [...activeCats];
+      if (valuesHidden) {
+        document.getElementById('ttVal').textContent = '******';
+      } else {
+        document.getElementById('ttVal').innerHTML = cats.map(cat => {
+          const v = result.catVals[cat] || 0;
+          const color = CAT_COLOR_MAP[cat] || '#fff';
+          return '<span style="color:' + color + '">' + CAT_LABEL_MAP[cat] + ' ' + sym + Math.round(v).toLocaleString('es-AR') + '</span>';
+        }).join('<br>');
+      }
+    }
+
     drawDotAt(result.idx);
     const wrap = document.getElementById('chartWrap');
     const wRect = wrap.getBoundingClientRect();
     let left = clientX - wRect.left + 10;
-    if (left + 120 > wRect.width) left = clientX - wRect.left - 125;
+    if (left + 140 > wRect.width) left = clientX - wRect.left - 145;
     tooltip.style.left = left + 'px';
     tooltip.style.top = '4px';
     tooltip.classList.add('visible');
