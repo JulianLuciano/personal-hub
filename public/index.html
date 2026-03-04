@@ -26,7 +26,7 @@
     --surface2: #eeeef3;
     --border: rgba(0,0,0,0.07);
     --text: #0a0a0f;
-    --muted: rgba(10,10,15,0.55);
+    --muted: rgba(10,10,15,0.70);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -78,8 +78,8 @@
     border: 1px solid var(--border);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    font-size: 18px;
     transition: background 0.2s;
+    color: var(--text);
   }
 
   /* TABS */
@@ -754,7 +754,7 @@
       <h1>Good morning, Julian 👋</h1>
       <p>Monday, March 3</p>
     </div>
-    <div class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙</div>
+    <div class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
   </div>
 
   <!-- TABS -->
@@ -1146,6 +1146,16 @@
         </div>
       </div>
 
+      <!-- Individual/Total toggle -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--muted)">Individual</span>
+          <div id="totalToggle" onclick="toggleTotalMode()" style="width:36px;height:20px;border-radius:100px;background:var(--accent);position:relative;cursor:pointer;transition:background 0.2s;border:1px solid var(--accent)">
+            <div id="totalToggleKnob" style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);transform:translateX(16px)"></div>
+          </div>
+          <span style="font-size:11px;color:var(--muted)">Total</span>
+        </div>
+      </div>
       <!-- Category chips -->
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" id="catFilters">
         <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
@@ -1335,7 +1345,7 @@
       <div class="settings-group-label">Apariencia</div>
       <div class="settings-list">
         <div class="settings-row" onclick="toggleTheme()">
-          <div class="settings-row-icon" style="background:rgba(108,99,255,0.15)">🌙</div>
+          <div class="settings-row-icon" style="background:rgba(108,99,255,0.15);color:var(--text)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
           <div class="settings-row-text"><div class="row-title">Modo oscuro</div></div>
           <div class="toggle-switch on" id="darkToggle"></div>
         </div>
@@ -1514,7 +1524,7 @@ let isDark = true;
 function toggleTheme() {
   isDark = !isDark;
   document.getElementById('app').classList.toggle('light', !isDark);
-  document.getElementById('themeBtn').textContent = isDark ? '🌙' : '☀️';
+  document.getElementById('themeBtn').innerHTML = isDark ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>` : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
   const dt = document.getElementById('darkToggle');
   if (dt) dt.classList.toggle('on', isDark);
 }
