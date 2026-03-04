@@ -690,6 +690,11 @@
   .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* asterisk masking handled in JS */
+
+  .modal {
+    transition: transform 0.25s ease;
+  }
+
 #chartTooltip {
   position: absolute;
   background: var(--surface2);
@@ -1242,10 +1247,10 @@
     <p class="section-label">Posiciones</p>
     <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px" id="posTabs">
       <div class="pos-tab active" onclick="switchPosTab(this,'all')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;white-space:nowrap;border:1px solid var(--accent);transition:all 0.2s">Todas</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'acciones')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">Acciones</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'cripto')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">Cripto</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'rsu')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">RSUs</div>
-      <div class="pos-tab" onclick="switchPosTab(this,'fiat')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s">Cash</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'acciones')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Acciones</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'cripto')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Cripto</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'rsu')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg> RSUs</div>
+      <div class="pos-tab" onclick="switchPosTab(this,'fiat')" style="padding:7px 14px;border-radius:100px;font-size:12px;font-weight:600;cursor:pointer;background:var(--surface);border:1px solid var(--border);color:var(--muted);white-space:nowrap;transition:all 0.2s"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Cash</div>
     </div>
 
     <!-- Portfolio loading spinner -->
@@ -1297,7 +1302,7 @@
             <div style="font-size:12px;color:var(--muted);margin-top:2px" id="nextVestSub">en <span id="daysToVest">—</span> días · — units</div>
           </div>
           <div style="text-align:right">
-            <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#4fc3f7" id="nextVestVal">£4.740</div>
+            <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#4fc3f7" id="nextVestVal" class="modal-money-val">£4.740</div>
             <div style="font-size:11px;color:var(--muted)" id="nextVestLabel">valor bruto estimado</div>
           </div>
         </div>
@@ -1325,7 +1330,7 @@
         <!-- Total accumulated -->
         <div style="margin-top:12px;padding:10px 14px;background:var(--surface);border-radius:12px;display:flex;justify-content:space-between;align-items:center">
           <div style="font-size:12px;color:var(--muted)">Total acumulado (<span id="qLabel">4</span> vests)</div>
-          <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:#4fc3f7" id="accumTotal">£18.960</div>
+          <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:#4fc3f7" id="accumTotal" class="modal-money-val">£18.960</div>
         </div>
       </div>
 
@@ -1468,12 +1473,12 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Valor posición</div>
-          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalValue">—</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalValue" class="modal-money-val">—</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalQty">—</div>
         </div>
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">P&L total</div>
-          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalPnl">—</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalPnl" class="modal-money-val">—</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalPnlPct">—</div>
         </div>
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
@@ -2181,6 +2186,10 @@ function toggleHideValues() {
   const equityCenter = document.getElementById('equityPieCenter');
   if (equityCenter) valuesHidden ? maskElement(equityCenter) : unmaskElement(equityCenter);
   document.querySelectorAll('.equity-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
+  // posModal + RSU modal monetary values (only if modal is open)
+  document.querySelectorAll('.modal-money-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+  document.querySelectorAll('.rsu-row-val, .rsu-row-acum').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 
   // Re-apply axis mask state (axis shows/hides based on valuesHidden)
   applyAxisMask();
@@ -2934,13 +2943,18 @@ function refreshRSU() {
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${daysLabel}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${valColor}">${sym}${val.toLocaleString()}</div>
-        <div style="font-size:10px;color:var(--muted)">acum: ${sym}${accum.toLocaleString()}</div>
+        <div class="rsu-row-val" style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${valColor}">${sym}${val.toLocaleString()}</div>
+        <div class="rsu-row-acum" style="font-size:10px;color:var(--muted)">acum: ${sym}${accum.toLocaleString()}</div>
       </div>
     </div>`;
   }).join('');
 
-  setTimeout(() => drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult), 60);
+  setTimeout(() => {
+    drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult);
+    if (valuesHidden) {
+      document.querySelectorAll('.modal-money-val, .rsu-row-val, .rsu-row-acum').forEach(maskElement);
+    }
+  }, 60);
 }
 
 function closeRSU() {
@@ -3062,6 +3076,10 @@ function renderPosModalValues(ticker) {
   // Portfolio share (always %)
   const share = liveData && liveData.totalUSD > 0 ? (valueUSD / liveData.totalUSD * 100) : 0;
   document.getElementById('posModalShare').textContent = share.toFixed(1) + '%';
+  // Re-apply hide mask if active
+  if (valuesHidden) {
+    document.querySelectorAll('.modal-money-val').forEach(maskElement);
+  }
 }
 
 async function openPosDetail(ticker) {
@@ -3190,6 +3208,69 @@ async function drawPosChart(ticker, meta) {
     console.error('Error loading price history:', e);
   }
 }
+
+
+// ── MODAL DRAG-TO-CLOSE ─────────────────────────────────────────────────────
+function initDragClose(overlayId, closeFn) {
+  const overlay = document.getElementById(overlayId);
+  if (!overlay) return;
+  const sheet = overlay.querySelector('.modal');
+  if (!sheet) return;
+
+  let startY = 0, currentY = 0, dragging = false;
+
+  sheet.addEventListener('pointerdown', function(e) {
+    // Only start drag from the handle area or top 40px of the sheet
+    const rect = sheet.getBoundingClientRect();
+    if (e.clientY - rect.top > 60) return; // only top zone
+    dragging = true;
+    startY = e.clientY;
+    currentY = 0;
+    sheet.style.transition = 'none';
+    sheet.setPointerCapture(e.pointerId);
+  });
+
+  sheet.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    if (dy < 0) return; // don't allow dragging up
+    currentY = dy;
+    sheet.style.transform = 'translateY(' + dy + 'px)';
+  });
+
+  sheet.addEventListener('pointerup', function(e) {
+    if (!dragging) return;
+    dragging = false;
+    sheet.style.transition = '';
+    if (currentY > 80) {
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(() => {
+        sheet.style.transform = '';
+        closeFn();
+      }, 200);
+    } else {
+      sheet.style.transform = '';
+    }
+  });
+
+  sheet.addEventListener('pointercancel', function() {
+    dragging = false;
+    sheet.style.transform = '';
+    sheet.style.transition = '';
+  });
+
+  // Prevent scroll on overlay backdrop from bubbling when dragging
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeFn();
+  });
+}
+
+// Init after DOM ready — called once
+function initAllModals() {
+  initDragClose('posModal', closePosDetail);
+  initDragClose('rsuModal', closeRSU);
+}
+document.addEventListener('DOMContentLoaded', initAllModals);
 
 // AUTH
 // States: 'pin_setup' | 'face_id' | 'pin_fallback'
