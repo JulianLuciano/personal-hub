@@ -1474,10 +1474,10 @@
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Valor posición</div>
           <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalValue" class="modal-money-val">—</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalQty">—</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalQty" class="modal-units-val">—</div>
         </div>
         <div style="background:var(--surface2);border-radius:14px;padding:14px">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">P&L total</div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">P&L histórico</div>
           <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalPnl" class="modal-money-val">—</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px" id="posModalPnlPct">—</div>
         </div>
@@ -2164,6 +2164,18 @@ function unmaskAllocItem(el) {
   }
 }
 
+
+// RSU subtitle partial mask: replace numbers with *** (3 stars)
+function maskRsuSubtitle(el) {
+  if (!el) return;
+  if (!el.dataset.realHtml) el.dataset.realHtml = el.innerHTML;
+  el.innerHTML = el.innerHTML.replace(/\b\d+(\.\d+)?\b/g, '***');
+}
+function unmaskRsuSubtitle(el) {
+  if (!el || !el.dataset.realHtml) return;
+  el.innerHTML = el.dataset.realHtml;
+  delete el.dataset.realHtml;
+}
 function toggleHideValues() {
   valuesHidden = !valuesHidden;
   document.getElementById('eyeBtn').innerHTML = valuesHidden ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>` : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -2189,7 +2201,10 @@ function toggleHideValues() {
 
   // posModal + RSU modal monetary values (only if modal is open)
   document.querySelectorAll('.modal-money-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
-  document.querySelectorAll('.rsu-row-val, .rsu-row-acum').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+  document.querySelectorAll('.modal-units-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+  document.querySelectorAll('.rsu-row-val, .rsu-acum-num, .rsu-units-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+  const rsuSubEl = document.getElementById('rsuSubtitle');
+  if (rsuSubEl) valuesHidden ? maskRsuSubtitle(rsuSubEl) : unmaskRsuSubtitle(rsuSubEl);
 
   // Re-apply axis mask state (axis shows/hides based on valuesHidden)
   applyAxisMask();
@@ -2858,6 +2873,12 @@ function setQuarters(n, el) {
   el.style.background = '#4fc3f7';
   el.style.color = '#000';
   refreshRSU();
+  // Re-apply mask immediately (before chart setTimeout fires)
+  if (valuesHidden) {
+    document.querySelectorAll('.modal-money-val, .rsu-row-val, .rsu-acum-num, .rsu-units-val').forEach(maskElement);
+    const rsuSubEl = document.getElementById('rsuSubtitle');
+    if (rsuSubEl) maskRsuSubtitle(rsuSubEl);
+  }
 }
 
 async function openRSU() {
@@ -2899,7 +2920,7 @@ function refreshRSU() {
     if (daysEl) daysEl.textContent = next.days > 0 ? next.days : 'hoy';
     // Update full subtitle including units
     const subEl = document.getElementById('nextVestSub');
-    if (subEl) subEl.innerHTML = (next.days > 0 ? 'en <span id="daysToVest">' + next.days + '</span> días' : '<span id="daysToVest">hoy</span>') + ' · ' + next.units + ' units';
+    if (subEl) subEl.innerHTML = (next.days > 0 ? 'en <span id="daysToVest">' + next.days + '</span> días' : '<span id="daysToVest">hoy</span>') + ' · <span class="rsu-units-val">' + next.units + '</span> units';
     const nextVal = Math.round(next.units * RSU_PRICE_USD * rate * netMult);
     document.getElementById('nextVestVal').textContent = sym + nextVal.toLocaleString();
     const lblEl = document.getElementById('nextVestLabel');
@@ -2935,7 +2956,7 @@ function refreshRSU() {
     const valColor = isVested ? 'var(--muted)' : '#4fc3f7';
     const daysLabel = isVested
       ? '<span style="color:#43e97b">✓ Vesteado</span>'
-      : (v.days > 0 ? 'en ' + v.days + ' días' : 'hoy') + ' · ' + v.units + ' units';
+      : (v.days > 0 ? 'en ' + v.days + ' días' : 'hoy') + ' · <span class="rsu-units-val">' + v.units + '</span> units';
     return `<div style="display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:14px;padding:12px 14px;opacity:${isVested?'0.5':'1'};${rowBorder}">
       <div style="width:8px;height:8px;border-radius:50%;background:${dotColor}"></div>
       <div style="flex:1">
@@ -2944,7 +2965,7 @@ function refreshRSU() {
       </div>
       <div style="text-align:right">
         <div class="rsu-row-val" style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:${valColor}">${sym}${val.toLocaleString()}</div>
-        <div class="rsu-row-acum" style="font-size:10px;color:var(--muted)">acum: ${sym}${accum.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--muted)">acum: <span class="rsu-acum-num">${sym}${accum.toLocaleString()}</span></div>
       </div>
     </div>`;
   }).join('');
@@ -2952,7 +2973,9 @@ function refreshRSU() {
   setTimeout(() => {
     drawVestChart(rate, sym, slice, RSU_PRICE_USD, netMult);
     if (valuesHidden) {
-      document.querySelectorAll('.modal-money-val, .rsu-row-val, .rsu-row-acum').forEach(maskElement);
+      document.querySelectorAll('.modal-money-val, .rsu-row-val, .rsu-acum-num, .rsu-units-val').forEach(maskElement);
+      const rsuSubEl = document.getElementById('rsuSubtitle');
+      if (rsuSubEl) maskRsuSubtitle(rsuSubEl);
     }
   }, 60);
 }
@@ -3079,6 +3102,7 @@ function renderPosModalValues(ticker) {
   // Re-apply hide mask if active
   if (valuesHidden) {
     document.querySelectorAll('.modal-money-val').forEach(maskElement);
+    document.querySelectorAll('.modal-units-val').forEach(maskElement);
   }
 }
 
@@ -3211,55 +3235,63 @@ async function drawPosChart(ticker, meta) {
 
 
 // ── MODAL DRAG-TO-CLOSE ─────────────────────────────────────────────────────
+// Strategy: attach touch listeners to the handle pill only (touch-action:none),
+// then translate the whole sheet. This avoids conflict with the sheet's own scroll.
 function initDragClose(overlayId, closeFn) {
   const overlay = document.getElementById(overlayId);
   if (!overlay) return;
   const sheet = overlay.querySelector('.modal');
-  if (!sheet) return;
+  const handle = sheet && sheet.querySelector('.modal-handle');
+  if (!sheet || !handle) return;
 
-  let startY = 0, currentY = 0, dragging = false;
+  // Make handle explicitly non-scrollable
+  handle.style.touchAction = 'none';
+  handle.style.cursor = 'grab';
+  // Widen tap target a bit
+  handle.style.padding = '12px 40px';
+  handle.style.margin = '-12px auto 8px';
 
-  sheet.addEventListener('pointerdown', function(e) {
-    // Only start drag from the handle area or top 40px of the sheet
-    const rect = sheet.getBoundingClientRect();
-    if (e.clientY - rect.top > 60) return; // only top zone
-    dragging = true;
-    startY = e.clientY;
+  let startY = 0, currentY = 0, active = false;
+
+  function onDown(e) {
+    active = true;
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
     currentY = 0;
     sheet.style.transition = 'none';
-    sheet.setPointerCapture(e.pointerId);
-  });
-
-  sheet.addEventListener('pointermove', function(e) {
-    if (!dragging) return;
-    const dy = e.clientY - startY;
-    if (dy < 0) return; // don't allow dragging up
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!active) return;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const dy = y - startY;
+    if (dy < 0) return;
     currentY = dy;
     sheet.style.transform = 'translateY(' + dy + 'px)';
-  });
-
-  sheet.addEventListener('pointerup', function(e) {
-    if (!dragging) return;
-    dragging = false;
-    sheet.style.transition = '';
-    if (currentY > 80) {
-      sheet.style.transform = 'translateY(100%)';
+    e.preventDefault();
+  }
+  function onUp() {
+    if (!active) return;
+    active = false;
+    sheet.style.transition = 'transform 0.25s ease';
+    if (currentY > 72) {
+      sheet.style.transform = 'translateY(110%)';
       setTimeout(() => {
         sheet.style.transform = '';
+        sheet.style.transition = '';
         closeFn();
-      }, 200);
+      }, 240);
     } else {
       sheet.style.transform = '';
+      setTimeout(() => { sheet.style.transition = ''; }, 260);
     }
-  });
+  }
 
-  sheet.addEventListener('pointercancel', function() {
-    dragging = false;
-    sheet.style.transform = '';
-    sheet.style.transition = '';
-  });
+  handle.addEventListener('touchstart', onDown, { passive: false });
+  handle.addEventListener('touchmove',  onMove, { passive: false });
+  handle.addEventListener('touchend',   onUp);
+  handle.addEventListener('touchcancel', onUp);
 
-  // Prevent scroll on overlay backdrop from bubbling when dragging
+  // Also close on backdrop tap
   overlay.addEventListener('click', function(e) {
     if (e.target === overlay) closeFn();
   });
