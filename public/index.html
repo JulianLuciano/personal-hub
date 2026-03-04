@@ -1663,10 +1663,14 @@
 
   <!-- AI CHAT BUBBLE -->
   <button id="aiBubble" onclick="openAIChat()" title="Analizar portfolio con IA">
-    <!-- Anthropic-style icon: stylized A -->
+    <!-- Claude icon -->
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M13.827 3.52l8.065 13.95A2.25 2.25 0 0 1 19.94 21H4.059a2.25 2.25 0 0 1-1.952-3.53l8.065-13.95a2.25 2.25 0 0 1 3.655 0z" fill="white" opacity="0.9"/>
-      <path d="M9.5 15.5l2.5-5 2.5 5M10.5 13.5h3" stroke="#6c63ff" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="8.5" fill="white" opacity="0.92"/>
+      <circle cx="9.2" cy="10.5" r="1.2" fill="#6c63ff"/>
+      <circle cx="14.8" cy="10.5" r="1.2" fill="#6c63ff"/>
+      <path d="M8.5 14.5 Q12 17.5 15.5 14.5" stroke="#6c63ff" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+      <path d="M4.5 9 Q3 12 4.5 15" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+      <path d="M19.5 9 Q21 12 19.5 15" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.7"/>
     </svg>
   </button>
 
@@ -1676,8 +1680,11 @@
     <div id="aiSheet">
       <div id="aiSheetHeader">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <path d="M13.827 3.52l8.065 13.95A2.25 2.25 0 0 1 19.94 21H4.059a2.25 2.25 0 0 1-1.952-3.53l8.065-13.95a2.25 2.25 0 0 1 3.655 0z" fill="url(#ag)" opacity="0.9"/>
-          <defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6c63ff"/><stop offset="100%" stop-color="#ff6584"/></linearGradient></defs>
+          <circle cx="12" cy="12" r="9" fill="url(#cg)"/>
+          <circle cx="9.2" cy="10.5" r="1.1" fill="white"/>
+          <circle cx="14.8" cy="10.5" r="1.1" fill="white"/>
+          <path d="M8.5 14.5 Q12 17.2 15.5 14.5" stroke="white" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+          <defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6c63ff"/><stop offset="100%" stop-color="#ff6584"/></linearGradient></defs>
         </svg>
         <div class="ai-title">Análisis de Portfolio</div>
         <button class="ai-close" onclick="closeAIChat()">×</button>
@@ -3606,36 +3613,86 @@ const aiHistory = [];
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
   const fmt = v => sym + Math.round(v * rate).toLocaleString('es-AR');
+  const fmtUSD = v => '$' + Math.round(v).toLocaleString('en-US');
+
+  // Daily portfolio change
+  const changePct = totalUSD > 0 && changeUSD !== 0 ? (changeUSD / (totalUSD - changeUSD) * 100) : 0;
+  const changeStr = changeUSD !== 0
+    ? `${changeUSD >= 0 ? '+' : ''}${fmt(changeUSD)} (${changeUSD >= 0 ? '+' : ''}${changePct.toFixed(2)}% vs ayer)`
+    : 'Sin datos de cambio';
 
   const lines = [
     `## Portfolio de Julián — datos en tiempo real`,
-    `**Patrimonio total:** ${fmt(totalUSD)}`,
+    `**Patrimonio total:** ${fmt(totalUSD)} (≈ ${fmtUSD(totalUSD)})`,
+    `**Variación hoy:** ${changeStr}`,
     `**FX Rate:** 1 USD = ${FX_RATE.toFixed(4)} GBP`,
     ``,
     `### Composición por categoría`,
     `- Acciones: ${fmt(breakdown.acciones || 0)} (${totalUSD > 0 ? ((breakdown.acciones||0)/totalUSD*100).toFixed(1) : 0}%)`,
-    `- Cripto: ${fmt(breakdown.cripto || 0)} (${totalUSD > 0 ? ((breakdown.cripto||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- Cripto (BTC): ${fmt(breakdown.cripto || 0)} (${totalUSD > 0 ? ((breakdown.cripto||0)/totalUSD*100).toFixed(1) : 0}%)`,
     `- RSUs Meta: ${fmt(breakdown.rsu || 0)} (${totalUSD > 0 ? ((breakdown.rsu||0)/totalUSD*100).toFixed(1) : 0}%)`,
     `- Cash líquido: ${fmt(breakdown.fiat_liquid || 0)} (${totalUSD > 0 ? ((breakdown.fiat_liquid||0)/totalUSD*100).toFixed(1) : 0}%)`,
-    `- Cash bloqueado: ${fmt(breakdown.fiat_locked || 0)} (${totalUSD > 0 ? ((breakdown.fiat_locked||0)/totalUSD*100).toFixed(1) : 0}%)`,
+    `- Cash bloqueado (depósito alquiler + deudas a cobrar): ${fmt(breakdown.fiat_locked || 0)} (${totalUSD > 0 ? ((breakdown.fiat_locked||0)/totalUSD*100).toFixed(1) : 0}%)`,
     ``,
     `### Posiciones detalladas`,
   ];
 
   assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pct, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
-    const pnlPct = pct !== null ? ` | P&L: ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '';
+    const pnlPct = pct !== null ? ` | P&L total: ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '';
+    const pnlAbs = pct !== null && pos.initial_investment_usd
+      ? ` (${fmtUSD(valueUSD - Number(pos.initial_investment_usd))} absoluto)`
+      : '';
     const dayStr = dayPct !== null ? ` | Hoy: ${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '';
     const priceStr = priceUSD ? ` | Precio actual: $${priceUSD.toLocaleString('en-US', {maximumFractionDigits:2})}` : '';
     const avgStr = pos.avg_cost_usd ? ` | Precio prom compra: $${Number(pos.avg_cost_usd).toFixed(2)}` : '';
-    const invStr = pos.initial_investment_usd ? ` | Inversión original: $${Number(pos.initial_investment_usd).toFixed(0)}` : '';
-    lines.push(`- **${meta.name}** (${pos.ticker}): ${fmt(valueUSD)} | Qty: ${pos.qty}${priceStr}${avgStr}${invStr}${pnlPct}${dayStr}`);
+    const invStr = pos.initial_investment_usd ? ` | Inversión original: ${fmtUSD(Number(pos.initial_investment_usd))}` : '';
+    lines.push(`- **${meta.name}** (${pos.ticker}): ${fmt(valueUSD)} | Qty: ${pos.qty}${priceStr}${avgStr}${invStr}${pnlPct}${pnlAbs}${dayStr}`);
   });
+
+  // Vesting schedule context
+  lines.push('');
+  lines.push('### RSU Vesting Schedule (Meta)');
+  const rsuPriceUSD = getRSUPriceUSD();
+  lines.push(`**Precio META actual:** $${rsuPriceUSD.toLocaleString('en-US', {maximumFractionDigits:2})}`);
+  lines.push(`**Tax rate estimado:** 47% (neto ≈ 53% del bruto)`);
+
+  if (vestSchedule && vestSchedule.length > 0) {
+    const upcoming = vestSchedule.filter(v => !v.vested);
+    const vested   = vestSchedule.filter(v => v.vested);
+    const totalAllUnits = vestSchedule.reduce((s,v) => s + v.units, 0);
+    const vestedUnits   = vested.reduce((s,v) => s + v.units, 0);
+    const pendingUnits  = upcoming.reduce((s,v) => s + v.units, 0);
+    const accumValueUSD = upcoming.reduce((s,v) => s + v.units * rsuPriceUSD, 0);
+    const accumNetUSD   = accumValueUSD * NET_RATE;
+
+    lines.push(`**Total units plan:** ${totalAllUnits} | Vesteadas: ${vestedUnits} (${Math.round(vestedUnits/totalAllUnits*100)}%) | Pendientes: ${pendingUnits}`);
+    lines.push(`**Valor total pendiente (bruto):** ${fmtUSD(accumValueUSD)} | Neto estimado: ${fmtUSD(accumNetUSD)} (£${Math.round(accumNetUSD * FX_RATE).toLocaleString('es-AR')})`);
+
+    if (upcoming.length > 0) {
+      const next = upcoming[0];
+      const nextValUSD = next.units * rsuPriceUSD;
+      lines.push(`**Próximo vest:** ${next.date} (en ${next.days} días) — ${next.units} units — Bruto: ${fmtUSD(nextValUSD)} | Neto: ${fmtUSD(nextValUSD * NET_RATE)}`);
+      lines.push('');
+      lines.push('**Calendario completo de vests pendientes:**');
+      upcoming.forEach(v => {
+        const vUSD = v.units * rsuPriceUSD;
+        lines.push(`  - ${v.date} (${v.days > 0 ? 'en ' + v.days + 'd' : 'hoy'}): ${v.units} units | Bruto ${fmtUSD(vUSD)} | Neto ${fmtUSD(vUSD * NET_RATE)}`);
+      });
+    }
+    if (vested.length > 0) {
+      lines.push('');
+      lines.push('**Vests ya recibidos:**');
+      vested.forEach(v => lines.push(`  - ${v.date}: ${v.units} units (vesteado)`));
+    }
+  } else {
+    lines.push('Datos de vesting no cargados aún (abrir modal RSU primero).');
+  }
 
   return lines.join('\n');
 }
