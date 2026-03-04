@@ -2926,7 +2926,8 @@ async function drawPosChart(ticker, meta) {
     if (!rows || rows.length < 2) {
       const ctx = canvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = canvas.parentElement.offsetWidth * dpr;
+      const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
+      canvas.width = Math.floor(W0 * dpr);
       canvas.height = 60 * dpr;
       ctx.scale(dpr, dpr);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
@@ -2938,9 +2939,10 @@ async function drawPosChart(ticker, meta) {
 
     const prices = rows.map(r => r.price_usd);
     const dpr = window.devicePixelRatio || 1;
-    const W = canvas.parentElement.offsetWidth;
+    // Use canvas's own layout width (respects parent padding)
+    const W = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
     const H = 60;
-    canvas.width = W * dpr;
+    canvas.width = Math.floor(W * dpr);
     canvas.height = H * dpr;
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
@@ -2949,10 +2951,10 @@ async function drawPosChart(ticker, meta) {
     ctx.clearRect(0, 0, W, H);
 
     const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
-    const padT = 6, padB = 6;
-    const step = (W - 2) / (prices.length - 1);
+    const padT = 4, padB = 4;
+    const step = W / (prices.length - 1);
     const coords = prices.map((v, i) => ({
-      x: 1 + i * step,
+      x: i * step,
       y: padT + (1 - (v - min) / range) * (H - padT - padB)
     }));
 
