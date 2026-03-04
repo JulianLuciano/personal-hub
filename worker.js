@@ -5,10 +5,29 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY
 );
 
-const TICKERS = ['SPY', 'BRK-B', 'MELI', 'NU', 'META', 'BTC-USD'];
+// Tickers that need to be renamed before querying Yahoo Finance
+// key = ticker stored in DB, value = Yahoo Finance ticker
+const YAHOO_TICKER_MAP = {
+  'BRK.B':   'BRK-B',
+  'BTC':     'BTC-USD',
+  'RSU_META': 'META',
+};
 
-async function fetchPrice(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+// Convert DB ticker → Yahoo ticker
+function toYahoo(ticker) {
+  return YAHOO_TICKER_MAP[ticker] || ticker;
+}
+
+// Convert Yahoo ticker → DB ticker (reverse map)
+const YAHOO_TO_DB = Object.fromEntries(
+  Object.entries(YAHOO_TICKER_MAP).map(([db, yahoo]) => [yahoo, db])
+);
+function toDb(yahooTicker) {
+  return YAHOO_TO_DB[yahooTicker] || yahooTicker;
+}
+
+async function fetchPrice(yahooTicker) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1d&range=1d`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0' }
   });
@@ -30,29 +49,43 @@ async function fetchFxRate() {
 async function run() {
   console.log(`[${new Date().toISOString()}] Worker arrancando...`);
 
-  // 1. Fetch all prices
-  const prices = {};
-  for (const ticker of TICKERS) {
-    const price = await fetchPrice(ticker);
+  // 1. Load positions — derive which tickers need prices dynamically
+  const { data: positions, error: posError } = await supabase
+    .from('positions')
+    .select('*');
+
+  if (posError) { console.error('Error leyendo positions:', posError); return; }
+
+  // Build list of unique Yahoo tickers from non-fiat positions
+  const pricedPositions = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
+  const yahooTickers = [...new Set(pricedPositions.map(p => toYahoo(p.ticker)))];
+
+  console.log(`Tickers a fetchear: ${yahooTickers.join(', ')}`);
+
+  // 2. Fetch all prices
+  const pricesByYahoo = {};
+  for (const yahooTicker of yahooTickers) {
+    const price = await fetchPrice(yahooTicker);
     if (price) {
-      prices[ticker] = price;
-      console.log(`${ticker}: $${price}`);
+      pricesByYahoo[yahooTicker] = price;
+      console.log(`${yahooTicker}: $${price}`);
     } else {
-      console.log(`${ticker}: no se pudo obtener precio`);
+      console.log(`${yahooTicker}: no se pudo obtener precio`);
     }
   }
 
-  // BRK-B in Yahoo is BRK-B but we store as BRK.B
-  if (prices['BRK-B']) prices['BRK.B'] = prices['BRK-B'];
+  // Build prices map keyed by DB ticker for easy lookup
+  const prices = {};
+  for (const [yahooTicker, price] of Object.entries(pricesByYahoo)) {
+    prices[toDb(yahooTicker)] = price;
+  }
 
-  // 2. Fetch FX rate USD/GBP
+  // 3. Fetch FX rate USD/GBP
   const fxRate = await fetchFxRate();
   console.log(`FX Rate USD/GBP: ${fxRate}`);
 
-  // 3. Save price snapshots
-  const snapshots = Object.entries(prices)
-    .filter(([ticker]) => ticker !== 'BRK-B')
-    .map(([ticker, price_usd]) => ({ ticker, price_usd }));
+  // 4. Save price snapshots (use DB ticker as stored key)
+  const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({ ticker, price_usd }));
 
   const { error: snapError } = await supabase
     .from('price_snapshots')
@@ -60,13 +93,6 @@ async function run() {
 
   if (snapError) console.error('Error guardando price_snapshots:', snapError);
   else console.log(`Guardados ${snapshots.length} price snapshots`);
-
-  // 4. Load positions from Supabase
-  const { data: positions, error: posError } = await supabase
-    .from('positions')
-    .select('*');
-
-  if (posError) { console.error('Error leyendo positions:', posError); return; }
 
   // 5. Calculate portfolio value
   let total_usd = 0;
@@ -77,29 +103,20 @@ async function run() {
 
     if (pos.category === 'fiat') {
       if (pos.currency === 'GBP') {
-        value_usd = pos.qty / fxRate;
-        breakdown.fiat_gbp += pos.qty; // raw GBP amount
+        value_usd = Number(pos.qty) / fxRate;
+        breakdown.fiat_gbp += Number(pos.qty);
       } else {
-        value_usd = pos.qty;
-        breakdown.fiat_usd += pos.qty; // raw USD amount
+        value_usd = Number(pos.qty);
+        breakdown.fiat_usd += Number(pos.qty);
       }
-    } else if (pos.category === 'acciones') {
+    } else {
+      // acciones, cripto, rsu — all use their price from the map
       const price = prices[pos.ticker];
       if (price) {
-        value_usd = pos.qty * price;
-        breakdown.acciones += value_usd;
-      }
-    } else if (pos.category === 'cripto') {
-      const btcPrice = prices['BTC-USD'];
-      if (btcPrice) {
-        value_usd = pos.qty * btcPrice;
-        breakdown.cripto += value_usd;
-      }
-    } else if (pos.category === 'rsu') {
-      const metaPrice = prices['META'];
-      if (metaPrice) {
-        value_usd = pos.qty * metaPrice;
-        breakdown.rsu += value_usd;
+        value_usd = Number(pos.qty) * price;
+        breakdown[pos.category] = (breakdown[pos.category] || 0) + value_usd;
+      } else if (Number(pos.qty) > 0) {
+        console.warn(`Sin precio para ${pos.ticker} (${pos.category})`);
       }
     }
 
