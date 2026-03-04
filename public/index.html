@@ -2816,10 +2816,8 @@ function renderPosModalValues(ticker) {
 
   // Price in selected currency
   const fmtPrice = v => {
-    const n = (v * rate).toFixed(2);
-    const parts = n.split('.');
-    parts[0] = Number(parts[0]).toLocaleString('es-AR');
-    return sym + parts[0] + '.' + parts[1];
+    const val = v * rate;
+    return sym + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
   document.getElementById('posModalPrice').textContent = priceUSD ? fmtPrice(priceUSD) : '\u2014';
 
@@ -2834,7 +2832,8 @@ function renderPosModalValues(ticker) {
     const avgCostUSD = Number(pos.avg_cost_usd);
     const pnlUSD = (priceUSD - avgCostUSD) * pos.qty;
     const pnlPct = ((priceUSD - avgCostUSD) / avgCostUSD) * 100;
-    pnlEl.textContent = (pnlUSD >= 0 ? '+' : '') + fmtVal(Math.abs(pnlUSD), rate, sym);
+    const pnlDisplay = Math.abs(pnlUSD * rate).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    pnlEl.textContent = (pnlUSD >= 0 ? '+' : '-') + sym + pnlDisplay;
     pnlEl.style.color = pnlUSD >= 0 ? 'var(--accent3)' : 'var(--accent2)';
     pnlPctEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '% vs costo';
     pnlPctEl.style.color = pnlEl.style.color;
@@ -2847,9 +2846,7 @@ function renderPosModalValues(ticker) {
   const avgEl = document.getElementById('posModalAvg');
   if (pos.avg_cost_usd) {
     const avgVal = Number(pos.avg_cost_usd) * rate;
-    const avgFixed = avgVal.toFixed(2).split('.');
-    avgFixed[0] = Number(avgFixed[0]).toLocaleString('es-AR');
-    avgEl.textContent = sym + avgFixed[0] + '.' + avgFixed[1];
+    avgEl.textContent = sym + avgVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   } else {
     avgEl.textContent = '\u2014';
   }
