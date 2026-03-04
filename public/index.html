@@ -3772,35 +3772,46 @@ async function getAnthropicKey() {
 }
 
 function aiRenderMarkdown(text) {
-  // Tables: | col | col |
-  text = text.replace(/
-(\|.+\|)
-(\|[-| :]+\|)
-((?:\|.+\|
-?)*)/g, (_, header, sep, body) => {
-    const ths = header.split('|').filter(c => c.trim()).map(c => '<th>' + c.trim() + '</th>').join('');
-    const rows = body.trim().split('\n').map(row => {
-      const tds = row.split('|').filter(c => c.trim() !== '' || row.indexOf(c) > 0).filter((_, i, a) => i > 0 && i < a.length - 1 || a.length <= 2)
-      // simpler: split by | drop first/last empty
-      const cells = row.split('|').slice(1,-1).map(c => '<td>' + c.trim() + '</td>').join('');
-      return '<tr>' + cells + '</tr>';
-    }).join('');
-    return '<table class="ai-table"><thead><tr>' + ths + '</tr></thead><tbody>' + rows + '</tbody></table>';
-  });
+  // Escape HTML first
+  text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Tables: detect lines with | and render as table
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      // Check if next line is separator (|---|---|)
+      const sep = lines[i+1] || '';
+      if (/^\|[-| :]+\|$/.test(sep.trim())) {
+        const ths = line.split('|').slice(1,-1).map(c => '<th>' + c.trim() + '</th>').join('');
+        const tableRows = [];
+        i += 2; // skip header + separator
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          const cells = lines[i].split('|').slice(1,-1).map(c => '<td>' + c.trim() + '</td>').join('');
+          tableRows.push('<tr>' + cells + '</tr>');
+          i++;
+        }
+        out.push('<table class="ai-table"><thead><tr>' + ths + '</tr></thead><tbody>' + tableRows.join('') + '</tbody></table>');
+        continue;
+      }
+    }
+    out.push(line);
+    i++;
+  }
+  text = out.join('\n');
   // Bold **text**
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Italic *text*
-  text = text.replace(/\*([^*
-]+?)\*/g, '<em>$1</em>');
-  // Headers ### ## #
+  // Italic *text* (not inside words)
+  text = text.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+  // Headers
   text = text.replace(/^### (.+)$/gm, '<div class="ai-h3">$1</div>');
   text = text.replace(/^## (.+)$/gm, '<div class="ai-h2">$1</div>');
   text = text.replace(/^# (.+)$/gm, '<div class="ai-h1">$1</div>');
-  // Bullet lists - item
+  // Bullet lists
   text = text.replace(/^[-•] (.+)$/gm, '<div class="ai-li">• $1</div>');
-  // Newlines to <br> (but not after block elements)
-  text = text.replace(/
-/g, '<br>');
+  // Newlines to <br>
+  text = text.replace(/\n/g, '<br>');
   // Clean up extra <br> after block divs
   text = text.replace(/(<\/div>)<br>/g, '$1');
   text = text.replace(/<br>(<div)/g, '$1');
@@ -3959,8 +3970,15 @@ let authState = 'loading';
 
 fetch('/api/config')
   .then(function(r) { return r.json(); })
-  .then(function(d) { CORRECT_PIN = String(d.pin).trim(); initAuth(); })
-  .catch(function() { CORRECT_PIN = '__never__'; initAuth(); });
+  .then(function(d) {
+    CORRECT_PIN = String(d.pin || '').trim() || '__never__';
+    initAuth();
+  })
+  .catch(function(e) {
+    console.warn('Config fetch error:', e);
+    CORRECT_PIN = '__never__';
+    initAuth();
+  });
 
 function isLockEnabled() {
   return localStorage.getItem('ph_lock_enabled') === '1';
