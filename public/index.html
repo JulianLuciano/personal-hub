@@ -1714,7 +1714,7 @@ const TICKER_META = {
   'BRK.B':           { name: 'Berkshire',      logo: '🏦', logoUrl: '/logos/brkb.png',   cat: 'acciones', showTicker: true },
   'MELI':            { name: 'Mercado Libre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
   'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
-  'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true, whiteBg: true },
+  'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
   'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
   'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
@@ -3236,11 +3236,17 @@ async function drawPosChart(ticker, meta) {
   if (!canvas) return;
 
   // Map ticker to price_snapshots ticker format
-  const snapTicker = ticker === 'BTC' ? 'BTC-USD' : ticker === 'BRK.B' ? 'BRK-B' : ticker === 'RSU_META' ? 'META' : ticker;
+  // New worker stores DB tickers; old worker stored Yahoo tickers for some
+  // Query both variants to handle historical data
+  const snapTickerAlt = ticker === 'BRK.B' ? 'BRK-B' : ticker === 'BTC' ? 'BTC-USD' : null;
+  const snapTicker = ticker === 'RSU_META' ? 'META' : ticker;
 
   try {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const rows = await sbFetch('/rest/v1/price_snapshots?select=price_usd,captured_at&ticker=eq.' + snapTicker + '&order=captured_at.asc&captured_at=gte.' + since);
+    const tickerFilter = snapTickerAlt
+      ? 'ticker=in.(' + snapTicker + ',' + snapTickerAlt + ')'
+      : 'ticker=eq.' + snapTicker;
+    const rows = await sbFetch('/rest/v1/price_snapshots?select=price_usd,captured_at&' + tickerFilter + '&order=captured_at.asc&captured_at=gte.' + since);
     if (!rows || rows.length < 2) {
       const ctx = canvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
