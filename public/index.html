@@ -1392,7 +1392,13 @@
           <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800" id="posModalName">—</div>
           <div style="font-size:12px;color:var(--muted)" id="posModalTicker">—</div>
         </div>
-        <button onclick="closePosDetail()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0">×</button>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+            <div id="posBtnGBP" onclick="setPosModalCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
+            <div id="posBtnUSD" onclick="setPosModalCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+          </div>
+          <button onclick="closePosDetail()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1">×</button>
+        </div>
       </div>
 
       <!-- Price + daily change -->
@@ -1849,8 +1855,9 @@ function renderPortfolio() {
 
   // Asset cards — sorted by value desc, hide zero values; RENT_DEPOSIT always last
   const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => {
-    if (a.pos.ticker === 'RENT_DEPOSIT') return 1;
-    if (b.pos.ticker === 'RENT_DEPOSIT') return -1;
+    const order = t => t === 'RENT_DEPOSIT' ? 2 : t === 'GBP_RECEIVABLE' ? 1 : 0;
+    const oa = order(a.pos.ticker), ob = order(b.pos.ticker);
+    if (oa !== ob) return oa - ob;
     return b.valueUSD - a.valueUSD;
   });
   const assetList = document.getElementById('assetList');
@@ -1898,23 +1905,13 @@ function renderPortfolio() {
     const logoBlock = meta.logoUrl
       ? '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:#fff;padding:' + pad + '" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div style=&quot;width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0&quot;>' + meta.logo + '</div>\')">'
       : '<div style="width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + meta.logo + '</div>';
-    const sharePct = totalUSD > 0 ? (valueUSD / totalUSD * 100) : 0;
-    const shareStr = sharePct >= 0.5 ? sharePct.toFixed(1) + '%' : '<0.5%';
-    // Mini share bar: full width = 100% of portfolio
-    const barWidth = Math.max(2, Math.min(100, sharePct));
-    const barColor = meta.cat === 'acciones' ? '#43e97b' : meta.cat === 'cripto' ? '#6c63ff' : meta.cat === 'rsu' ? '#f7b731' : '#4fc3f7';
-    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + ' style="flex-direction:column;padding:0;overflow:hidden">' +
-      '<div style="display:flex;align-items:center;gap:14px;padding:16px 16px 10px">' +
+
+    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '"' + rsuClick + '>' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
       '<div class="asset-sub">' + subLabel + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
-      '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>' +
-      '<div style="padding:0 16px 12px;display:flex;align-items:center;gap:8px">' +
-      '<div style="flex:1;height:3px;background:var(--surface2);border-radius:100px;overflow:hidden">' +
-      '<div style="width:' + barWidth + '%;height:100%;background:' + barColor + ';border-radius:100px;opacity:0.7"></div></div>' +
-      '<span style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:28px;text-align:right">' + shareStr + '</span>' +
-      '</div></div>';
+      '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>';
   });
 
   // Hide spinner, show list
@@ -2798,72 +2795,104 @@ setTimeout(drawPie, 200);
 // ─── Position Detail Modal ───
 let posDetailTicker = null;
 
+let posModalCurrency = 'GBP';
+
+function setPosModalCurrency(cur) {
+  posModalCurrency = cur;
+  document.getElementById('posBtnGBP').style.background = cur === 'GBP' ? 'var(--accent)' : 'transparent';
+  document.getElementById('posBtnGBP').style.color = cur === 'GBP' ? '#fff' : 'var(--muted)';
+  document.getElementById('posBtnUSD').style.background = cur === 'USD' ? 'var(--accent)' : 'transparent';
+  document.getElementById('posBtnUSD').style.color = cur === 'USD' ? '#fff' : 'var(--muted)';
+  if (posDetailTicker) renderPosModalValues(posDetailTicker);
+}
+
+function renderPosModalValues(ticker) {
+  const asset = liveData && liveData.assets.find(a => a.pos.ticker === ticker);
+  if (!asset) return;
+  const { pos, valueUSD, priceUSD } = asset;
+  const isGBP = posModalCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '\u00a3' : '$';
+
+  // Price in selected currency
+  const priceDisplay = priceUSD
+    ? (sym + (priceUSD * rate).toFixed(2))
+    : '\u2014';
+  document.getElementById('posModalPrice').textContent = priceDisplay;
+
+  // Position value
+  document.getElementById('posModalValue').textContent = fmtVal(valueUSD, rate, sym);
+  document.getElementById('posModalQty').textContent = fmtQty(pos.qty, ticker) + ' unidades';
+
+  // P&L: (currentPriceUSD - avgCostUSD) * qty => convert to display currency
+  const pnlEl = document.getElementById('posModalPnl');
+  const pnlPctEl = document.getElementById('posModalPnlPct');
+  if (priceUSD && pos.avg_cost_usd) {
+    const avgCostUSD = Number(pos.avg_cost_usd);
+    const pnlUSD = (priceUSD - avgCostUSD) * pos.qty;
+    const pnlPct = ((priceUSD - avgCostUSD) / avgCostUSD) * 100;
+    pnlEl.textContent = (pnlUSD >= 0 ? '+' : '') + fmtVal(Math.abs(pnlUSD), rate, sym);
+    pnlEl.style.color = pnlUSD >= 0 ? 'var(--accent3)' : 'var(--accent2)';
+    pnlPctEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '% vs costo';
+    pnlPctEl.style.color = pnlEl.style.color;
+  } else {
+    pnlEl.textContent = '\u2014'; pnlEl.style.color = 'var(--muted)';
+    pnlPctEl.textContent = 'sin costo promedio';
+  }
+
+  // Avg cost per share in selected currency
+  const avgEl = document.getElementById('posModalAvg');
+  avgEl.textContent = pos.avg_cost_usd
+    ? sym + (Number(pos.avg_cost_usd) * rate).toFixed(2)
+    : '\u2014';
+
+  // Portfolio share (always %)
+  const share = liveData && liveData.totalUSD > 0 ? (valueUSD / liveData.totalUSD * 100) : 0;
+  document.getElementById('posModalShare').textContent = share.toFixed(1) + '%';
+}
+
 async function openPosDetail(ticker) {
   posDetailTicker = ticker;
+  posModalCurrency = 'GBP';
   document.getElementById('posModal').classList.add('open');
 
-  const meta = TICKER_META[ticker] || { name: ticker, logo: '💰', logoUrl: null };
-  const isGBP = currentCurrency === 'GBP';
-  const rate = isGBP ? FX_RATE : 1;
-  const sym = isGBP ? '£' : '$';
+  // Reset currency toggle to GBP
+  document.getElementById('posBtnGBP').style.background = 'var(--accent)';
+  document.getElementById('posBtnGBP').style.color = '#fff';
+  document.getElementById('posBtnUSD').style.background = 'transparent';
+  document.getElementById('posBtnUSD').style.color = 'var(--muted)';
+
+  const meta = TICKER_META[ticker] || { name: ticker, logo: '\ud83d\udcb0', logoUrl: null };
 
   // Logo
   const logoEl = document.getElementById('posModalLogo');
   if (meta.logoUrl) {
-    logoEl.innerHTML = '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;object-fit:contain" onerror="this.outerHTML=\''+meta.logo+'\'">';
+    logoEl.innerHTML = '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;object-fit:contain;background:#fff;padding:3px">';
   } else {
     logoEl.textContent = meta.logo;
   }
   document.getElementById('posModalName').textContent = meta.name;
   document.getElementById('posModalTicker').textContent = ticker;
 
-  // Find asset in liveData
+  // Day change (% is currency-neutral)
   const asset = liveData && liveData.assets.find(a => a.pos.ticker === ticker);
-  if (!asset) return;
-  const { pos, valueUSD, priceUSD, pct, dayPct } = asset;
-
-  // Price
-  const priceFormatted = priceUSD ? '$' + priceUSD.toFixed(2) : '—';
-  document.getElementById('posModalPrice').textContent = priceFormatted;
-
-  // Day change
-  const dayEl = document.getElementById('posModalDayChg');
-  if (dayPct !== null && dayPct !== undefined) {
-    const rounded = parseFloat(dayPct.toFixed(2));
-    dayEl.textContent = (rounded >= 0 ? '+' : '') + rounded.toFixed(2) + '%';
-    dayEl.style.color = rounded > 0 ? 'var(--accent3)' : rounded < 0 ? 'var(--accent2)' : 'var(--muted)';
-  } else {
-    dayEl.textContent = '—';
-    dayEl.style.color = 'var(--muted)';
+  if (asset) {
+    const dayEl = document.getElementById('posModalDayChg');
+    const { dayPct } = asset;
+    if (dayPct !== null && dayPct !== undefined) {
+      const rounded = parseFloat(dayPct.toFixed(2));
+      dayEl.textContent = (rounded >= 0 ? '+' : '') + rounded.toFixed(2) + '%';
+      dayEl.style.color = rounded > 0 ? 'var(--accent3)' : rounded < 0 ? 'var(--accent2)' : 'var(--muted)';
+    } else {
+      dayEl.textContent = '\u2014';
+      dayEl.style.color = 'var(--muted)';
+    }
   }
 
-  // Value + qty
-  document.getElementById('posModalValue').textContent = fmtVal(valueUSD, rate, sym);
-  document.getElementById('posModalQty').textContent = fmtQty(pos.qty, ticker) + ' ' + ticker;
+  // Render monetary values
+  renderPosModalValues(ticker);
 
-  // P&L
-  const pnlEl = document.getElementById('posModalPnl');
-  const pnlPctEl = document.getElementById('posModalPnlPct');
-  if (pct !== null && pct !== undefined && priceUSD && pos.avg_cost_usd) {
-    const pnlUSD = (priceUSD - pos.avg_cost_usd) * pos.qty;
-    pnlEl.textContent = (pnlUSD >= 0 ? '+' : '') + fmtVal(Math.abs(pnlUSD), rate, sym);
-    pnlEl.style.color = pnlUSD >= 0 ? 'var(--accent3)' : 'var(--accent2)';
-    pnlPctEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% vs costo';
-    pnlPctEl.style.color = pnlEl.style.color;
-  } else {
-    pnlEl.textContent = '—'; pnlEl.style.color = 'var(--muted)';
-    pnlPctEl.textContent = 'sin costo promedio';
-  }
-
-  // Avg cost
-  const avgEl = document.getElementById('posModalAvg');
-  avgEl.textContent = pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '—';
-
-  // Portfolio share
-  const share = liveData && liveData.totalUSD > 0 ? (valueUSD / liveData.totalUSD * 100) : 0;
-  document.getElementById('posModalShare').textContent = share.toFixed(1) + '%';
-
-  // Load 30d price history and draw chart
+  // Load 30d chart
   await drawPosChart(ticker, meta);
 }
 
