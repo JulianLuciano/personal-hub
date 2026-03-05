@@ -150,6 +150,6 @@ async function run() {
   console.log(`[${new Date().toISOString()}] Worker terminado.`);
 }
 
-// Run immediately then every 30 minutes
+// Run immediately then every 15 minutes
 run();
-setInterval(run, 30 * 60 * 1000);
+setInterval(run, 15 * 60 * 1000);
