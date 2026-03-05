@@ -2010,11 +2010,7 @@ async function loadPortfolio() {
         else breakdown.fiat_liquid += valueUSD;
       } else {
         priceUSD = prices[pos.ticker];
-        // LSE stocks (VWRP.L, ARKK.L) — Yahoo returns price in GBP, stored as price_usd
-        // Convert GBP→USD for consistent portfolio valuation
-        if (priceUSD && pos.ticker === 'VWRP.L') {
-          priceUSD = priceUSD / FX_RATE; // GBP price → USD
-        }
+
         if (priceUSD) {
           valueUSD = pos.qty * priceUSD;
           const bkey = pos.category === 'cripto' ? 'cripto' : pos.category;
@@ -2034,10 +2030,6 @@ async function loadPortfolio() {
       let dayPct = null;
       let prevPrice = pricesYesterday[pos.ticker];
       if (priceUSD && prevPrice) {
-        // Same GBP→USD conversion for LSE stocks
-        if (pos.ticker === 'VWRP.L') {
-          prevPrice = prevPrice / FX_RATE;
-        }
         dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
       }
 
