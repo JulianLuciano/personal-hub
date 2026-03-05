@@ -706,7 +706,7 @@
   .asset-info { flex: 1; }
   .asset-name { font-weight: 500; font-size: 15px; }
   .asset-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .asset-right { text-align: right; }
+  .asset-right { text-align: right; overflow: hidden; }
   .asset-val { font-family: var(--font-num); font-weight: 700; font-size: 15px; }
   .asset-chg { font-size: 12px; margin-top: 2px; }
   .asset-chg.up { color: var(--accent3); }
@@ -1912,7 +1912,7 @@ const TICKER_META = {
   'MELI':            { name: 'Mercado Libre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
   'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
   'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
-  'VWRP.L':          { name: 'Vanguard FTSE All-World', logo: '🌍', logoUrl: '/logos/vwrp.png', cat: 'acciones', showTicker: true },
+  'VWRP.L':          { name: 'Vanguard All-World', logo: '🌍', logoUrl: '/logos/vwrp.png', cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
   'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
   'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
@@ -2133,28 +2133,183 @@ function setChgMode(mode, direction) {
   });
 }
 
-// Swipe on asset list — left or right toggles infinitely
+// Real-time swipe — badges follow finger, snap on release
 (function() {
-  let sx = 0, sy = 0;
-  const getList = () => document.getElementById('assetList');
+  let sx = 0, sy = 0, active = false, swipeLocked = false;
+  const SNAP_THRESHOLD = 60; // px to commit to new mode
+
+  function getCards() { return document.querySelectorAll('.asset-card'); }
+  function getList()  { return document.getElementById('assetList'); }
+
+  // Get current and next badge text for a card
+  function getBadgeTexts(card) {
+    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
+    const histPct = card.dataset[pctKey] !== '' && card.dataset[pctKey] !== undefined ? parseFloat(card.dataset[pctKey]) : null;
+    const dayPct  = card.dataset.daypct !== '' && card.dataset.daypct !== undefined ? parseFloat(card.dataset.daypct) : null;
+    const cur  = chgMode === 'hist' ? histPct : dayPct;
+    const next = chgMode === 'hist' ? dayPct  : histPct;
+    return { cur, next };
+  }
+
+  function fmtBadge(val) {
+    if (val === null || val === undefined) return '<div class="asset-chg" style="color:var(--muted)">—</div>';
+    const r = parseFloat(Number(val).toFixed(2));
+    if (r === 0) return '<div class="asset-chg" style="color:var(--muted)">0.00%</div>';
+    const cls = r > 0 ? 'up' : 'down';
+    return '<div class="asset-chg ' + cls + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</div>';
+  }
+
+  // Ensure each card has both current and next badge as siblings in .asset-right
+  function prepareDualBadges(dx) {
+    getCards().forEach(card => {
+      const right = card.querySelector('.asset-right');
+      if (!right) return;
+      // Remove any existing next-badge
+      const existing = right.querySelector('.asset-chg-next');
+      if (existing) existing.remove();
+      const { next } = getBadgeTexts(card);
+      const nextEl = document.createElement('div');
+      nextEl.className = 'asset-chg-next';
+      // Position next badge: if swiping left, next comes from right; else from left
+      nextEl.style.cssText = 'position:absolute;right:0;top:0;opacity:0;transition:none;will-change:opacity,transform;white-space:nowrap';
+      nextEl.innerHTML = fmtBadge(next);
+      right.style.position = 'relative';
+      right.appendChild(nextEl);
+    });
+  }
+
   document.addEventListener('touchstart', function(e) {
     const list = getList();
     if (!list || !list.contains(e.target)) return;
+    active = true;
+    swipeLocked = false;
     sx = e.touches[0].clientX;
     sy = e.touches[0].clientY;
   }, { passive: true });
-  document.addEventListener('touchend', function(e) {
-    const list = getList();
-    if (!list || !list.contains(e.changedTouches[0].target)) return;
-    const dx = e.changedTouches[0].clientX - sx;
-    const dy = Math.abs(e.changedTouches[0].clientY - sy);
-    if (Math.abs(dx) > 40 && dy < 30) {
-      // Toggle infinitely: any swipe flips the mode
-      const dir = dx < 0 ? 'left' : 'right';
-      const newMode = chgMode === 'hist' ? 'day' : 'hist';
-      setChgMode(newMode, dir);
+
+  document.addEventListener('touchmove', function(e) {
+    if (!active) return;
+    const dx = e.touches[0].clientX - sx;
+    const dy = Math.abs(e.touches[0].clientY - sy);
+
+    // Lock to horizontal swipe
+    if (!swipeLocked) {
+      if (dy > 12) { active = false; return; }
+      if (Math.abs(dx) > 8) { swipeLocked = true; prepareDualBadges(dx); }
     }
+    if (!swipeLocked) return;
+
+    // Progress: 0..1 based on drag distance
+    const progress = Math.min(Math.abs(dx) / (SNAP_THRESHOLD * 1.5), 1);
+    const dir = dx < 0 ? -1 : 1;
+
+    getCards().forEach(card => {
+      const right = card.querySelector('.asset-right');
+      if (!right) return;
+      const curEl  = right.querySelector('.asset-chg');
+      const nextEl = right.querySelector('.asset-chg-next');
+      if (!curEl) return;
+
+      // Current badge slides out in swipe direction
+      curEl.style.transition = 'none';
+      curEl.style.opacity    = String(1 - progress);
+      curEl.style.transform  = 'translateX(' + (dir * -28 * progress) + 'px)';
+
+      // Next badge slides in from opposite side
+      if (nextEl) {
+        nextEl.style.transition = 'none';
+        nextEl.style.opacity    = String(progress);
+        nextEl.style.transform  = 'translateX(' + (dir * 28 * (1 - progress) * -1) + 'px)';
+      }
+    });
   }, { passive: true });
+
+  function onEnd(e) {
+    if (!active || !swipeLocked) { active = false; swipeLocked = false; return; }
+    active = false; swipeLocked = false;
+
+    const dx = (e.changedTouches ? e.changedTouches[0].clientX : sx) - sx;
+    const committed = Math.abs(dx) >= SNAP_THRESHOLD;
+
+    getCards().forEach(card => {
+      const right = card.querySelector('.asset-right');
+      if (!right) return;
+      const curEl  = right.querySelector('.asset-chg');
+      const nextEl = right.querySelector('.asset-chg-next');
+
+      if (committed) {
+        // Snap to new mode: animate current out, next in
+        if (curEl) {
+          curEl.style.transition = 'opacity 0.12s, transform 0.12s';
+          const dir = dx < 0 ? -1 : 1;
+          curEl.style.opacity   = '0';
+          curEl.style.transform = 'translateX(' + (dir * -40) + 'px)';
+        }
+        if (nextEl) {
+          nextEl.style.transition = 'opacity 0.12s, transform 0.12s';
+          nextEl.style.opacity    = '1';
+          nextEl.style.transform  = 'translateX(0)';
+        }
+      } else {
+        // Snap back
+        if (curEl) {
+          curEl.style.transition = 'opacity 0.15s, transform 0.15s';
+          curEl.style.opacity    = '1';
+          curEl.style.transform  = 'translateX(0)';
+        }
+        if (nextEl) {
+          nextEl.style.transition = 'opacity 0.15s, transform 0.15s';
+          nextEl.style.opacity    = '0';
+          nextEl.style.transform  = 'translateX(28px)';
+        }
+      }
+    });
+
+    if (committed) {
+      const newMode = chgMode === 'hist' ? 'day' : 'hist';
+      chgMode = newMode;
+      // Update pill
+      const histEl = document.getElementById('chgPillHist');
+      const dayEl  = document.getElementById('chgPillDay');
+      if (histEl && dayEl) {
+        histEl.style.background = newMode === 'hist' ? 'var(--accent)' : 'transparent';
+        histEl.style.color      = newMode === 'hist' ? '#fff' : 'var(--muted)';
+        dayEl.style.background  = newMode === 'day'  ? 'var(--accent)' : 'transparent';
+        dayEl.style.color       = newMode === 'day'  ? '#fff' : 'var(--muted)';
+      }
+      // After animation, clean up and stamp new outerHTML
+      setTimeout(() => {
+        getCards().forEach(card => {
+          const right = card.querySelector('.asset-right');
+          if (!right) return;
+          const nextEl = right.querySelector('.asset-chg-next');
+          const curEl  = right.querySelector('.asset-chg');
+          const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
+          const pct    = card.dataset[pctKey] !== '' ? parseFloat(card.dataset[pctKey]) : null;
+          const dayPct = card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
+          const val    = chgMode === 'hist' ? pct : dayPct;
+          if (curEl)  curEl.outerHTML  = fmtBadge(val);
+          if (nextEl) nextEl.remove();
+          right.style.position = '';
+        });
+      }, 160);
+    } else {
+      setTimeout(() => {
+        getCards().forEach(card => {
+          const right = card.querySelector('.asset-right');
+          if (!right) return;
+          const nextEl = right.querySelector('.asset-chg-next');
+          if (nextEl) nextEl.remove();
+          right.style.position = '';
+          const curEl = right.querySelector('.asset-chg');
+          if (curEl) { curEl.style.transition = ''; curEl.style.opacity = ''; curEl.style.transform = ''; }
+        });
+      }, 160);
+    }
+  }
+
+  document.addEventListener('touchend',    onEnd, { passive: true });
+  document.addEventListener('touchcancel', onEnd, { passive: true });
 })();
 
 
@@ -3690,6 +3845,16 @@ async function drawPosChart(ticker, meta) {
       document.getElementById('posModalChartStart').textContent =
         startDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
     }
+    // Draw min/max price labels so currency change is visible
+    const sym2 = posModalCurrency === 'GBP' ? '£' : '$';
+    const fmtP = v => sym2 + (v >= 1000 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2));
+    ctx.font = 'bold 8px DM Sans';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtP(prices[prices.length - 1]), 4, padT + 9);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText(fmtP(prices[0]), W - 4, H - padB - 2);
   } catch(e) {
     console.error('Error loading price history:', e);
   }
