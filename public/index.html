@@ -1906,6 +1906,7 @@ const TICKER_META = {
   'MELI':            { name: 'Mercado Libre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
   'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
   'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
+  'VWRP.L':          { name: 'Vanguard FTSE All-World', logo: '🌍', logoUrl: '/logos/vwrp.png', cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
   'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
   'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
@@ -1922,7 +1923,7 @@ function fmtVal(usd, rate, sym) {
 
 function fmtQty(qty, ticker) {
   if (ticker === 'BTC') return qty.toFixed(8);
-  if (['SPY','BRK.B','MELI','NU','ARKK.L'].includes(ticker)) return qty.toFixed(3);
+  if (['SPY','BRK.B','MELI','NU','ARKK.L','VWRP.L'].includes(ticker)) return qty.toFixed(3);
   return qty % 1 === 0 ? qty.toString() : qty.toFixed(2);
 }
 
@@ -2009,6 +2010,11 @@ async function loadPortfolio() {
         else breakdown.fiat_liquid += valueUSD;
       } else {
         priceUSD = prices[pos.ticker];
+        // LSE stocks (VWRP.L, ARKK.L) — Yahoo returns price in GBP, stored as price_usd
+        // Convert GBP→USD for consistent portfolio valuation
+        if (priceUSD && pos.ticker === 'VWRP.L') {
+          priceUSD = priceUSD / FX_RATE; // GBP price → USD
+        }
         if (priceUSD) {
           valueUSD = pos.qty * priceUSD;
           const bkey = pos.category === 'cripto' ? 'cripto' : pos.category;
@@ -2026,8 +2032,12 @@ async function loadPortfolio() {
 
       // Daily variation: current price vs yesterday's price
       let dayPct = null;
-      if (priceUSD && pricesYesterday[pos.ticker]) {
-        const prevPrice = pricesYesterday[pos.ticker];
+      let prevPrice = pricesYesterday[pos.ticker];
+      if (priceUSD && prevPrice) {
+        // Same GBP→USD conversion for LSE stocks
+        if (pos.ticker === 'VWRP.L') {
+          prevPrice = prevPrice / FX_RATE;
+        }
         dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
       }
 
@@ -2062,9 +2072,9 @@ function getMarketStatus(ticker, category) {
 
   const totalUtcMins = utcH * 60 + utcM;
 
-  // LSE: ARKK.L — 08:00–16:30 London time
+  // LSE: tickers ending in .L (ARKK.L, VWRP.L) — 08:00–16:30 London time
   // BST (last Sun Mar → last Sun Oct): UTC+1, otherwise UTC+0
-  if (ticker === 'ARKK.L') {
+  if (ticker.endsWith('.L')) {
     const month = now.getUTCMonth(); // 0=Jan
     const isBST = month >= 2 && month <= 9; // approx Mar–Oct
     const offsetMins = isBST ? 60 : 0;
@@ -2245,6 +2255,7 @@ const EQUITY_TICKER_COLORS = {
   'BTC':      '#ff6584',
   'RSU_META': '#f7b731',
   'ARKK.L':   '#a78bfa',
+  'VWRP.L':   '#60a5fa',
 };
 
 let equityActiveCats = new Set(['acciones','cripto']);
@@ -3412,7 +3423,16 @@ function renderPosModalValues(ticker) {
     const val = v * rate;
     return sym + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
-  document.getElementById('posModalPrice').textContent = priceUSD ? fmtPrice(priceUSD) : '\u2014';
+  // For LSE stocks, stored price is in GBP — display in GBP, show GBP symbol
+  let displayPrice = priceUSD;
+  let priceSymbol = '$';
+  if (priceUSD && ticker === 'VWRP.L') {
+    displayPrice = priceUSD * FX_RATE; // back to GBP for display
+    priceSymbol = '£';
+  }
+  document.getElementById('posModalPrice').textContent = displayPrice
+    ? priceSymbol + displayPrice.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})
+    : '\u2014';
 
   // Position value
   document.getElementById('posModalValue').textContent = fmtVal(valueUSD, rate, sym);
