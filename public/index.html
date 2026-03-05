@@ -706,7 +706,7 @@
   .asset-info { flex: 1; }
   .asset-name { font-weight: 500; font-size: 15px; }
   .asset-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .asset-right { text-align: right; overflow: hidden; }
+  .asset-right { text-align: right; }
   .asset-val { font-family: var(--font-num); font-weight: 700; font-size: 15px; }
   .asset-chg { font-size: 12px; margin-top: 2px; }
   .asset-chg.up { color: var(--accent3); }
@@ -2071,166 +2071,60 @@ async function loadPortfolio() {
 // ── CHANGE MODE (historical vs daily) ────────────────────────────────────────
 let chgMode = 'hist'; // 'hist' | 'day' — toggles infinitely on swipe
 
+function fmtChgSpan(val) {
+  if (val === null || val === undefined || val === '') return '<span style="color:var(--muted)">—</span>';
+  const r = parseFloat(Number(val).toFixed(2));
+  if (r === 0) return '<span style="color:var(--muted)">0.00%</span>';
+  const col = r > 0 ? 'var(--accent3)' : 'var(--accent2)';
+  return '<span style="color:' + col + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</span>';
+}
 function renderChgHtml(pct, dayPct) {
-  const val = chgMode === 'hist' ? pct : dayPct;
-  if (val === null || val === undefined || val === '') {
-    return '<div class="asset-chg" style="color:var(--muted)">—</div>';
-  }
-  const rounded = parseFloat(Number(val).toFixed(2));
-  if (rounded === 0) return '<div class="asset-chg" style="color:var(--muted)">0.00%</div>';
-  const cls = rounded > 0 ? 'up' : 'down';
-  const arrow = rounded > 0 ? '↑' : '↓';
-  return '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%</div>';
+  // Render a ribbon with both slots: hist and day side by side
+  // Visible slot is determined by chgMode via translateX on the wrapper
+  const histX = 0;
+  const dayX  = -56; // offset to show day slot
+  const tx = chgMode === 'hist' ? 0 : -56;
+  return '<div class="chg-ribbon-wrap" style="overflow:hidden;width:56px;display:inline-block;vertical-align:middle">' +
+    '<div class="chg-ribbon" style="display:flex;flex-direction:row;transform:translateX(' + tx + 'px);transition:none;will-change:transform">' +
+      '<div class="chg-slot" data-mode="hist" style="min-width:56px;text-align:right">' + fmtChgSpan(pct) + '</div>' +
+      '<div class="chg-slot" data-mode="day"  style="min-width:56px;text-align:right">' + fmtChgSpan(dayPct) + '</div>' +
+    '</div></div>';
 }
 
-function setChgMode_OLD_REMOVED(mode, direction) {
-  if (mode === chgMode) return;
-  chgMode = mode;
-
-  // Update pill
-  const histEl = document.getElementById('chgPillHist');
-  const dayEl  = document.getElementById('chgPillDay');
-  if (histEl && dayEl) {
-    histEl.style.background = mode === 'hist' ? 'var(--accent)' : 'transparent';
-    histEl.style.color      = mode === 'hist' ? '#fff' : 'var(--muted)';
-    dayEl.style.background  = mode === 'day'  ? 'var(--accent)' : 'transparent';
-    dayEl.style.color       = mode === 'day'  ? '#fff' : 'var(--muted)';
-  }
-
-  // Animate each .asset-chg: slide out in swipe direction, swap content, slide in
-  const slideOut = direction === 'left' ? '-28px' : '28px';
-  const slideIn  = direction === 'left' ? '28px'  : '-28px';
-
-  document.querySelectorAll('.asset-card').forEach(card => {
-    // Pick pct for current currency
-    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
-    const pct    = card.dataset[pctKey] !== '' && card.dataset[pctKey] !== undefined ? parseFloat(card.dataset[pctKey]) : null;
-    const dayPct = card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
-    const chgEl  = card.querySelector('.asset-chg');
-    if (!chgEl) return;
-
-    // Slide out
-    chgEl.style.transition = 'opacity 0.12s, transform 0.12s';
-    chgEl.style.opacity = '0';
-    chgEl.style.transform = 'translateX(' + slideOut + ')';
-
-    setTimeout(() => {
-      chgEl.outerHTML = renderChgHtml(pct, dayPct);
-      // Get fresh reference after outerHTML replace
-      const newEl = card.querySelector('.asset-chg');
-      if (!newEl) return;
-      newEl.style.transition = 'none';
-      newEl.style.opacity = '0';
-      newEl.style.transform = 'translateX(' + slideIn + ')';
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          newEl.style.transition = 'opacity 0.15s, transform 0.15s';
-          newEl.style.opacity = '1';
-          newEl.style.transform = 'translateX(0)';
-        });
-      });
-    }, 120);
-  });
-}
-
-// Real-time infinite ribbon swipe — badges move like a looping tape
-// Modes: [..., hist, day, hist, day, ...] repeating every BAND_W px
+// Ribbon swipe — .chg-ribbon-wrap baked into card HTML, swipe moves translateX
 (function() {
-  const BAND_W = 80; // px per mode band — one full band = one mode
-  const MODES  = ['hist', 'day']; // repeating sequence
+  const SLOT_W = 56;
+  const MODES  = ['hist', 'day'];
+  let sx = 0, sy = 0, active = false, locked = false, dragX = 0;
 
-  let sx = 0, sy = 0, active = false, swipeLocked = false;
-  let dragOffset = 0; // total px dragged since touchstart (can be large)
-  let baseOffset = 0; // offset at touchstart (committed px from all past swipes)
+  function getList() { return document.getElementById('assetList'); }
+  function allRibbons() { return document.querySelectorAll('.chg-ribbon'); }
 
-  function getCards() { return document.querySelectorAll('.asset-card'); }
-  function getList()  { return document.getElementById('assetList'); }
-
-  function modeAtOffset(offset) {
-    // offset increases going left (negative dx), wraps through MODES
-    const idx = Math.floor(offset / BAND_W);
-    return MODES[((idx % MODES.length) + MODES.length) % MODES.length];
+  function modeBaseX() {
+    return MODES.indexOf(chgMode) * -SLOT_W;
   }
 
-  function fmtBadge(val) {
-    if (val === null || val === undefined || val === '') return '<span style="color:var(--muted)">—</span>';
-    const r = parseFloat(Number(val).toFixed(2));
-    if (r === 0) return '<span style="color:var(--muted)">0.00%</span>';
-    const cls = r > 0 ? 'up' : 'down';
-    const col = r > 0 ? 'var(--accent3)' : 'var(--accent2)';
-    return '<span class="asset-chg ' + cls + '" style="color:' + col + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</span>';
-  }
-
-  function getBadgeVal(card, mode) {
-    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
-    const hist = card.dataset[pctKey] !== undefined && card.dataset[pctKey] !== '' ? parseFloat(card.dataset[pctKey]) : null;
-    const day  = card.dataset.daypct !== undefined && card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
-    return mode === 'hist' ? hist : day;
-  }
-
-  // Build the ribbon wrapper once per card, containing all mode slots side by side
-  function initRibbons() {
-    getCards().forEach(card => {
-      const right = card.querySelector('.asset-right');
-      if (!right || right.querySelector('.chg-ribbon')) return;
-      // Wrap the existing .asset-chg in a ribbon
-      const existing = right.querySelector('.asset-chg');
-      const ribbon = document.createElement('div');
-      ribbon.className = 'chg-ribbon';
-      ribbon.style.cssText = 'display:flex;flex-direction:row;will-change:transform;white-space:nowrap;transition:none;justify-content:flex-end';
-      // Build slots for all modes
-      MODES.forEach((m, i) => {
-        const slot = document.createElement('div');
-        slot.className = 'chg-slot';
-        slot.dataset.mode = m;
-        slot.style.cssText = 'min-width:' + BAND_W + 'px;display:flex;align-items:center;justify-content:flex-end';
-        slot.innerHTML = fmtBadge(getBadgeVal(card, m));
-        ribbon.appendChild(slot);
-      });
-      if (existing) existing.replaceWith(ribbon);
-      else right.appendChild(ribbon);
-      right.style.overflow = 'hidden';
-      right.style.maxWidth = BAND_W + 'px';
-    });
-  }
-
-  function updateRibbonPosition(totalOffset, withTransition) {
-    // totalOffset: how many px we've moved left (+) or right (-)
-    // The ribbon translates so the active band is visible
-    // Band 0 = hist at x=0, band 1 = day at x=BAND_W, etc.
-    const modeIdx0 = MODES.indexOf(chgMode); // which band is currently "home"
-    const translateX = -(modeIdx0 * BAND_W) - totalOffset;
-    getCards().forEach(card => {
-      const ribbon = card.querySelector('.chg-ribbon');
-      if (!ribbon) return;
-      ribbon.style.transition = withTransition ? 'transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none';
-      ribbon.style.transform = 'translateX(' + translateX + 'px)';
+  function setRibbons(tx, transition) {
+    allRibbons().forEach(r => {
+      r.style.transition = transition ? 'transform 0.22s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none';
+      r.style.transform  = 'translateX(' + tx + 'px)';
     });
   }
 
   function updatePill(mode) {
-    const histEl = document.getElementById('chgPillHist');
-    const dayEl  = document.getElementById('chgPillDay');
-    if (!histEl || !dayEl) return;
-    histEl.style.background = mode === 'hist' ? 'var(--accent)' : 'transparent';
-    histEl.style.color      = mode === 'hist' ? '#fff' : 'var(--muted)';
-    dayEl.style.background  = mode === 'day'  ? 'var(--accent)' : 'transparent';
-    dayEl.style.color       = mode === 'day'  ? '#fff' : 'var(--muted)';
-  }
-
-  function refreshRibbonContent() {
-    getCards().forEach(card => {
-      MODES.forEach(m => {
-        const slot = card.querySelector('.chg-slot[data-mode="' + m + '"]');
-        if (slot) slot.innerHTML = fmtBadge(getBadgeVal(card, m));
-      });
-    });
+    const h = document.getElementById('chgPillHist');
+    const d = document.getElementById('chgPillDay');
+    if (!h || !d) return;
+    h.style.background = mode === 'hist' ? 'var(--accent)' : 'transparent';
+    h.style.color      = mode === 'hist' ? '#fff' : 'var(--muted)';
+    d.style.background = mode === 'day'  ? 'var(--accent)' : 'transparent';
+    d.style.color      = mode === 'day'  ? '#fff' : 'var(--muted)';
   }
 
   document.addEventListener('touchstart', function(e) {
     const list = getList();
     if (!list || !list.contains(e.target)) return;
-    active = true; swipeLocked = false; dragOffset = 0;
+    active = true; locked = false; dragX = 0;
     sx = e.touches[0].clientX;
     sy = e.touches[0].clientY;
   }, { passive: true });
@@ -2239,59 +2133,36 @@ function setChgMode_OLD_REMOVED(mode, direction) {
     if (!active) return;
     const dx = e.touches[0].clientX - sx;
     const dy = Math.abs(e.touches[0].clientY - sy);
-    if (!swipeLocked) {
+    if (!locked) {
       if (dy > 12) { active = false; return; }
-      if (Math.abs(dx) > 6) {
-        swipeLocked = true;
-        initRibbons();
-        updateRibbonPosition(0, false);
-      }
+      if (Math.abs(dx) > 6) locked = true;
     }
-    if (!swipeLocked) return;
-    // dx negative = swiping left = moving forward in MODES
-    dragOffset = -dx;
-    updateRibbonPosition(dragOffset, false);
+    if (!locked) return;
+    dragX = dx;
+    setRibbons(modeBaseX() + dragX, false);
   }, { passive: true });
 
-  function onEnd(e) {
-    if (!active || !swipeLocked) { active = false; swipeLocked = false; return; }
-    active = false; swipeLocked = false;
-
-    // Snap to nearest band
-    const totalOffset = dragOffset;
-    const snappedBands = Math.round(totalOffset / BAND_W);
-    const modeIdx0 = MODES.indexOf(chgMode);
-    const newIdx = ((modeIdx0 + snappedBands) % MODES.length + MODES.length) % MODES.length;
-    const newMode = MODES[newIdx];
-
-    // Animate snap: set new chgMode, translate back to 0
-    chgMode = newMode;
-    updatePill(newMode);
-    // Snap with spring
-    updateRibbonPosition(0, true);
+  function onEnd() {
+    if (!active || !locked) { active = false; locked = false; return; }
+    active = false; locked = false;
+    const slotsMoved = Math.round(-dragX / SLOT_W);
+    const cur = MODES.indexOf(chgMode);
+    const next = ((cur + slotsMoved) % MODES.length + MODES.length) % MODES.length;
+    chgMode = MODES[next];
+    updatePill(chgMode);
+    setRibbons(modeBaseX(), true);
   }
 
   document.addEventListener('touchend',    onEnd, { passive: true });
   document.addEventListener('touchcancel', onEnd, { passive: true });
 
-  // Re-init ribbons when data loads (called from renderPortfolio)
-  window._refreshChgRibbons = function() {
-    getCards().forEach(card => {
-      const ribbon = card.querySelector('.chg-ribbon');
-      if (ribbon) ribbon.remove(); // will be rebuilt on next swipe
-    });
-  };
-
-  // Pill taps
-  window.setChgMode = function(mode, dir) {
+  window.setChgMode = function(mode) {
     if (mode === chgMode) return;
     chgMode = mode;
     updatePill(mode);
-    initRibbons();
-    refreshRibbonContent();
-    // Instant snap — no drag offset
-    updateRibbonPosition(0, true);
+    setRibbons(modeBaseX(), true);
   };
+  window._refreshChgRibbons = function() {}; // ribbons are in HTML, no-op
 })();
 
 
@@ -2453,7 +2324,7 @@ function renderPortfolio() {
         return status ? '<span class="market-dot ' + status + '" title="Mercado ' + (status === 'open' ? 'abierto' : 'cerrado') + '"></span>' : '';
       })() + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
-      '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>';
+      '<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">' + chgHtml + rsuArrow + '</div></div></div>';
   });
 
   // Hide spinner, show list
