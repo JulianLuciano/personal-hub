@@ -1385,7 +1385,7 @@
             <span style="width:6px;height:6px;border-radius:50%;background:#ff6584;display:inline-block;flex-shrink:0"></span>Cripto
           </div>
           <div class="eq-cat-pill active" data-cat="rsu" onclick="toggleEquityCat(this)"
-            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap;opacity:0.35">
+            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap">
             <span style="width:6px;height:6px;border-radius:50%;background:#f7b731;display:inline-block;flex-shrink:0"></span>RSUs
           </div>
         </div>
@@ -1425,8 +1425,8 @@
     </div>
     <div id="chgModePill" style="display:none;justify-content:flex-end;margin-bottom:6px">
       <div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:100px;padding:2px;gap:1px">
-        <div id="chgPillHist" onclick="setChgMode('hist')" style="padding:3px 10px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
-        <div id="chgPillDay" onclick="setChgMode('day')" style="padding:3px 10px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
+        <div id="chgPillHist" onclick="setChgMode('hist', chgMode === 'day' ? 'right' : 'right')" style="padding:3px 10px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
+        <div id="chgPillDay" onclick="setChgMode('day', chgMode === 'hist' ? 'left' : 'left')" style="padding:3px 10px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
       </div>
     </div>
     <div class="asset-list" id="assetList" style="display:none"></div>
@@ -1947,34 +1947,37 @@ async function loadPortfolio() {
     });
 
     // Get latest snapshot for all tickers at once — fetch enough to find yesterday's prices
-    const priceData = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=500');
+    // Fetch today's latest prices (1 per ticker)
+    const priceDataToday = await sbFetch('/rest/v1/price_snapshots?select=ticker,price_usd,captured_at&order=captured_at.desc&limit=200');
 
-    // Build price map: latest price per ticker, and "yesterday" price per ticker
-    // Strategy: for each ticker, find the most recent snapshot that's from a DIFFERENT calendar day (UTC) than the very latest one
     const prices = {};
-    const pricesYesterday = {};
-    const latestTsPerTicker = {}; // ms timestamp of most recent entry per ticker
-
-    priceData.forEach(row => {
-      const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
-      const ts = new Date(row.captured_at).getTime();
+    const latestTsPerTicker = {};
+    function normTicker(t) {
+      return t === 'BTC-USD' ? 'BTC' : t === 'BRK-B' ? 'BRK.B' : t === 'META' ? 'RSU_META' : t;
+    }
+    priceDataToday.forEach(row => {
+      const t = normTicker(row.ticker);
       if (!prices[t]) {
         prices[t] = row.price_usd;
-        latestTsPerTicker[t] = ts;
+        latestTsPerTicker[t] = new Date(row.captured_at).getTime();
       }
     });
 
-    // Second pass: find "yesterday" = last price from a calendar day (UTC) different from the latest
-    priceData.forEach(row => {
-      const t = row.ticker === 'BTC-USD' ? 'BTC' : row.ticker === 'BRK-B' ? 'BRK.B' : row.ticker === 'META' ? 'RSU_META' : row.ticker;
-      if (pricesYesterday[t]) return; // already found
-      const latestTs = latestTsPerTicker[t];
-      if (!latestTs) return;
-      const latestDay = new Date(latestTs).toISOString().slice(0, 10);
-      const rowDay = new Date(row.captured_at).toISOString().slice(0, 10);
-      if (rowDay !== latestDay) {
-        pricesYesterday[t] = row.price_usd;
-      }
+    // Fetch yesterday's prices: query snapshots from yesterday's UTC date explicitly
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    const yesterdayUTC = new Date(Date.now() - 24*60*60*1000).toISOString().slice(0, 10);
+    const ydStart = yesterdayUTC + 'T00:00:00.000Z';
+    const ydEnd   = todayUTC    + 'T00:00:00.000Z';
+    const priceDataYest = await sbFetch(
+      '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
+      '&captured_at=gte.' + ydStart +
+      '&captured_at=lt.'  + ydEnd +
+      '&order=captured_at.desc&limit=500'
+    );
+    const pricesYesterday = {};
+    priceDataYest.forEach(row => {
+      const t = normTicker(row.ticker);
+      if (!pricesYesterday[t]) pricesYesterday[t] = row.price_usd;
     });
 
     console.log('[Portfolio] prices today:', prices);
@@ -2059,7 +2062,7 @@ async function loadPortfolio() {
 
 
 // ── CHANGE MODE (historical vs daily) ────────────────────────────────────────
-let chgMode = 'hist'; // 'hist' | 'day'
+let chgMode = 'hist'; // 'hist' | 'day' — toggles infinitely on swipe
 
 function renderChgHtml(pct, dayPct) {
   const val = chgMode === 'hist' ? pct : dayPct;
@@ -2073,9 +2076,11 @@ function renderChgHtml(pct, dayPct) {
   return '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%</div>';
 }
 
-function setChgMode(mode) {
+function setChgMode(mode, direction) {
+  if (mode === chgMode) return;
   chgMode = mode;
-  // Update pill UI
+
+  // Update pill
   const histEl = document.getElementById('chgPillHist');
   const dayEl  = document.getElementById('chgPillDay');
   if (histEl && dayEl) {
@@ -2084,16 +2089,42 @@ function setChgMode(mode) {
     dayEl.style.background  = mode === 'day'  ? 'var(--accent)' : 'transparent';
     dayEl.style.color       = mode === 'day'  ? '#fff' : 'var(--muted)';
   }
-  // Re-render all visible asset-chg badges without full re-render
+
+  // Animate each .asset-chg: slide out in swipe direction, swap content, slide in
+  const slideOut = direction === 'left' ? '-28px' : '28px';
+  const slideIn  = direction === 'left' ? '28px'  : '-28px';
+
   document.querySelectorAll('.asset-card').forEach(card => {
     const pct    = card.dataset.pct    !== '' ? parseFloat(card.dataset.pct)    : null;
     const dayPct = card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
     const chgEl  = card.querySelector('.asset-chg');
-    if (chgEl) chgEl.outerHTML = renderChgHtml(pct, dayPct);
+    if (!chgEl) return;
+
+    // Slide out
+    chgEl.style.transition = 'opacity 0.12s, transform 0.12s';
+    chgEl.style.opacity = '0';
+    chgEl.style.transform = 'translateX(' + slideOut + ')';
+
+    setTimeout(() => {
+      chgEl.outerHTML = renderChgHtml(pct, dayPct);
+      // Get fresh reference after outerHTML replace
+      const newEl = card.querySelector('.asset-chg');
+      if (!newEl) return;
+      newEl.style.transition = 'none';
+      newEl.style.opacity = '0';
+      newEl.style.transform = 'translateX(' + slideIn + ')';
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          newEl.style.transition = 'opacity 0.15s, transform 0.15s';
+          newEl.style.opacity = '1';
+          newEl.style.transform = 'translateX(0)';
+        });
+      });
+    }, 120);
   });
 }
 
-// Swipe right/left on asset list to toggle mode
+// Swipe on asset list — left or right toggles infinitely
 (function() {
   let sx = 0, sy = 0;
   const getList = () => document.getElementById('assetList');
@@ -2109,7 +2140,10 @@ function setChgMode(mode) {
     const dx = e.changedTouches[0].clientX - sx;
     const dy = Math.abs(e.changedTouches[0].clientY - sy);
     if (Math.abs(dx) > 40 && dy < 30) {
-      setChgMode(dx < 0 ? 'day' : 'hist');
+      // Toggle infinitely: any swipe flips the mode
+      const dir = dx < 0 ? 'left' : 'right';
+      const newMode = chgMode === 'hist' ? 'day' : 'hist';
+      setChgMode(newMode, dir);
     }
   }, { passive: true });
 })();
@@ -3517,14 +3551,15 @@ function renderPosModalValues(ticker) {
 
 async function openPosDetail(ticker) {
   posDetailTicker = ticker;
-  posModalCurrency = 'GBP';
+  posModalCurrency = currentCurrency; // inherit main toggle
   document.getElementById('posModal').classList.add('open');
 
-  // Reset currency toggle to GBP
-  document.getElementById('posBtnGBP').style.background = 'var(--accent)';
-  document.getElementById('posBtnGBP').style.color = '#fff';
-  document.getElementById('posBtnUSD').style.background = 'transparent';
-  document.getElementById('posBtnUSD').style.color = 'var(--muted)';
+  // Sync currency toggle buttons to current state
+  const isGBPInit = posModalCurrency === 'GBP';
+  document.getElementById('posBtnGBP').style.background = isGBPInit ? 'var(--accent)' : 'transparent';
+  document.getElementById('posBtnGBP').style.color = isGBPInit ? '#fff' : 'var(--muted)';
+  document.getElementById('posBtnUSD').style.background = !isGBPInit ? 'var(--accent)' : 'transparent';
+  document.getElementById('posBtnUSD').style.color = !isGBPInit ? '#fff' : 'var(--muted)';
 
   const meta = TICKER_META[ticker] || { name: ticker, logo: '\ud83d\udcb0', logoUrl: null };
 
