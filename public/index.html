@@ -2083,7 +2083,7 @@ function renderChgHtml(pct, dayPct) {
   return '<div class="asset-chg ' + cls + '">' + arrow + ' ' + (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%</div>';
 }
 
-function setChgMode(mode, direction) {
+function setChgMode_OLD_REMOVED(mode, direction) {
   if (mode === chgMode) return;
   chgMode = mode;
 
@@ -2133,56 +2133,104 @@ function setChgMode(mode, direction) {
   });
 }
 
-// Real-time swipe — badges follow finger, snap on release
+// Real-time infinite ribbon swipe — badges move like a looping tape
+// Modes: [..., hist, day, hist, day, ...] repeating every BAND_W px
 (function() {
+  const BAND_W = 80; // px per mode band — one full band = one mode
+  const MODES  = ['hist', 'day']; // repeating sequence
+
   let sx = 0, sy = 0, active = false, swipeLocked = false;
-  const SNAP_THRESHOLD = 60; // px to commit to new mode
+  let dragOffset = 0; // total px dragged since touchstart (can be large)
+  let baseOffset = 0; // offset at touchstart (committed px from all past swipes)
 
   function getCards() { return document.querySelectorAll('.asset-card'); }
   function getList()  { return document.getElementById('assetList'); }
 
-  // Get current and next badge text for a card
-  function getBadgeTexts(card) {
-    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
-    const histPct = card.dataset[pctKey] !== '' && card.dataset[pctKey] !== undefined ? parseFloat(card.dataset[pctKey]) : null;
-    const dayPct  = card.dataset.daypct !== '' && card.dataset.daypct !== undefined ? parseFloat(card.dataset.daypct) : null;
-    const cur  = chgMode === 'hist' ? histPct : dayPct;
-    const next = chgMode === 'hist' ? dayPct  : histPct;
-    return { cur, next };
+  function modeAtOffset(offset) {
+    // offset increases going left (negative dx), wraps through MODES
+    const idx = Math.floor(offset / BAND_W);
+    return MODES[((idx % MODES.length) + MODES.length) % MODES.length];
   }
 
   function fmtBadge(val) {
-    if (val === null || val === undefined) return '<div class="asset-chg" style="color:var(--muted)">—</div>';
+    if (val === null || val === undefined || val === '') return '<span style="color:var(--muted)">—</span>';
     const r = parseFloat(Number(val).toFixed(2));
-    if (r === 0) return '<div class="asset-chg" style="color:var(--muted)">0.00%</div>';
+    if (r === 0) return '<span style="color:var(--muted)">0.00%</span>';
     const cls = r > 0 ? 'up' : 'down';
-    return '<div class="asset-chg ' + cls + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</div>';
+    const col = r > 0 ? 'var(--accent3)' : 'var(--accent2)';
+    return '<span class="asset-chg ' + cls + '" style="color:' + col + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</span>';
   }
 
-  // Ensure each card has both current and next badge as siblings in .asset-right
-  function prepareDualBadges(dx) {
+  function getBadgeVal(card, mode) {
+    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
+    const hist = card.dataset[pctKey] !== undefined && card.dataset[pctKey] !== '' ? parseFloat(card.dataset[pctKey]) : null;
+    const day  = card.dataset.daypct !== undefined && card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
+    return mode === 'hist' ? hist : day;
+  }
+
+  // Build the ribbon wrapper once per card, containing all mode slots side by side
+  function initRibbons() {
     getCards().forEach(card => {
       const right = card.querySelector('.asset-right');
-      if (!right) return;
-      // Remove any existing next-badge
-      const existing = right.querySelector('.asset-chg-next');
-      if (existing) existing.remove();
-      const { next } = getBadgeTexts(card);
-      const nextEl = document.createElement('div');
-      nextEl.className = 'asset-chg-next';
-      // Position next badge: if swiping left, next comes from right; else from left
-      nextEl.style.cssText = 'position:absolute;right:0;top:0;opacity:0;transition:none;will-change:opacity,transform;white-space:nowrap';
-      nextEl.innerHTML = fmtBadge(next);
-      right.style.position = 'relative';
-      right.appendChild(nextEl);
+      if (!right || right.querySelector('.chg-ribbon')) return;
+      // Wrap the existing .asset-chg in a ribbon
+      const existing = right.querySelector('.asset-chg');
+      const ribbon = document.createElement('div');
+      ribbon.className = 'chg-ribbon';
+      ribbon.style.cssText = 'display:flex;flex-direction:row;will-change:transform;white-space:nowrap;transition:none;justify-content:flex-end';
+      // Build slots for all modes
+      MODES.forEach((m, i) => {
+        const slot = document.createElement('div');
+        slot.className = 'chg-slot';
+        slot.dataset.mode = m;
+        slot.style.cssText = 'min-width:' + BAND_W + 'px;display:flex;align-items:center;justify-content:flex-end';
+        slot.innerHTML = fmtBadge(getBadgeVal(card, m));
+        ribbon.appendChild(slot);
+      });
+      if (existing) existing.replaceWith(ribbon);
+      else right.appendChild(ribbon);
+      right.style.overflow = 'hidden';
+      right.style.maxWidth = BAND_W + 'px';
+    });
+  }
+
+  function updateRibbonPosition(totalOffset, withTransition) {
+    // totalOffset: how many px we've moved left (+) or right (-)
+    // The ribbon translates so the active band is visible
+    // Band 0 = hist at x=0, band 1 = day at x=BAND_W, etc.
+    const modeIdx0 = MODES.indexOf(chgMode); // which band is currently "home"
+    const translateX = -(modeIdx0 * BAND_W) - totalOffset;
+    getCards().forEach(card => {
+      const ribbon = card.querySelector('.chg-ribbon');
+      if (!ribbon) return;
+      ribbon.style.transition = withTransition ? 'transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none';
+      ribbon.style.transform = 'translateX(' + translateX + 'px)';
+    });
+  }
+
+  function updatePill(mode) {
+    const histEl = document.getElementById('chgPillHist');
+    const dayEl  = document.getElementById('chgPillDay');
+    if (!histEl || !dayEl) return;
+    histEl.style.background = mode === 'hist' ? 'var(--accent)' : 'transparent';
+    histEl.style.color      = mode === 'hist' ? '#fff' : 'var(--muted)';
+    dayEl.style.background  = mode === 'day'  ? 'var(--accent)' : 'transparent';
+    dayEl.style.color       = mode === 'day'  ? '#fff' : 'var(--muted)';
+  }
+
+  function refreshRibbonContent() {
+    getCards().forEach(card => {
+      MODES.forEach(m => {
+        const slot = card.querySelector('.chg-slot[data-mode="' + m + '"]');
+        if (slot) slot.innerHTML = fmtBadge(getBadgeVal(card, m));
+      });
     });
   }
 
   document.addEventListener('touchstart', function(e) {
     const list = getList();
     if (!list || !list.contains(e.target)) return;
-    active = true;
-    swipeLocked = false;
+    active = true; swipeLocked = false; dragOffset = 0;
     sx = e.touches[0].clientX;
     sy = e.touches[0].clientY;
   }, { passive: true });
@@ -2191,125 +2239,59 @@ function setChgMode(mode, direction) {
     if (!active) return;
     const dx = e.touches[0].clientX - sx;
     const dy = Math.abs(e.touches[0].clientY - sy);
-
-    // Lock to horizontal swipe
     if (!swipeLocked) {
       if (dy > 12) { active = false; return; }
-      if (Math.abs(dx) > 8) { swipeLocked = true; prepareDualBadges(dx); }
+      if (Math.abs(dx) > 6) {
+        swipeLocked = true;
+        initRibbons();
+        updateRibbonPosition(0, false);
+      }
     }
     if (!swipeLocked) return;
-
-    // Progress: 0..1 based on drag distance
-    const progress = Math.min(Math.abs(dx) / (SNAP_THRESHOLD * 1.5), 1);
-    const dir = dx < 0 ? -1 : 1;
-
-    getCards().forEach(card => {
-      const right = card.querySelector('.asset-right');
-      if (!right) return;
-      const curEl  = right.querySelector('.asset-chg');
-      const nextEl = right.querySelector('.asset-chg-next');
-      if (!curEl) return;
-
-      // Current badge slides out in swipe direction
-      curEl.style.transition = 'none';
-      curEl.style.opacity    = String(1 - progress);
-      curEl.style.transform  = 'translateX(' + (dir * -28 * progress) + 'px)';
-
-      // Next badge slides in from opposite side
-      if (nextEl) {
-        nextEl.style.transition = 'none';
-        nextEl.style.opacity    = String(progress);
-        nextEl.style.transform  = 'translateX(' + (dir * 28 * (1 - progress) * -1) + 'px)';
-      }
-    });
+    // dx negative = swiping left = moving forward in MODES
+    dragOffset = -dx;
+    updateRibbonPosition(dragOffset, false);
   }, { passive: true });
 
   function onEnd(e) {
     if (!active || !swipeLocked) { active = false; swipeLocked = false; return; }
     active = false; swipeLocked = false;
 
-    const dx = (e.changedTouches ? e.changedTouches[0].clientX : sx) - sx;
-    const committed = Math.abs(dx) >= SNAP_THRESHOLD;
+    // Snap to nearest band
+    const totalOffset = dragOffset;
+    const snappedBands = Math.round(totalOffset / BAND_W);
+    const modeIdx0 = MODES.indexOf(chgMode);
+    const newIdx = ((modeIdx0 + snappedBands) % MODES.length + MODES.length) % MODES.length;
+    const newMode = MODES[newIdx];
 
-    getCards().forEach(card => {
-      const right = card.querySelector('.asset-right');
-      if (!right) return;
-      const curEl  = right.querySelector('.asset-chg');
-      const nextEl = right.querySelector('.asset-chg-next');
-
-      if (committed) {
-        // Snap to new mode: animate current out, next in
-        if (curEl) {
-          curEl.style.transition = 'opacity 0.12s, transform 0.12s';
-          const dir = dx < 0 ? -1 : 1;
-          curEl.style.opacity   = '0';
-          curEl.style.transform = 'translateX(' + (dir * -40) + 'px)';
-        }
-        if (nextEl) {
-          nextEl.style.transition = 'opacity 0.12s, transform 0.12s';
-          nextEl.style.opacity    = '1';
-          nextEl.style.transform  = 'translateX(0)';
-        }
-      } else {
-        // Snap back
-        if (curEl) {
-          curEl.style.transition = 'opacity 0.15s, transform 0.15s';
-          curEl.style.opacity    = '1';
-          curEl.style.transform  = 'translateX(0)';
-        }
-        if (nextEl) {
-          nextEl.style.transition = 'opacity 0.15s, transform 0.15s';
-          nextEl.style.opacity    = '0';
-          nextEl.style.transform  = 'translateX(28px)';
-        }
-      }
-    });
-
-    if (committed) {
-      const newMode = chgMode === 'hist' ? 'day' : 'hist';
-      chgMode = newMode;
-      // Update pill
-      const histEl = document.getElementById('chgPillHist');
-      const dayEl  = document.getElementById('chgPillDay');
-      if (histEl && dayEl) {
-        histEl.style.background = newMode === 'hist' ? 'var(--accent)' : 'transparent';
-        histEl.style.color      = newMode === 'hist' ? '#fff' : 'var(--muted)';
-        dayEl.style.background  = newMode === 'day'  ? 'var(--accent)' : 'transparent';
-        dayEl.style.color       = newMode === 'day'  ? '#fff' : 'var(--muted)';
-      }
-      // After animation, clean up and stamp new outerHTML
-      setTimeout(() => {
-        getCards().forEach(card => {
-          const right = card.querySelector('.asset-right');
-          if (!right) return;
-          const nextEl = right.querySelector('.asset-chg-next');
-          const curEl  = right.querySelector('.asset-chg');
-          const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
-          const pct    = card.dataset[pctKey] !== '' ? parseFloat(card.dataset[pctKey]) : null;
-          const dayPct = card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
-          const val    = chgMode === 'hist' ? pct : dayPct;
-          if (curEl)  curEl.outerHTML  = fmtBadge(val);
-          if (nextEl) nextEl.remove();
-          right.style.position = '';
-        });
-      }, 160);
-    } else {
-      setTimeout(() => {
-        getCards().forEach(card => {
-          const right = card.querySelector('.asset-right');
-          if (!right) return;
-          const nextEl = right.querySelector('.asset-chg-next');
-          if (nextEl) nextEl.remove();
-          right.style.position = '';
-          const curEl = right.querySelector('.asset-chg');
-          if (curEl) { curEl.style.transition = ''; curEl.style.opacity = ''; curEl.style.transform = ''; }
-        });
-      }, 160);
-    }
+    // Animate snap: set new chgMode, translate back to 0
+    chgMode = newMode;
+    updatePill(newMode);
+    // Snap with spring
+    updateRibbonPosition(0, true);
   }
 
   document.addEventListener('touchend',    onEnd, { passive: true });
   document.addEventListener('touchcancel', onEnd, { passive: true });
+
+  // Re-init ribbons when data loads (called from renderPortfolio)
+  window._refreshChgRibbons = function() {
+    getCards().forEach(card => {
+      const ribbon = card.querySelector('.chg-ribbon');
+      if (ribbon) ribbon.remove(); // will be rebuilt on next swipe
+    });
+  };
+
+  // Pill taps
+  window.setChgMode = function(mode, dir) {
+    if (mode === chgMode) return;
+    chgMode = mode;
+    updatePill(mode);
+    initRibbons();
+    refreshRibbonContent();
+    // Instant snap — no drag offset
+    updateRibbonPosition(0, true);
+  };
 })();
 
 
@@ -2478,6 +2460,7 @@ function renderPortfolio() {
   document.getElementById('portfolioSpinner').style.display = 'none';
   assetList.style.display = 'flex';
   document.getElementById('chgModePill').style.display = 'flex';
+  if (window._refreshChgRibbons) window._refreshChgRibbons();
 
   // Render equity breakdown pie
   renderEquityPie();
@@ -3799,11 +3782,32 @@ async function drawPosChart(ticker, meta) {
       return;
     }
 
-    // Convert prices to display currency
-    const chartRate = posModalCurrency === 'GBP' ? FX_RATE : 1;
-    const prices = rows.map(r => r.price_usd * chartRate);
+    let prices;
+    if (posModalCurrency === 'GBP') {
+      // Fetch historical fx_rates from portfolio_snapshots for the same window
+      // so each price_usd is multiplied by the fx at that moment, not today's fx
+      const fxRows = await sbFetch(
+        '/rest/v1/portfolio_snapshots?select=captured_at,fx_rate&order=captured_at.asc&captured_at=gte.' + since
+      );
+      // Build sorted array of {ts, fx}
+      const fxSeries = (fxRows || []).map(r => ({ ts: new Date(r.captured_at).getTime(), fx: r.fx_rate }));
+      // For each price row, find closest fx_rate by timestamp
+      prices = rows.map(r => {
+        const ts = new Date(r.captured_at).getTime();
+        let closest = fxSeries[0];
+        let minDiff = Infinity;
+        for (const f of fxSeries) {
+          const d = Math.abs(f.ts - ts);
+          if (d < minDiff) { minDiff = d; closest = f; }
+        }
+        const fx = closest ? closest.fx : FX_RATE;
+        return r.price_usd * fx;
+      });
+    } else {
+      prices = rows.map(r => r.price_usd);
+    }
+
     const dpr = window.devicePixelRatio || 1;
-    // Use canvas's own layout width (respects parent padding)
     const W = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
     const H = 60;
     canvas.width = Math.floor(W * dpr);
@@ -3845,16 +3849,6 @@ async function drawPosChart(ticker, meta) {
       document.getElementById('posModalChartStart').textContent =
         startDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
     }
-    // Draw min/max price labels so currency change is visible
-    const sym2 = posModalCurrency === 'GBP' ? '£' : '$';
-    const fmtP = v => sym2 + (v >= 1000 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2));
-    ctx.font = 'bold 8px DM Sans';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.textAlign = 'left';
-    ctx.fillText(fmtP(prices[prices.length - 1]), 4, padT + 9);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText(fmtP(prices[0]), W - 4, H - padB - 2);
   } catch(e) {
     console.error('Error loading price history:', e);
   }
