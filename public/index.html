@@ -2079,25 +2079,24 @@ function fmtChgSpan(val) {
   return '<span style="color:' + col + '">' + (r > 0 ? '↑ +' : '↓ ') + r.toFixed(2) + '%</span>';
 }
 function renderChgHtml(pct, dayPct) {
-  // 8 repeating slots for infinite ribbon: hist|day|hist|day|hist|day|hist|day
-  // Each slot = 80px (wider spacing). Window = 60px (overflow:hidden).
-  // hist canonical tx = 0, day canonical tx = -80px
-  const tx = chgMode === 'hist' ? 0 : -80;
+  // 8 slots, 72px each. Window = 72px (exact slot width, no clipping).
+  // hist tx=0, day tx=-72
+  const SW = 72;
+  const tx = chgMode === 'hist' ? 0 : -SW;
   const h = fmtChgSpan(pct);
   const d = fmtChgSpan(dayPct);
-  const slot = function(mode, val) {
-    return '<div class="chg-slot" style="min-width:80px;font-size:12px;line-height:16px;text-align:right;white-space:nowrap;padding-right:4px">' + val + '</div>';
+  const s = function(v) {
+    return '<div style="min-width:' + SW + 'px;max-width:' + SW + 'px;font-size:12px;line-height:16px;text-align:right;white-space:nowrap">' + v + '</div>';
   };
-  return '<div class="chg-ribbon-wrap" style="overflow:hidden;width:60px;height:16px;flex-shrink:0">' +
-    '<div class="chg-ribbon" style="display:flex;flex-direction:row;transform:translateX(' + tx + 'px);transition:none;will-change:transform;height:16px">' +
-      slot('hist',h) + slot('day',d) + slot('hist',h) + slot('day',d) +
-      slot('hist',h) + slot('day',d) + slot('hist',h) + slot('day',d) +
+  return '<div class="chg-ribbon-wrap" style="overflow:hidden;width:' + SW + 'px;height:16px;flex-shrink:0;display:inline-flex;align-items:center">' +
+    '<div class="chg-ribbon" style="display:flex;flex-direction:row;transform:translateX(' + tx + 'px);transition:none;will-change:transform">' +
+      s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d) +
     '</div></div>';
 }
 
 // Ribbon swipe — infinite tape, velocity-damped snap (max 1 slot per flick)
 (function() {
-  const SLOT_W  = 80;   // must match renderChgHtml slot width
+  const SLOT_W  = 72;   // must match renderChgHtml slot width
   const MODES   = ['hist', 'day'];
   const MAX_SLOTS_PER_FLICK = 1; // resist fast swipes — max 1 slot at release
   let sx = 0, sy = 0, active = false, locked = false, dragX = 0;
@@ -2157,17 +2156,18 @@ function renderChgHtml(pct, dayPct) {
     if (!active || !locked) { active = false; locked = false; return; }
     active = false; locked = false;
 
-    // Base snap: how many slots by distance
-    let slotsByDist = -dragX / SLOT_W;
-
-    // Add a small velocity nudge (capped to ±0.5 extra slots so fast flicks don't jump far)
-    const velNudge = Math.max(-0.5, Math.min(0.5, -velX * 80));
-    let totalSlots = slotsByDist + velNudge;
-
-    // Clamp: max MAX_SLOTS_PER_FLICK in either direction per release
-    totalSlots = Math.max(-MAX_SLOTS_PER_FLICK, Math.min(MAX_SLOTS_PER_FLICK, totalSlots));
-
-    const snapped = Math.round(totalSlots);
+    // Snap strategy:
+    // - Fast flick (|velX| > 0.4 px/ms): move exactly 1 slot in flick direction
+    // - Slow drag: snap to nearest slot (magnet to closest)
+    let snapped;
+    const speed = Math.abs(velX);
+    if (speed > 0.4) {
+      // Fast flick — 1 slot max in the direction of velocity
+      snapped = velX < 0 ? 1 : -1;
+    } else {
+      // Slow drag — nearest slot (pure magnet)
+      snapped = Math.round(-dragX / SLOT_W);
+    }
     const cur  = MODES.indexOf(chgMode);
     const next = ((cur + snapped) % MODES.length + MODES.length) % MODES.length;
     chgMode = MODES[next];
@@ -2335,8 +2335,8 @@ function renderPortfolio() {
       : pos.category !== 'fiat'
         ? ' onclick="openPosDetail(\''+ticker+'\')" style="cursor:pointer"'
         : '';
-    const rsuArrowOverride = pos.category !== 'fiat' && !meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : '';
-    const rsuArrow = meta.rsu ? '<div style="font-size:16px;color:var(--muted);margin-left:2px">›</div>' : rsuArrowOverride;
+    const rsuArrowOverride = pos.category !== 'fiat' && !meta.rsu ? '<div style="font-size:13px;color:var(--muted);line-height:16px">›</div>' : '';
+    const rsuArrow = meta.rsu ? '<div style="font-size:13px;color:var(--muted);line-height:16px">›</div>' : rsuArrowOverride;
     const fit = meta.whiteBg ? 'contain' : 'cover';
     const pad = meta.whiteBg ? '4px' : '0';
     const logoBlock = meta.logoUrl
@@ -2351,7 +2351,7 @@ function renderPortfolio() {
         return status ? '<span class="market-dot ' + status + '" title="Mercado ' + (status === 'open' ? 'abierto' : 'cerrado') + '"></span>' : '';
       })() + '</div></div>' +
       '<div class="asset-right"><div class="asset-val">' + valStr + '</div>' +
-      '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:2px">' + chgHtml + rsuArrow + '</div></div></div>';
+      '<div style="display:flex;flex-direction:row;align-items:center;gap:2px;justify-content:flex-end;margin-top:2px;line-height:16px">' + chgHtml + rsuArrow + '</div></div></div>';
   });
 
   // Hide spinner, show list
