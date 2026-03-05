@@ -6,22 +6,23 @@ const supabase = createClient(
 );
 
 // Tickers that need to be renamed before querying Yahoo Finance
-// key = ticker stored in DB, value = Yahoo Finance ticker
 const YAHOO_TICKER_MAP = {
-  'BRK.B':   'BRK-B',
-  'BTC':     'BTC-USD',
+  'BRK.B':    'BRK-B',
+  'BTC':      'BTC-USD',
   'RSU_META': 'META',
 };
 
-// Convert DB ticker → Yahoo ticker
+// Tickers whose Yahoo price is in GBP (LSE stocks) — must convert to USD before storing
+const GBP_PRICED_TICKERS = new Set(['VWRP.L']);
+
 function toYahoo(ticker) {
   return YAHOO_TICKER_MAP[ticker] || ticker;
 }
 
-// Convert Yahoo ticker → DB ticker (reverse map)
 const YAHOO_TO_DB = Object.fromEntries(
   Object.entries(YAHOO_TICKER_MAP).map(([db, yahoo]) => [yahoo, db])
 );
+
 function toDb(yahooTicker) {
   return YAHOO_TO_DB[yahooTicker] || yahooTicker;
 }
@@ -42,59 +43,65 @@ async function fetchFxRate() {
   });
   const data = await res.json();
   const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-  // rate is GBP per USD, we want USD per GBP
-  return rate ? (1 / rate) : 1.27;
+  // rate is USD per GBP (how many USD for 1 GBP)
+  // We want fxRate = GBP per USD (how many GBP for 1 USD)
+  return rate ? (1 / rate) : 0.79;
 }
 
 async function run() {
   console.log(`[${new Date().toISOString()}] Worker arrancando...`);
 
-  // 1. Load positions — derive which tickers need prices dynamically
+  // 1. Load positions
   const { data: positions, error: posError } = await supabase
     .from('positions')
     .select('*');
-
   if (posError) { console.error('Error leyendo positions:', posError); return; }
 
-  // Build list of unique Yahoo tickers from non-fiat positions
+  // 2. Fetch FX rate first (needed to convert GBP prices)
+  const fxRate = await fetchFxRate();
+  console.log(`FX Rate (GBP per USD): ${fxRate}`);
+
+  // 3. Build list of unique Yahoo tickers from non-fiat positions
   const pricedPositions = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
   const yahooTickers = [...new Set(pricedPositions.map(p => toYahoo(p.ticker)))];
-
   console.log(`Tickers a fetchear: ${yahooTickers.join(', ')}`);
 
-  // 2. Fetch all prices
+  // 4. Fetch all prices
   const pricesByYahoo = {};
   for (const yahooTicker of yahooTickers) {
     const price = await fetchPrice(yahooTicker);
     if (price) {
       pricesByYahoo[yahooTicker] = price;
-      console.log(`${yahooTicker}: $${price}`);
+      console.log(`${yahooTicker}: ${price}`);
     } else {
       console.log(`${yahooTicker}: no se pudo obtener precio`);
     }
   }
 
-  // Build prices map keyed by DB ticker for easy lookup
+  // 5. Build prices map keyed by DB ticker
+  // For LSE stocks (GBP_PRICED_TICKERS), convert GBP price → USD before storing
+  // so all price_usd values are consistently in USD
   const prices = {};
   for (const [yahooTicker, price] of Object.entries(pricesByYahoo)) {
-    prices[toDb(yahooTicker)] = price;
+    const dbTicker = toDb(yahooTicker);
+    if (GBP_PRICED_TICKERS.has(dbTicker)) {
+      // Yahoo gives price in GBP — convert to USD
+      prices[dbTicker] = price / fxRate;
+      console.log(`${dbTicker}: £${price} → $${(price / fxRate).toFixed(2)} (converted GBP→USD)`);
+    } else {
+      prices[dbTicker] = price;
+    }
   }
 
-  // 3. Fetch FX rate USD/GBP
-  const fxRate = await fetchFxRate();
-  console.log(`FX Rate USD/GBP: ${fxRate}`);
-
-  // 4. Save price snapshots (use DB ticker as stored key)
+  // 6. Save price snapshots (all in USD now)
   const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({ ticker, price_usd }));
-
   const { error: snapError } = await supabase
     .from('price_snapshots')
     .insert(snapshots);
-
   if (snapError) console.error('Error guardando price_snapshots:', snapError);
   else console.log(`Guardados ${snapshots.length} price snapshots`);
 
-  // 5. Calculate portfolio value
+  // 7. Calculate portfolio value
   let total_usd = 0;
   const breakdown = { acciones: 0, cripto: 0, rsu: 0, fiat_gbp: 0, fiat_usd: 0 };
 
@@ -110,8 +117,7 @@ async function run() {
         breakdown.fiat_usd += Number(pos.qty);
       }
     } else {
-      // acciones, cripto, rsu — all use their price from the map
-      const price = prices[pos.ticker];
+      const price = prices[pos.ticker]; // already in USD
       if (price) {
         value_usd = Number(pos.qty) * price;
         breakdown[pos.category] = (breakdown[pos.category] || 0) + value_usd;
@@ -125,12 +131,11 @@ async function run() {
 
   const total_gbp = total_usd * fxRate;
 
-  // Round breakdown values
   Object.keys(breakdown).forEach(k => {
     breakdown[k] = Math.round(breakdown[k] * 100) / 100;
   });
 
-  // 6. Save portfolio snapshot
+  // 8. Save portfolio snapshot
   const { error: portError } = await supabase
     .from('portfolio_snapshots')
     .insert({
@@ -139,13 +144,12 @@ async function run() {
       fx_rate: fxRate,
       breakdown
     });
-
   if (portError) console.error('Error guardando portfolio_snapshot:', portError);
   else console.log(`Portfolio snapshot: $${Math.round(total_usd)} / £${Math.round(total_gbp)}`);
 
   console.log(`[${new Date().toISOString()}] Worker terminado.`);
 }
 
-// Run immediately then every 30 minutes
+// Run immediately then every 15 minutes
 run();
-setInterval(run, 30 * 60 * 1000);
+setInterval(run, 15 * 60 * 1000);
