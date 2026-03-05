@@ -2085,7 +2085,7 @@ function renderChgHtml(pct, dayPct) {
   // chgMode hist → nearest even slot → index 2 → tx=-144
   // chgMode day  → nearest odd  slot → index 3 → tx=-216
   const SW = 72;
-  const tx = chgMode === 'hist' ? -(2 * SW) : -(3 * SW);
+  const tx = chgMode === 'hist' ? -(14 * SW) : -(15 * SW);
   const h = fmtChgSpan(pct);
   const d = fmtChgSpan(dayPct);
   const s = function(v) {
@@ -2093,21 +2093,21 @@ function renderChgHtml(pct, dayPct) {
   };
   return '<div class="chg-ribbon-wrap" style="overflow:hidden;width:' + SW + 'px;height:16px;flex-shrink:0;display:inline-flex;align-items:center">' +
     '<div class="chg-ribbon" style="display:flex;flex-direction:row;transform:translateX(' + tx + 'px);transition:none;will-change:transform">' +
-      s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d) +
+      s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d)+s(h)+s(d) +
     '</div></div>';
 }
 
 // Ribbon swipe — tracks absolute tape position, snaps to nearest slot
 (function() {
   const SLOT_W = 72;
-  const N_SLOTS = 8; // total slots in ribbon
+  const N_SLOTS = 30; // total slots in ribbon
   const TOTAL_W = SLOT_W * N_SLOTS; // 576px
 
   // hist at even slot indices (0,2,4,6), day at odd (1,3,5,7)
   // Starting canonical: hist=index2 tx=-144, day=index3 tx=-216
-  const HOME = { hist: -(2 * SLOT_W), day: -(3 * SLOT_W) };
+  const HOME = { hist: -(14 * SLOT_W), day: -(15 * SLOT_W) };
 
-  let currentTx = HOME['hist']; // absolute translateX of ribbon right now
+  let currentTx = HOME[chgMode]; // absolute translateX of ribbon right now
   let sx = 0, sy = 0, active = false, locked = false, dragX = 0;
   let lastX = 0, lastT = 0, velX = 0;
 
@@ -2166,10 +2166,12 @@ function renderChgHtml(pct, dayPct) {
       if (Math.abs(dx) > 6) locked = true;
     }
     if (!locked) return;
+    window._ribbonDragged = false; // will be set true on meaningful drag
     const now = Date.now(), dt = now - lastT || 1;
     velX = (cx - lastX) / dt;
     lastX = cx; lastT = now;
     dragX = dx;
+    if (Math.abs(dragX) > 4) window._ribbonDragged = true;
     setRibbons(currentTx + dragX, false);
   }, { passive: true });
 
@@ -2361,9 +2363,9 @@ function renderPortfolio() {
     const chgHtml = renderChgHtml(pct, dayPct);
     const ticker = pos.ticker;
     const rsuClick = meta.rsu
-      ? ' onclick="openRSU()" style="cursor:pointer"'
+      ? ' onclick="if(window._ribbonDragged){window._ribbonDragged=false;return;}openRSU()" style="cursor:pointer"'
       : pos.category !== 'fiat'
-        ? ' onclick="openPosDetail(\''+ticker+'\')" style="cursor:pointer"'
+        ? ' onclick="if(window._ribbonDragged){window._ribbonDragged=false;return;}openPosDetail(\''+ticker+'\')" style="cursor:pointer"'
         : '';
     const rsuArrowOverride = pos.category !== 'fiat' && !meta.rsu ? '<div style="font-size:13px;color:var(--muted);line-height:16px">›</div>' : '';
     const rsuArrow = meta.rsu ? '<div style="font-size:13px;color:var(--muted);line-height:16px">›</div>' : rsuArrowOverride;
