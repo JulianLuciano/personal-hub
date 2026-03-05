@@ -2029,20 +2029,27 @@ async function loadPortfolio() {
 
       totalUSD += valueUSD;
 
-      // P&L (vs cost basis)
-      let pct = null;
-      if (pricePaidUSD && priceUSD) {
-        pct = ((priceUSD - pricePaidUSD) / pricePaidUSD) * 100;
+      // P&L (vs cost basis) — calculated in both currencies separately
+      // because avg_cost_gbp/usd are weighted averages at time-of-purchase FX rates
+      let pctUSD = null, pctGBP = null;
+      if (priceUSD) {
+        const avgUSD = Number(pos.avg_cost_usd);
+        const avgGBP = Number(pos.avg_cost_gbp);
+        if (avgUSD) pctUSD = ((priceUSD - avgUSD) / avgUSD) * 100;
+        if (avgGBP && FX_RATE) {
+          const priceGBP = priceUSD * FX_RATE;
+          pctGBP = ((priceGBP - avgGBP) / avgGBP) * 100;
+        }
       }
 
-      // Daily variation: current price vs yesterday's price
+      // Daily variation: current price vs yesterday's price (ratio same in any currency)
       let dayPct = null;
       let prevPrice = pricesYesterday[pos.ticker];
       if (priceUSD && prevPrice) {
         dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
       }
 
-      assets.push({ pos, valueUSD, priceUSD, pct, dayPct });
+      assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
     }
 
     // Change vs yesterday's last snapshot
@@ -2095,7 +2102,9 @@ function setChgMode(mode, direction) {
   const slideIn  = direction === 'left' ? '28px'  : '-28px';
 
   document.querySelectorAll('.asset-card').forEach(card => {
-    const pct    = card.dataset.pct    !== '' ? parseFloat(card.dataset.pct)    : null;
+    // Pick pct for current currency
+    const pctKey = currentCurrency === 'GBP' ? 'pctgbp' : 'pctusd';
+    const pct    = card.dataset[pctKey] !== '' && card.dataset[pctKey] !== undefined ? parseFloat(card.dataset[pctKey]) : null;
     const dayPct = card.dataset.daypct !== '' ? parseFloat(card.dataset.daypct) : null;
     const chgEl  = card.querySelector('.asset-chg');
     if (!chgEl) return;
@@ -2267,7 +2276,8 @@ function renderPortfolio() {
   });
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
-  sorted.forEach(({ pos, valueUSD, pct, dayPct }) => {
+  sorted.forEach(({ pos, valueUSD, pctUSD, pctGBP, dayPct }) => {
+    const pct = isGBP ? pctGBP : pctUSD;
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category, showTicker: true };
     const isLockedFiat = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
     const valStr = fmtVal(valueUSD, rate, sym);
@@ -2298,7 +2308,7 @@ function renderPortfolio() {
       ? '<img src="' + meta.logoUrl + '" style="width:44px;height:44px;border-radius:50%;flex-shrink:0;object-fit:' + fit + ';background:#fff;padding:' + pad + '" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div style=&quot;width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0&quot;>' + meta.logo + '</div>\')">'
       : '<div style="width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + meta.logo + '</div>';
 
-    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '" data-pct="' + (pct !== null ? pct.toFixed(4) : '') + '" data-daypct="' + (dayPct !== null ? dayPct.toFixed(4) : '') + '"' + rsuClick + '>' +
+    assetList.innerHTML += '<div class="asset-card" data-cat="' + meta.cat + '" data-pct="' + (pct !== null ? pct.toFixed(4) : '') + '" data-pctusd="' + (pctUSD !== null ? pctUSD.toFixed(4) : '') + '" data-pctgbp="' + (pctGBP !== null ? pctGBP.toFixed(4) : '') + '" data-daypct="' + (dayPct !== null ? dayPct.toFixed(4) : '') + '"' + rsuClick + '>' +
       logoBlock +
       '<div class="asset-info"><div class="asset-name">' + meta.name + '</div>' +
       '<div class="asset-sub">' + subLabel + (() => {
@@ -3724,7 +3734,7 @@ function buildPortfolioContext() {
 
   assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pct, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
-    const pnlPct = pct !== null ? ` | P&L total: ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '';
+    const pnlPct = (pctUSD !== null || pctGBP !== null) ? ` | P&L USD: ${pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '—'} / GBP: ${pctGBP !== null ? (pctGBP >= 0 ? '+' : '') + pctGBP.toFixed(2) + '%' : '—'}` : '';
     const pnlAbs = pct !== null && pos.initial_investment_usd
       ? ` (${fmtUSD(valueUSD - Number(pos.initial_investment_usd))} absoluto)`
       : '';
