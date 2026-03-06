@@ -2228,6 +2228,14 @@ async function loadPortfolio() {
         .then(json => { if (json && json.data) window._watchlistMeta = json.data; })
         .catch(() => {});
     }
+
+    // Fetch macro indicators with historical evolution
+    if (!window._macroData) {
+      fetch('/api/macro-data')
+        .then(r => r.json())
+        .then(json => { if (json && json.data) window._macroData = json.data; })
+        .catch(() => {});
+    }
     renderPortfolio();
 
   } catch(e) {
@@ -4492,6 +4500,32 @@ async function drawPosChart(ticker, meta) {
 // ── AI CHAT ────────────────────────────────────────────────────────────────
 const aiHistory = [];
 
+function buildMacroContext() {
+  const md = window._macroData || {};
+  if (!Object.keys(md).length) return null;
+
+  const f2  = v => v != null ? Number(v).toFixed(2) : '—';
+  const sgn = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+
+  const lines = ['### Indicadores macroeconómicos (con evolución 7d y 30d)', ''];
+
+  Object.entries(md).forEach(([ticker, d]) => {
+    if (!d || d.current == null) return;
+    lines.push(
+      `**${d.label}** (${ticker}): ${f2(d.current)} ${d.unit} | ` +
+      `7d: ${sgn(d.chg7d)} | 30d: ${sgn(d.chg30d)} | Tendencia: ${d.trend}`
+    );
+  });
+
+  lines.push('');
+  lines.push('Interpretación de referencia:');
+  lines.push('- VIX >30 = mercado en pánico, >20 = incertidumbre elevada, <15 = calma');
+  lines.push('- TNX (10Y yield) sube → presión bajista en acciones growth y bonos largos');
+  lines.push('- GBP/USD sube → el portfolio en USD vale menos en libras para Julián');
+
+  return lines.join('\n');
+}
+
 function buildWatchlistContext() {
   const wl = window._watchlistMeta || {};
   if (!Object.keys(wl).length) return null;
@@ -4506,7 +4540,7 @@ function buildWatchlistContext() {
 
   const GROUPS = {
     'Portfolio core':      ['SPY','MELI','NU','BRK-B','VWRP.L'],
-    'Mega-cap tech':       ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN'],
+    'Mega-cap tech + semis': ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN','TSM'],
     'Defensivos / valor':  ['KO','MCD','WMT','JNJ','XOM'],
     'ETFs EEUU':           ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE','SOXX','ICLN'],
     'Dividendos':          ['VIG','SCHD'],
@@ -4516,7 +4550,7 @@ function buildWatchlistContext() {
     'Bonos':               ['TLT','IEF','HYG'],
     'UK':                  ['IGLT.L','VUKE.L'],
     'Commodities':         ['GLD','SLV','USO','PDBC'],
-    'Cripto':              ['BTC-USD','ETH-USD','ADA-USD'],
+    'Cripto':              ['BTC-USD','ETH-USD','ADA-USD','SOL-USD'],
   };
 
   const RATING_LABEL = { 1:'Strong Buy', 2:'Buy', 3:'Hold', 4:'Underperform', 5:'Sell' };
@@ -4842,6 +4876,7 @@ async function aiSendMsg() {
 
   try {
     const watchlistSection = buildWatchlistContext();
+    const macroSection     = buildMacroContext();
 
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
@@ -4907,6 +4942,7 @@ ${buildPortfolioContext()}
 
 ### Contexto de mercado adicional (datos de Yahoo Finance — actualizados al abrir portfolio)
 ${buildMarketContext()}
+${macroSection     ? '\n' + macroSection     : ''}
 ${watchlistSection ? '\n' + watchlistSection : ''}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {

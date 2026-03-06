@@ -23,8 +23,8 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const WATCHLIST_TICKERS = [
   // Portfolio core (always included even if not held)
   'SPY', 'MELI', 'NU', 'BRK-B', 'VWRP.L',
-  // Mega-cap tech
-  'GOOGL', 'NVDA', 'AAPL', 'TSLA', 'MSFT', 'AMZN',
+  // Mega-cap tech + semis
+  'GOOGL', 'NVDA', 'AAPL', 'TSLA', 'MSFT', 'AMZN', 'TSM',
   // Defensivos / valor
   'KO', 'MCD', 'WMT', 'JNJ', 'XOM',
   // Índices / ETFs EEUU
@@ -46,7 +46,7 @@ const WATCHLIST_TICKERS = [
   // Commodities
   'GLD', 'SLV', 'USO', 'PDBC',
   // Cripto
-  'BTC-USD', 'ETH-USD', 'ADA-USD',
+  'BTC-USD', 'ETH-USD', 'ADA-USD', 'SOL-USD',
 ];
 
 // yahoo-finance2 v3: .default is the class, instantiate with new
@@ -150,6 +150,76 @@ app.get('/api/market-data', async (req, res) => {
   res.json({ data: results, errors, cached: false, cachedAt: portfolioCachedAt });
 });
 
+// ── Macro indicators with historical evolution ───────────────────────────────
+
+const MACRO_TICKERS = {
+  // Volatility
+  '^VIX':    { label: 'VIX (Fear Index)',          unit: 'pts' },
+  // US rates
+  '^TNX':    { label: 'US 10Y Treasury Yield',     unit: '%' },
+  '^IRX':    { label: 'US 3M Treasury Yield',      unit: '%' },
+  // FX
+  'GBP=X':   { label: 'GBP/USD',                   unit: 'USD per GBP' },
+  'EURUSD=X':{ label: 'EUR/USD',                   unit: 'USD per EUR' },
+  // Indices
+  '^IXIC':   { label: 'Nasdaq Composite',          unit: 'pts' },
+  '^FTSE':   { label: 'FTSE 100',                  unit: 'pts' },
+};
+
+let macroCache = null, macroCachedAt = 0;
+
+async function fetchMacro(yahooTicker) {
+  if (!yf) throw new Error('yahoo-finance2 not loaded');
+
+  // chart() gives us OHLCV history — we need 1mo of daily closes
+  const result = await yf.chart(yahooTicker, {
+    interval: '1d',
+    range:    '1mo',
+  });
+
+  const quotes = result?.quotes || [];
+  if (!quotes.length) throw new Error('No quotes returned');
+
+  // Sort ascending by date just in case
+  quotes.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const current  = quotes[quotes.length - 1]?.close ?? null;
+  const ago7d    = quotes[Math.max(0, quotes.length - 6)]?.close ?? null;  // ~5 trading days
+  const ago30d   = quotes[0]?.close ?? null;                               // oldest in 1mo range
+
+  const chg7d  = (current != null && ago7d  != null) ? ((current - ago7d)  / Math.abs(ago7d)  * 100) : null;
+  const chg30d = (current != null && ago30d != null) ? ((current - ago30d) / Math.abs(ago30d) * 100) : null;
+
+  const trend = chg30d == null ? 'sin datos'
+    : chg30d >  2 ? '↑ subiendo'
+    : chg30d < -2 ? '↓ bajando'
+    : '→ estable';
+
+  return { yahooTicker, current, ago7d, ago30d, chg7d, chg30d, trend };
+}
+
+app.get('/api/macro-data', async (req, res) => {
+  if (macroCache && (Date.now() - macroCachedAt) < CACHE_TTL_MS) {
+    return res.json({ data: macroCache, cached: true, cachedAt: macroCachedAt });
+  }
+
+  const results = {}, errors = {};
+  await Promise.allSettled(
+    Object.keys(MACRO_TICKERS).map(async ticker => {
+      try   { results[ticker] = { ...MACRO_TICKERS[ticker], ...await fetchMacro(ticker) }; }
+      catch (e) { errors[ticker] = e.message; console.warn(`[macro] ${ticker}:`, e.message); }
+    })
+  );
+
+  if (Object.keys(results).length > 0) {
+    macroCache    = results;
+    macroCachedAt = Date.now();
+  }
+
+  res.json({ data: results, errors, cached: false, cachedAt: macroCachedAt });
+});
+// ───────────────────────────────────────────────────────────────────────────
+
 // Watchlist: fixed list, fetched once and cached
 app.get('/api/watchlist-data', async (req, res) => {
   if (watchlistCache && (Date.now() - watchlistCachedAt) < CACHE_TTL_MS) {
@@ -170,13 +240,16 @@ app.get('/api/watchlist-data', async (req, res) => {
   res.json({ data: results, errors, cached: false, cachedAt: watchlistCachedAt });
 });
 
-// Pre-warm watchlist in background 30s after startup (avoids slowing boot)
+// Pre-warm watchlist and macro in background 30s after startup
 setTimeout(() => {
   if (!yf) return;
-  console.log('[watchlist] pre-warming cache...');
-  fetch(`http://localhost:${PORT}/api/watchlist-data`)
-    .then(() => console.log('[watchlist] cache ready'))
-    .catch(e => console.warn('[watchlist] pre-warm failed:', e.message));
+  console.log('[cache] pre-warming watchlist + macro...');
+  Promise.all([
+    fetch(`http://localhost:${PORT}/api/watchlist-data`),
+    fetch(`http://localhost:${PORT}/api/macro-data`),
+  ])
+    .then(() => console.log('[cache] watchlist + macro ready'))
+    .catch(e => console.warn('[cache] pre-warm failed:', e.message));
 }, 30000);
 
 // ───────────────────────────────────────────────────────────────────────────
