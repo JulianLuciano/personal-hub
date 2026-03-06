@@ -57,16 +57,15 @@
       letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:10px;
     }
 
-    /* Scenarios — 3 in one row */
-    .scen-row { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
-    .scen-btn {
-      padding:9px 6px; border-radius:10px; border:1px solid var(--border);
+    /* Mini scenario selector — fits in one param slot */
+    .scen-mini { display:flex; gap:4px; margin-top:1px; }
+    .scen-mini-btn {
+      flex:1; padding:7px 4px; border-radius:7px; border:1px solid var(--border);
       background:var(--surface2); color:var(--muted);
-      font-family:'DM Sans',sans-serif; font-size:12px;
-      cursor:pointer; transition:all .15s; text-align:center;
+      font-size:14px; cursor:pointer; transition:all .15s; text-align:center;
       -webkit-tap-highlight-color:transparent;
     }
-    .scen-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+    .scen-mini-btn.active { background:var(--accent); border-color:var(--accent); }
 
     /* Params — 3 col */
     .params-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
@@ -189,22 +188,7 @@
 
 <div class="body">
 
-  <div class="banner">
-    <div class="dot"></div>
-    <span id="bannerText">Cargando portfolio…</span>
-  </div>
-
-  <!-- Scenario -->
-  <div class="card">
-    <div class="card-lbl">Escenario de mercado</div>
-    <div class="scen-row">
-      <button class="scen-btn" data-scen="bear">🐻 Bajista</button>
-      <button class="scen-btn active" data-scen="neutral">📊 Neutral</button>
-      <button class="scen-btn" data-scen="bull">🚀 Alcista</button>
-    </div>
-  </div>
-
-  <!-- Params -->
+  <!-- Params + Scenarios merged -->
   <div class="card">
     <div class="card-lbl">Parámetros</div>
     <div class="params-grid">
@@ -217,6 +201,21 @@
         <span class="p-lbl">Volatilidad</span>
         <input class="p-inp" id="p-vol" type="number" inputmode="decimal" step="0.5" value="18">
         <span class="p-unit">% anual</span>
+      </div>
+      <!-- Scenario selector in 3rd slot -->
+      <div class="p-item">
+        <span class="p-lbl">Escenario</span>
+        <div class="scen-mini">
+          <button class="scen-mini-btn" data-scen="bear">🐻</button>
+          <button class="scen-mini-btn active" data-scen="neutral">📊</button>
+          <button class="scen-mini-btn" data-scen="bull">🚀</button>
+        </div>
+        <span class="p-unit">bajista / neutral / alcista</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Valor actual</span>
+        <input class="p-inp" id="p-start" type="number" inputmode="numeric" step="500" value="12000">
+        <span class="p-unit">£ portfolio</span>
       </div>
       <div class="p-item">
         <span class="p-lbl">Ahorro mensual</span>
@@ -378,11 +377,10 @@ async function loadPortfolio() {
         ? qty * px : qty * px / gbpusd;
     }
     portfolioGBP = Math.round(total);
-    document.getElementById('bannerText').innerHTML =
-      `Portfolio: <strong>£${portfolioGBP.toLocaleString('es-AR')}</strong> · simulación desde ${NOW.toLocaleDateString('es-AR',{month:'short',year:'numeric'})}`;
+    document.getElementById('p-start').value = portfolioGBP;
   } catch {
     portfolioGBP = 12000;
-    document.getElementById('bannerText').textContent = 'Usando estimado £12,000';
+    // leave default value of 12000 in place
   }
 }
 
@@ -558,7 +556,8 @@ async function run() {
   const rsu     = parseFloat(document.getElementById('p-rsu').value)     || 2650;
   const years   = parseInt(document.getElementById('p-years').value)     || 5;
   const n       = Math.min(parseInt(document.getElementById('p-sims').value) || 3000, 15000);
-  const start   = portfolioGBP || 12000;
+  // Use editable start value — updated from Supabase on load, editable manually
+  const start   = parseFloat(document.getElementById('p-start').value) || portfolioGBP || 12000;
 
   const M = years * 12;
   simMonths = M;
@@ -583,18 +582,19 @@ async function run() {
     document.getElementById(id).textContent = capped <= M
       ? probAbove(sims, capped, target) : '—';
     document.getElementById(id + '-tgt').textContent = `${label} · ${dateStr}`;
-    // Update year label
-    const yr = id === 'prob30k' ? '+12m' : id === 'prob100k' ? '+36m' : '+60m';
-    document.querySelector(`#${id}`).closest('.prob-card').querySelector('.prob-yr').textContent =
-      dateStr;
+    document.querySelector(`#${id}`).closest('.prob-card').querySelector('.prob-yr').textContent = dateStr;
   });
 
-  // ── Percentile bands ──
+  // ── Percentile bands — every month (not every 2) for smooth per-month hover ──
   const { gc, tc, ttBg } = theme();
   const labels = [], fullLabels = [], p10=[], p25=[], p50=[], p75=[], p90=[];
-  for (let m = 0; m <= M; m += 2) {
-    labels.push(m % 6 === 0 ? dateLabelShort(m) : '');
-    fullLabels.push(dateLabelFull(m));
+  for (let m = 0; m <= M; m++) {
+    // Show label every 3 months on x-axis, blank otherwise
+    const d = new Date(NOW_YEAR, NOW_MONTH + m, 1);
+    labels.push(m % 3 === 0
+      ? d.toLocaleDateString('es-AR', { month:'short', year:'2-digit' })
+      : '');
+    fullLabels.push(d.toLocaleDateString('es-AR', { month:'long', year:'numeric' }));
     const col = sims.map(s => s[m]);
     p10.push(pct(col,10)); p25.push(pct(col,25)); p50.push(pct(col,50));
     p75.push(pct(col,75)); p90.push(pct(col,90));
@@ -606,16 +606,22 @@ async function run() {
   fanCvs.style.display = 'block';
   if (chartFan) chartFan.destroy();
 
+  // Full number formatter (no k abbreviation) for tooltip
+  function fmtFull(v) {
+    if (v == null) return '—';
+    return '£' + Math.round(v).toLocaleString('es-AR');
+  }
+
   chartFan = new Chart(fanCvs, {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.35 },
-        { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1',   backgroundColor:'rgba(67,233,123,.06)', tension:.35 },
-        { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  tension:.35 },
-        { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1',   backgroundColor:'rgba(247,183,49,.06)', tension:.35 },
-        { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.35 },
+        { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.3 },
+        { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1',   backgroundColor:'rgba(67,233,123,.06)', tension:.3 },
+        { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  tension:.3 },
+        { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1',   backgroundColor:'rgba(247,183,49,.06)', tension:.3 },
+        { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.3 },
       ]
     },
     options: {
@@ -626,39 +632,38 @@ async function run() {
         tooltip:{
           backgroundColor:ttBg, titleColor:tc, bodyColor:tc, borderColor:gc, borderWidth:1,
           callbacks:{
-            // Show full month-year in tooltip title
-            title: ctx => {
-              const idx = ctx[0].dataIndex;
-              return fullLabels[idx] || labels[idx];
-            },
-            label: c => `${c.dataset.label}: ${fmtK(c.raw)}`
+            title: ctx => fullLabels[ctx[0].dataIndex],
+            label: c => `${c.dataset.label}: ${fmtFull(c.raw)}`
           }
         },
         zoom:{
+          limits:{ x:{ min:'original', max:'original' } },
           zoom:{
-            wheel:{ enabled:true },
-            pinch:{ enabled:true },
-            mode:'x'
+            // Pinch: very slow — sensitivity 0.05 means 5% zoom per gesture unit
+            pinch:{ enabled:true, speed:0.03 },
+            wheel:{ enabled:true, speed:0.03 },
+            mode:'x',
           },
           pan:{
             enabled:true,
-            mode:'x'
+            mode:'xy',   // pan both axes — trading app style
+            speed:5,
           }
         }
       },
       scales:{
-        x:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:7 } },
+        x:{
+          grid:{color:gc},
+          ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:10 }
+        },
         y:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, callback:fmtK } }
-      },
-      // Prevent chart touch events from propagating to page scroll
-      onHover: (event) => {
-        if (event.native) event.native.preventDefault();
       }
     }
   });
 
-  // Block page scroll while finger is on the fan chart canvas
-  fanCvs.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  // Block page scroll while touch is on chart, allow chart pan/zoom
+  fanCvs.addEventListener('touchmove', e => e.preventDefault(), { passive:false });
+  fanCvs.addEventListener('touchstart', e => e.stopPropagation(), { passive:true });
 
   // ── Histogram ──
   renderHist(sims, M, histYr);
@@ -684,9 +689,9 @@ document.getElementById('zoomReset').addEventListener('click', () => {
 });
 
 // ── Scenario buttons ──────────────────────────────────────────────────────────
-document.querySelectorAll('.scen-btn').forEach(btn => {
+document.querySelectorAll('.scen-mini-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.scen-mini-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     if (SCEN[btn.dataset.scen]) {
       document.getElementById('p-return').value = SCEN[btn.dataset.scen].ret;
@@ -695,10 +700,10 @@ document.querySelectorAll('.scen-btn').forEach(btn => {
   });
 });
 
-// Mark neutral when return/vol edited manually
+// Deselect scenario when return/vol edited manually
 ['p-return','p-vol'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
-    document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.scen-mini-btn').forEach(b => b.classList.remove('active'));
   });
 });
 
