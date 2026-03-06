@@ -1963,15 +1963,78 @@ async function loadPortfolio() {
       }
     });
 
-    // Fetch yesterday's prices: query snapshots from yesterday's UTC date explicitly
-    const todayUTC = new Date().toISOString().slice(0, 10);
-    const yesterdayUTC = new Date(Date.now() - 24*60*60*1000).toISOString().slice(0, 10);
+    // Helper: has a given exchange opened today (UTC) yet?
+    // Returns true if the market has already opened for its first session today.
+    // We use UTC time throughout. DST is handled by comparing against UTC offsets:
+    //   NYSE/NASDAQ: opens 14:30 UTC (winter/EST) or 13:30 UTC (summer/EDT)
+    //     DST in US: 2nd Sun March → 1st Sun Nov. During DST open = 13:30 UTC.
+    //   LSE: opens 08:00 UTC (winter/GMT) or 07:00 UTC (summer/BST)
+    //     DST in UK: last Sun March → last Sun Oct. During BST open = 07:00 UTC.
+    function marketOpenedTodayUTC(exchange) {
+      const now = new Date();
+      const utcH = now.getUTCHours() + now.getUTCMinutes() / 60;
+      const month = now.getUTCMonth() + 1; // 1-12
+      const day   = now.getUTCDate();
+      const dow   = now.getUTCDay(); // 0=Sun
+
+      // Weekends: markets closed, treat as "not opened today"
+      if (dow === 0 || dow === 6) return false;
+
+      if (exchange === 'LSE') {
+        // BST: last Sunday of March through last Sunday of October
+        // Approximation: month 4-9 always BST, Mar/Oct check last-Sunday
+        let bst = (month >= 4 && month <= 9);
+        if (month === 3) {
+          // Last Sunday of March: find last Sun on or before day 31
+          const lastSun = 31 - ((new Date(Date.UTC(now.getUTCFullYear(), 2, 31)).getUTCDay() + 7 - 0) % 7);
+          bst = day >= lastSun && dow !== 0; // on/after transition (not the Sun itself before 1am)
+        } else if (month === 10) {
+          const lastSun = 31 - ((new Date(Date.UTC(now.getUTCFullYear(), 9, 31)).getUTCDay() + 7 - 0) % 7);
+          bst = day < lastSun;
+        }
+        const openUTC = bst ? 7.0 : 8.0;
+        return utcH >= openUTC;
+      } else {
+        // NYSE/NASDAQ — EDT (UTC-4) in summer, EST (UTC-5) in winter
+        // US DST: 2nd Sunday of March through 1st Sunday of November
+        let edt = false;
+        if (month > 3 && month < 11) edt = true;
+        else if (month === 3) {
+          // 2nd Sunday of March
+          const firstSun = (7 - new Date(Date.UTC(now.getUTCFullYear(), 2, 1)).getUTCDay()) % 7 + 1;
+          const secondSun = firstSun + 7;
+          edt = day >= secondSun;
+        } else if (month === 11) {
+          // 1st Sunday of November
+          const firstSun = (7 - new Date(Date.UTC(now.getUTCFullYear(), 10, 1)).getUTCDay()) % 7 + 1;
+          edt = day < firstSun;
+        }
+        const openUTC = edt ? 13.5 : 14.5; // 9:30 ET = 13:30 or 14:30 UTC
+        return utcH >= openUTC;
+      }
+    }
+
+    // Which "day" to use as baseline for each ticker's daily variation:
+    // If the market hasn't opened yet today, today's price == yesterday's close
+    // so we compare yesterday vs the day before (2d ago).
+    // Crypto is always open so always use today vs yesterday.
+    function baselineDayForTicker(ticker) {
+      if (ticker === 'BTC') return 'today';
+      const lseTickers = ['VWRP.L', 'ARKK.L'];
+      const exchange = lseTickers.includes(ticker) ? 'LSE' : 'NYSE';
+      return marketOpenedTodayUTC(exchange) ? 'today' : 'yesterday';
+    }
+
+    const todayUTC     = new Date().toISOString().slice(0, 10);
+    const yesterdayUTC = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
+    const twoDaysUTC   = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
+
+    // Fetch yesterday prices (always needed)
     const ydStart = yesterdayUTC + 'T00:00:00.000Z';
-    const ydEnd   = todayUTC    + 'T00:00:00.000Z';
+    const ydEnd   = todayUTC     + 'T00:00:00.000Z';
     const priceDataYest = await sbFetch(
       '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
-      '&captured_at=gte.' + ydStart +
-      '&captured_at=lt.'  + ydEnd +
+      '&captured_at=gte.' + ydStart + '&captured_at=lt.' + ydEnd +
       '&order=captured_at.desc&limit=500'
     );
     const pricesYesterday = {};
@@ -1980,8 +2043,23 @@ async function loadPortfolio() {
       if (!pricesYesterday[t]) pricesYesterday[t] = row.price_usd;
     });
 
+    // Fetch day-before-yesterday prices (needed when market hasn't opened yet)
+    const d2Start = twoDaysUTC   + 'T00:00:00.000Z';
+    const d2End   = yesterdayUTC + 'T00:00:00.000Z';
+    const priceDataD2 = await sbFetch(
+      '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
+      '&captured_at=gte.' + d2Start + '&captured_at=lt.' + d2End +
+      '&order=captured_at.desc&limit=500'
+    );
+    const pricesDayBefore = {};
+    priceDataD2.forEach(row => {
+      const t = normTicker(row.ticker);
+      if (!pricesDayBefore[t]) pricesDayBefore[t] = row.price_usd;
+    });
+
     console.log('[Portfolio] prices today:', prices);
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
+    console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
     // Get enough snapshots to find today's latest AND yesterday's latest
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=100');
@@ -2042,11 +2120,18 @@ async function loadPortfolio() {
         }
       }
 
-      // Daily variation: current price vs yesterday's price (ratio same in any currency)
+      // Daily variation: use correct baseline depending on whether market opened today
       let dayPct = null;
-      let prevPrice = pricesYesterday[pos.ticker];
-      if (priceUSD && prevPrice) {
-        dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
+      const baseline = baselineDayForTicker(pos.ticker === 'RSU_META' ? 'META' : pos.ticker);
+      if (baseline === 'today') {
+        // Normal: today's price vs yesterday's close
+        const prevPrice = pricesYesterday[pos.ticker];
+        if (priceUSD && prevPrice) dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
+      } else {
+        // Market hasn't opened yet: compare yesterday's close vs day-before close
+        const prevPrice = pricesYesterday[pos.ticker];
+        const d2Price   = pricesDayBefore[pos.ticker];
+        if (prevPrice && d2Price) dayPct = ((prevPrice - d2Price) / d2Price) * 100;
       }
 
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
