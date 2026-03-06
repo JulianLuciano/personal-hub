@@ -10,14 +10,10 @@ const YAHOO_TICKER_MAP = {
   'BRK.B':    'BRK-B',
   'BTC':      'BTC-USD',
   'RSU_META': 'META',
-  // ARKK.L and NDIA.L are fetched as their LSE tickers directly
-  // Yahoo returns prices in GBp (pence) for LSE stocks — handled in GBP_PRICED_TICKERS
 };
 
 // Tickers whose Yahoo price is in GBP (LSE stocks) — must convert to USD before storing
-// Note: LSE prices from Yahoo are in GBp (pence), so divide by 100 first to get GBP,
-// then divide by fxRate to get USD.
-const GBP_PRICED_TICKERS = new Set(['VWRP.L', 'ARKK.L', 'NDIA.L']);
+const GBP_PRICED_TICKERS = new Set(['VWRP.L']);
 
 function toYahoo(ticker) {
   return YAHOO_TICKER_MAP[ticker] || ticker;
@@ -83,17 +79,14 @@ async function run() {
   }
 
   // 5. Build prices map keyed by DB ticker
-  // For LSE stocks (GBP_PRICED_TICKERS), convert to USD before storing.
-  // VWRP.L: Yahoo returns price in GBP → divide by fxRate
-  // ARKK.L, NDIA.L: Yahoo returns price in GBp (pence) → divide by 100 to get GBP, then by fxRate
-  const GBP_PENCE_TICKERS = new Set(['ARKK.L', 'NDIA.L']);
+  // For LSE stocks (GBP_PRICED_TICKERS), convert GBP price → USD before storing
+  // ARKK.L and NDIA.L are treated as USD-priced directly (no conversion)
   const prices = {};
   for (const [yahooTicker, price] of Object.entries(pricesByYahoo)) {
     const dbTicker = toDb(yahooTicker);
     if (GBP_PRICED_TICKERS.has(dbTicker)) {
-      const gbpPrice = GBP_PENCE_TICKERS.has(dbTicker) ? price / 100 : price;
-      prices[dbTicker] = gbpPrice / fxRate;
-      console.log(`${dbTicker}: ${GBP_PENCE_TICKERS.has(dbTicker) ? gbpPrice.toFixed(4) + 'p→£' + (price/100).toFixed(4) : '£' + price} → $${(gbpPrice / fxRate).toFixed(2)} (converted GBP→USD)`);
+      prices[dbTicker] = price / fxRate;
+      console.log(`${dbTicker}: £${price} → $${(price / fxRate).toFixed(2)} (converted GBP→USD)`);
     } else {
       prices[dbTicker] = price;
     }
@@ -159,6 +152,3 @@ async function run() {
 // Run immediately then every 15 minutes
 run();
 setInterval(run, 15 * 60 * 1000);
-
-
-
