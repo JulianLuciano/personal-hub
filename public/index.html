@@ -4500,6 +4500,12 @@ function buildMarketContext() {
   const fmtPct = v => (v !== null && v !== undefined) ? (Number(v) * 100).toFixed(2) + '%' : null;
   const fmtBig = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : null;
 
+  // Where is the current price within the 52w range? 0% = at low, 100% = at high
+  const rangePos = (price, lo, hi) => {
+    if (!price || !lo || !hi || hi === lo) return null;
+    return ((price - lo) / (hi - lo) * 100).toFixed(0) + '%';
+  };
+
   // Build the ticker list from live data first, then add any fallback-only tickers
   const liveTickers  = Object.keys(mm);
   const allTickers   = [...new Set([...liveTickers, ...Object.keys(FALLBACK)])];
@@ -4525,18 +4531,25 @@ function buildMarketContext() {
     const ma200   = live.twoHundredDayAvg ?? null;
     const mktCap  = live.marketCap        ?? null;
     const short_  = live.shortRatio       ?? null;
+    const price   = live.regularMarketPrice ?? null;
+    const ptb     = live.priceToBook      ?? null;
+    // BRK.B P/B from Yahoo is a known data error — skip it
+    const ptbClean = (ticker === 'BRK.B' || ticker === 'BRK-B') ? null : ptb;
+    const pos52w  = rangePos(price, lo52, hi52);
 
     const parts = [
       `**${ticker}**`,
-      beta    != null ? `Beta: ${fmt2(beta)}`                       : null,
-      pe      != null ? `P/E trailing: ${fmt2(pe)}`                 : null,
-      fwdPE   != null ? `P/E forward: ${fmt2(fwdPE)}`               : null,
-      yield_  != null ? `Yield: ${fmtPct(yield_)}`                  : null,
-      (hi52 && lo52)  ? `52w: $${fmt2(lo52)}–$${fmt2(hi52)}`        : null,
-      ma50    != null ? `MA50: $${fmt2(ma50)}`                      : null,
-      ma200   != null ? `MA200: $${fmt2(ma200)}`                    : null,
-      mktCap  != null ? `Mkt cap: ${fmtBig(mktCap)}`                : null,
-      short_  != null ? `Short ratio: ${fmt2(short_)}d`             : null,
+      beta       != null ? `Beta: ${fmt2(beta)}`                          : null,
+      pe         != null ? `P/E trailing: ${fmt2(pe)}`                    : null,
+      fwdPE      != null ? `P/E forward: ${fmt2(fwdPE)}`                  : null,
+      ptbClean   != null ? `P/B: ${fmt2(ptbClean)}`                       : null,
+      yield_     != null ? `Yield: ${fmtPct(yield_)}`                     : null,
+      (hi52 && lo52) ? `52w: $${fmt2(lo52)}–$${fmt2(hi52)}`              : null,
+      pos52w     != null ? `pos. en rango anual: ${pos52w}`               : null,
+      ma50       != null ? `MA50: $${fmt2(ma50)}`                         : null,
+      ma200      != null ? `MA200: $${fmt2(ma200)}`                       : null,
+      mktCap     != null ? `Mkt cap: ${fmtBig(mktCap)}`                   : null,
+      short_     != null ? `Short ratio: ${fmt2(short_)}d`                : null,
     ].filter(Boolean).join(' | ');
 
     lines.push(parts);
