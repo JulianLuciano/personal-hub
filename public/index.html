@@ -1929,18 +1929,20 @@ let FX_RATE = 0.79;
 let currentCurrency = 'GBP';
 
 const TICKER_META = {
-  'SPY':             { name: 'S&P 500 ETF',   logo: '📊', logoUrl: '/logos/spy.png',    cat: 'acciones', showTicker: true, whiteBg: true },
-  'BRK.B':           { name: 'Berkshire',      logo: '🏦', logoUrl: '/logos/brkb.png',   cat: 'acciones', showTicker: true },
-  'MELI':            { name: 'Mercado Libre',   logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
-  'NU':              { name: 'Nu Holdings',    logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
-  'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
-  'VWRP.L':          { name: 'Vanguard All-World', logo: '🌍', logoUrl: '/logos/vwrp.png', cat: 'acciones', showTicker: true },
-  'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
-  'RSU_META':        { name: 'META',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
-  'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
-  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar', logo: '📋', logoUrl: null,                cat: 'fiat',    showTicker: false },
-  'USD_CASH':        { name: 'USD Cash',       logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',    showTicker: false },
-  'RENT_DEPOSIT':    { name: 'Rent Deposit',   logo: '🏠', logoUrl: null,                cat: 'fiat',    showTicker: false },
+  'SPY':             { name: 'S&P 500 ETF',       logo: '📊', logoUrl: '/logos/spy.png',    cat: 'acciones', showTicker: true, whiteBg: true },
+  'BRK.B':           { name: 'Berkshire',          logo: '🏦', logoUrl: '/logos/brkb.png',   cat: 'acciones', showTicker: true },
+  'MELI':            { name: 'Mercado Libre',       logo: '🛒', logoUrl: '/logos/meli.png',   cat: 'acciones', showTicker: true, whiteBg: true },
+  'NU':              { name: 'Nu Holdings',        logo: '💜', logoUrl: '/logos/nu.png',     cat: 'acciones', showTicker: true },
+  'ARKK.L':          { name: 'ARK Innovation',     logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
+  'VWRP.L':          { name: 'Vanguard All-World', logo: '🌍', logoUrl: '/logos/vwrp.png',   cat: 'acciones', showTicker: true },
+  'MSFT':            { name: 'Microsoft',          logo: '🪟', logoUrl: '/logos/msft.png',   cat: 'acciones', showTicker: true },
+  'NDIA.L':          { name: 'India ETF',          logo: '🇮🇳', logoUrl: '/logos/ndia.png',   cat: 'acciones', showTicker: true },
+  'BTC':             { name: 'Bitcoin',            logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',   showTicker: true },
+  'RSU_META':        { name: 'META',               logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',      showTicker: false, rsu: true },
+  'GBP_LIQUID':      { name: 'Libras',             logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',     showTicker: false },
+  'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',     logo: '📋', logoUrl: null,                cat: 'fiat',     showTicker: false },
+  'USD_CASH':        { name: 'USD Cash',           logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',     showTicker: false },
+  'RENT_DEPOSIT':    { name: 'Rent Deposit',       logo: '🏠', logoUrl: null,                cat: 'fiat',     showTicker: false },
 };
 
 function fmtVal(usd, rate, sym) {
@@ -1951,7 +1953,7 @@ function fmtVal(usd, rate, sym) {
 
 function fmtQty(qty, ticker) {
   if (ticker === 'BTC') return qty.toFixed(8);
-  if (['SPY','BRK.B','MELI','NU','ARKK.L','VWRP.L'].includes(ticker)) return qty.toFixed(3);
+  if (['SPY','BRK.B','MELI','NU','ARKK.L','VWRP.L','MSFT','NDIA.L'].includes(ticker)) return qty.toFixed(3);
   return qty % 1 === 0 ? qty.toString() : qty.toFixed(2);
 }
 
@@ -2042,7 +2044,7 @@ async function loadPortfolio() {
     // Crypto is always open so always use today vs yesterday.
     function baselineDayForTicker(ticker) {
       if (ticker === 'BTC') return 'today';
-      const lseTickers = ['VWRP.L', 'ARKK.L'];
+      const lseTickers = ['VWRP.L', 'ARKK.L', 'NDIA.L'];
       const exchange = lseTickers.includes(ticker) ? 'LSE' : 'NYSE';
       return marketOpenedTodayUTC(exchange) ? 'today' : 'yesterday';
     }
@@ -2591,6 +2593,8 @@ const EQUITY_TICKER_COLORS = {
   'RSU_META': '#f7b731',
   'ARKK.L':   '#a78bfa',
   'VWRP.L':   '#60a5fa',
+  'MSFT':     '#00b4d8',
+  'NDIA.L':   '#f97316',
 };
 
 let equityActiveCats = new Set(['acciones','cripto','rsu']);

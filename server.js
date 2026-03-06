@@ -57,7 +57,8 @@ try {
 const TICKER_MAP = {
   'BTC':    'BTC-USD',
   'BRK.B':  'BRK-B',
-  'ARKK.L': 'ARKK',   // LSE version, use US ticker for fundamentals
+  'ARKK.L': 'ARKK',
+  'NDIA.L': 'NDIA',   // Global X India ETF — LSE version maps to US ticker
 };
 
 async function fetchFundamentals(ticker) {
