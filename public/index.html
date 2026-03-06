@@ -881,6 +881,54 @@
 #chartTooltip.visible { opacity: 1; }
 #chartTooltip .tt-date { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
 #chartTooltip .tt-val  { font-weight: 700; font-size: 13px; }
+
+/* ── Analytics / Monte Carlo ─────────────────────────────────── */
+.analytics-hero { padding: 24px 24px 16px; }
+.analytics-hero-title { font-family:'Outfit',sans-serif; font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+.analytics-hero-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+.mc-card { background:var(--surface); border-radius:var(--card-radius); border:1px solid var(--border); margin:0 0 16px; overflow:hidden; }
+.mc-card-header { padding:14px 16px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+.mc-card-icon { width:30px; height:30px; border-radius:9px; background:rgba(108,99,255,0.15); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.mc-card-title { font-size:13px; font-weight:600; }
+.mc-card-sub { font-size:11px; color:var(--muted); margin-top:1px; }
+.mc-controls { padding:14px 16px; display:flex; flex-direction:column; gap:13px; }
+.mc-control-row { display:flex; align-items:center; gap:10px; }
+.mc-control-label { font-size:11px; color:var(--muted); width:120px; flex-shrink:0; }
+.mc-control-value { font-size:12px; font-weight:700; color:var(--accent); width:48px; text-align:right; flex-shrink:0; }
+.mc-slider { flex:1; -webkit-appearance:none; appearance:none; height:3px; border-radius:2px; background:var(--border); outline:none; cursor:pointer; }
+.mc-slider::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px rgba(108,99,255,0.2); }
+.mc-toggle-row { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-top:1px solid var(--border); }
+.mc-toggle-label { font-size:11px; color:var(--muted); }
+.mc-toggle-group { display:flex; gap:3px; background:var(--surface2); border-radius:8px; padding:3px; }
+.mc-toggle-btn { font-size:11px; font-weight:500; padding:4px 9px; border-radius:6px; border:none; background:transparent; color:var(--muted); cursor:pointer; transition:all 0.15s; }
+.mc-toggle-btn.active { background:var(--accent); color:#fff; }
+.mc-run-btn { width:100%; padding:13px; background:var(--accent); color:#fff; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:600; border:none; border-radius:12px; cursor:pointer; transition:opacity 0.15s,transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:4px; }
+.mc-run-btn:active { opacity:0.85; transform:scale(0.98); }
+.mc-run-btn:disabled { opacity:0.5; cursor:not-allowed; }
+.mc-stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); }
+.mc-stat-cell { background:var(--surface); padding:13px 14px; }
+.mc-stat-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:3px; }
+.mc-stat-val { font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; }
+.mc-stat-val.up { color:var(--accent3); }
+.mc-stat-val.down { color:var(--accent2); }
+.mc-stat-val.neutral { color:var(--accent); }
+.mc-prob-wrap { padding:14px 16px; border-top:1px solid var(--border); }
+.mc-prob-title { font-size:11px; font-weight:600; color:var(--text); margin-bottom:11px; text-transform:uppercase; letter-spacing:0.5px; }
+.mc-prob-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.mc-prob-name { font-size:11px; color:var(--muted); width:72px; flex-shrink:0; }
+.mc-prob-track { flex:1; height:5px; background:var(--surface2); border-radius:3px; overflow:hidden; }
+.mc-prob-fill { height:100%; border-radius:3px; transition:width 0.7s cubic-bezier(0.4,0,0.2,1); }
+.mc-prob-pct { font-size:12px; font-weight:700; width:34px; text-align:right; flex-shrink:0; }
+.mc-chip-row { display:flex; gap:5px; flex-wrap:wrap; padding:0 16px 14px; }
+.mc-chip { font-size:11px; padding:5px 10px; border-radius:20px; border:1px solid var(--border); background:var(--surface2); color:var(--muted); cursor:pointer; transition:all 0.15s; }
+.mc-chip.active { border-color:var(--accent); color:var(--accent); background:rgba(108,99,255,0.1); }
+.mc-canvas-wrap { padding:0 16px 16px; }
+.mc-canvas-wrap canvas { width:100%; display:block; border-radius:8px; background:var(--surface2); }
+.mc-legend { display:flex; gap:12px; padding:0 16px 14px; flex-wrap:wrap; }
+.mc-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
+.mc-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.mc-empty { padding:36px 16px; text-align:center; color:var(--muted); font-size:12px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+.mc-section-pad { padding:0 24px 100px; display:flex; flex-direction:column; }
 </style>
 </head>
 <body>
@@ -1534,6 +1582,118 @@
   </div>
 
   <!-- SETTINGS PANEL -->
+  <div class="panel" id="panel-analytics">
+    <div class="analytics-hero">
+      <div class="analytics-hero-title">Analytics</div>
+      <div class="analytics-hero-sub">Simulaciones y análisis de tu portfolio</div>
+    </div>
+    <div class="mc-section-pad">
+
+      <!-- Simulación Monte Carlo -->
+      <div style="margin-top:16px">
+        <div class="mc-card">
+          <div class="mc-card-header">
+            <div class="mc-card-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div>
+              <div class="mc-card-title">Simulación Monte Carlo</div>
+              <div class="mc-card-sub">10,000 escenarios de evolución del portfolio</div>
+            </div>
+          </div>
+
+          <!-- Escenarios de mercado -->
+          <div style="padding:12px 16px 0">
+            <div class="mc-toggle-label" style="margin-bottom:8px">Escenario de mercado</div>
+            <div class="mc-chip-row" style="padding:0 0 4px">
+              <div class="mc-chip active" data-scenario="base" onclick="mcSelectScenario(this)">Base</div>
+              <div class="mc-chip" data-scenario="bull" onclick="mcSelectScenario(this)">Bull market</div>
+              <div class="mc-chip" data-scenario="bear" onclick="mcSelectScenario(this)">Bear market</div>
+              <div class="mc-chip" data-scenario="crash" onclick="mcSelectScenario(this)">Crash −40%</div>
+              <div class="mc-chip" data-scenario="custom" onclick="mcSelectScenario(this)">Custom</div>
+            </div>
+          </div>
+
+          <!-- Controles -->
+          <div class="mc-controls" id="mcCustomControls">
+            <div class="mc-control-row">
+              <span class="mc-control-label">Retorno anual esperado</span>
+              <input type="range" class="mc-slider" id="slRetorno" min="-20" max="40" value="8" step="0.5" oninput="mcUpdateLabel('slRetorno','lblRetorno','%')">
+              <span class="mc-control-value" id="lblRetorno">8%</span>
+            </div>
+            <div class="mc-control-row">
+              <span class="mc-control-label">Volatilidad anual</span>
+              <input type="range" class="mc-slider" id="slVol" min="5" max="60" value="18" step="0.5" oninput="mcUpdateLabel('slVol','lblVol','%')">
+              <span class="mc-control-value" id="lblVol">18%</span>
+            </div>
+            <div class="mc-control-row">
+              <span class="mc-control-label">Horizonte (años)</span>
+              <input type="range" class="mc-slider" id="slAnios" min="1" max="10" value="5" step="1" oninput="mcUpdateLabel('slAnios','lblAnios',' años')">
+              <span class="mc-control-value" id="lblAnios">5 años</span>
+            </div>
+          </div>
+
+          <!-- Flujo de caja toggle -->
+          <div class="mc-toggle-row">
+            <span class="mc-toggle-label">Incluir flujo de caja (ahorro + bonos + RSUs)</span>
+            <div class="mc-toggle-group">
+              <button class="mc-toggle-btn active" id="cashflowOn" onclick="mcToggleCashflow(true)">Sí</button>
+              <button class="mc-toggle-btn" id="cashflowOff" onclick="mcToggleCashflow(false)">No</button>
+            </div>
+          </div>
+
+          <!-- Botón correr -->
+          <div style="padding:12px 16px 16px">
+            <button class="mc-run-btn" id="mcRunBtn" onclick="runMonteCarlo()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Correr simulación
+            </button>
+          </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="mc-card" id="mcResultsCard" style="display:none">
+          <div class="mc-card-header">
+            <div class="mc-card-icon" style="background:rgba(67,233,123,0.12)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <div>
+              <div class="mc-card-title">Resultados</div>
+              <div class="mc-card-sub" id="mcResultSub">—</div>
+            </div>
+          </div>
+
+          <!-- Fan chart -->
+          <div class="mc-canvas-wrap" style="padding-top:14px">
+            <canvas id="mcCanvas" height="200"></canvas>
+          </div>
+          <div class="mc-legend" id="mcLegend">
+            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(67,233,123,0.9)"></div>P90 (optimista)</div>
+            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:#6c63ff"></div>P50 (mediana)</div>
+            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(255,101,132,0.9)"></div>P10 (pesimista)</div>
+            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(247,183,49,0.9)"></div>Objetivos</div>
+          </div>
+
+          <!-- Stats grid -->
+          <div class="mc-stats-grid" id="mcStatsGrid"></div>
+
+          <!-- Probabilidad de objetivos -->
+          <div class="mc-prob-wrap" id="mcProbWrap"></div>
+
+          <!-- Histograma -->
+          <div style="padding:0 16px 6px">
+            <div class="mc-prob-title">Distribución de resultados finales</div>
+          </div>
+          <div class="mc-canvas-wrap">
+            <canvas id="mcHistogram" height="120"></canvas>
+          </div>
+          <div style="padding:6px 16px 16px;font-size:10px;color:var(--muted);text-align:center" id="mcFootnote"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <div class="panel" id="panel-settings">
     <div class="profile-card">
       <div class="avatar">J</div>
@@ -1737,6 +1897,10 @@
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span>
       <span class="nav-label">Portfolio</span>
     </div>
+    <div class="nav-item" onclick="window.location.href='/analytics.html'">
+      <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 7.07 17.07"/><path d="M12 12 L12 6"/><path d="M12 12 L16 14"/></svg></span>
+      <span class="nav-label">Analytics</span>
+    </div>
     <div class="nav-item" onclick="switchNav(this, 'settings')">
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
       <span class="nav-label">Settings</span>
@@ -1768,6 +1932,7 @@ const navTitles = {
   today: ['Good morning, Julian 👋', 'Lunes, 3 de Marzo'],
   recipes: ['Mis Recetas 🍳', 'Tu repositorio personal'],
   portfolio: ['Portfolio', 'Cargando...'],
+  analytics: ['Analytics 📊', 'Simulaciones y análisis'],
   settings: ['Configuración', 'julian@email.com'],
 };
 
@@ -5364,6 +5529,414 @@ function updatePinDots() {
     document.getElementById('d' + i).classList.toggle('filled', i < pinInput.length);
   }
 }
+
+// ── MONTE CARLO ENGINE ────────────────────────────────────────────────────────
+
+const MC_SCENARIOS = {
+  base:   { retorno: 8,   vol: 18,  label: 'Base (S&P histórico)' },
+  bull:   { retorno: 18,  vol: 20,  label: 'Bull market' },
+  bear:   { retorno: -2,  vol: 28,  label: 'Bear market' },
+  crash:  { retorno: -40, vol: 45,  label: 'Crash −40%' },
+  custom: { retorno: null, vol: null, label: 'Custom' },
+};
+
+let mcScenario   = 'base';
+let mcCashflow   = true;
+let mcRunning    = false;
+
+function mcSelectScenario(el) {
+  document.querySelectorAll('.mc-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  mcScenario = el.dataset.scenario;
+  const s = MC_SCENARIOS[mcScenario];
+  const isCustom = mcScenario === 'custom';
+  if (!isCustom) {
+    document.getElementById('slRetorno').value = s.retorno;
+    document.getElementById('lblRetorno').textContent = s.retorno + '%';
+    document.getElementById('slVol').value = s.vol;
+    document.getElementById('lblVol').textContent = s.vol + '%';
+  }
+  // Make sliders read-only for preset scenarios
+  ['slRetorno','slVol'].forEach(id => {
+    document.getElementById(id).disabled = !isCustom;
+    document.getElementById(id).style.opacity = isCustom ? '1' : '0.45';
+  });
+}
+
+function mcUpdateLabel(sliderId, labelId, suffix) {
+  const v = document.getElementById(sliderId).value;
+  document.getElementById(labelId).textContent = v + suffix;
+}
+
+function mcToggleCashflow(on) {
+  mcCashflow = on;
+  document.getElementById('cashflowOn').classList.toggle('active', on);
+  document.getElementById('cashflowOff').classList.toggle('active', !on);
+}
+
+// Box-Muller normal random
+function randNorm() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function runMonteCarlo() {
+  if (mcRunning) return;
+
+  // Get starting portfolio value
+  const startGBP = liveData ? (liveData.totalUSD / (liveData.gbpUsd || 1.27)) : 12000;
+  const annualReturn = parseFloat(document.getElementById('slRetorno').value) / 100;
+  const annualVol    = parseFloat(document.getElementById('slVol').value)    / 100;
+  const years        = parseInt(document.getElementById('slAnios').value);
+  const N_SIM        = 10000;
+  const STEPS        = years * 12; // monthly steps
+  const dt           = 1 / 12;
+
+  // Monthly cashflow in GBP (if enabled)
+  // Salary saving + pro-rated bonus + pro-rated RSUs
+  const monthlyExtra = mcCashflow ? (() => {
+    const monthlySalary = 950;          // mid of £900–£1000
+    const monthlyBonus  = 9500 / 12;    // £9500/yr spread monthly
+    const monthlyRSU    = 11500 / 12;   // ~£11.5k/yr net RSUs
+    return monthlySalary + monthlyBonus + monthlyRSU;
+  })() : 0;
+
+  // Objectives in GBP
+  const OBJECTIVES = [
+    { label: '£30k (2026)',  value: 30000,  year: Math.max(0.5, 2026 - new Date().getFullYear() + (new Date().getMonth() < 6 ? 0 : 1)) },
+    { label: '£100k (2028)', value: 100000, year: Math.max(0.5, 2028 - new Date().getFullYear() + 1) },
+    { label: '£200k (2030)', value: 200000, year: Math.max(0.5, 2030 - new Date().getFullYear() + 1) },
+  ].filter(o => o.year <= years + 0.5);
+
+  mcRunning = true;
+  const btn = document.getElementById('mcRunBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"><animateTransform attributeName="transform" type="rotate" dur="0.8s" values="0 12 12;360 12 12" repeatCount="indefinite"/></circle></svg> Simulando...';
+
+  // Run in next tick so UI updates
+  setTimeout(() => {
+    // Simulate paths
+    const paths = []; // each path: array of length STEPS+1 (monthly portfolio values)
+    const finalVals = [];
+
+    for (let sim = 0; sim < N_SIM; sim++) {
+      let val = startGBP;
+      const path = [val];
+      for (let t = 0; t < STEPS; t++) {
+        const shock = annualReturn * dt + annualVol * Math.sqrt(dt) * randNorm();
+        val = val * (1 + shock) + monthlyExtra;
+        if (val < 0) val = 0;
+        path.push(val);
+      }
+      paths.push(path);
+      finalVals.push(val);
+    }
+
+    // Sort final values for percentiles
+    finalVals.sort((a, b) => a - b);
+
+    // Percentile paths
+    function percentilePath(pct) {
+      const result = [];
+      for (let t = 0; t <= STEPS; t++) {
+        const vals = paths.map(p => p[t]).sort((a, b) => a - b);
+        const idx  = Math.floor(pct / 100 * (N_SIM - 1));
+        result.push(vals[idx]);
+      }
+      return result;
+    }
+
+    const p10 = percentilePath(10);
+    const p25 = percentilePath(25);
+    const p50 = percentilePath(50);
+    const p75 = percentilePath(75);
+    const p90 = percentilePath(90);
+
+    // Probability of reaching each objective
+    const objProbs = OBJECTIVES.map(obj => {
+      const stepIdx = Math.min(Math.round(obj.year * 12), STEPS);
+      let reached = 0;
+      paths.forEach(p => { if (p[stepIdx] >= obj.value) reached++; });
+      return { ...obj, prob: reached / N_SIM };
+    });
+
+    // Stats
+    const mean   = finalVals.reduce((s, v) => s + v, 0) / N_SIM;
+    const median = finalVals[Math.floor(N_SIM * 0.5)];
+    const p10f   = finalVals[Math.floor(N_SIM * 0.10)];
+    const p90f   = finalVals[Math.floor(N_SIM * 0.90)];
+    const pLoss  = finalVals.filter(v => v < startGBP).length / N_SIM;
+
+    // Draw everything
+    drawMCFanChart(p10, p25, p50, p75, p90, years, STEPS, OBJECTIVES, startGBP);
+    drawMCHistogram(finalVals, startGBP, OBJECTIVES);
+    renderMCStats(mean, median, p10f, p90f, pLoss, startGBP, years);
+    renderMCProbs(objProbs);
+
+    const scenLabel = MC_SCENARIOS[mcScenario].label;
+    document.getElementById('mcResultSub').textContent =
+      `${scenLabel} · ${years} año${years>1?'s':''} · ${mcCashflow ? 'con flujo de caja' : 'solo inversión'}`;
+
+    document.getElementById('mcResultsCard').style.display = '';
+    mcRunning = false;
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Volver a simular';
+
+    // Scroll to results
+    setTimeout(() => {
+      document.getElementById('mcResultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }, 30);
+}
+
+function drawMCFanChart(p10, p25, p50, p75, p90, years, steps, objectives, startGBP) {
+  const canvas = document.getElementById('mcCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth * dpr;
+  const H   = 200 * dpr;
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = canvas.offsetWidth;
+  const h = 200;
+
+  const PAD = { top: 12, right: 16, bottom: 28, left: 52 };
+  const plotW = w - PAD.left - PAD.right;
+  const plotH = h - PAD.top  - PAD.bottom;
+
+  // Max value for scale
+  const maxVal = Math.max(...p90) * 1.05;
+  const minVal = 0;
+
+  function xOf(t) { return PAD.left + (t / steps) * plotW; }
+  function yOf(v) { return PAD.top + plotH - ((v - minVal) / (maxVal - minVal)) * plotH; }
+
+  // Background grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth   = 1;
+  const nGridY = 4;
+  for (let i = 0; i <= nGridY; i++) {
+    const y = PAD.top + (i / nGridY) * plotH;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+    const val = maxVal - (i / nGridY) * (maxVal - minVal);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = `${9 * dpr / dpr}px DM Sans`;
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtGBP(val), PAD.left - 4, y + 3);
+  }
+
+  // Year labels on X
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.textAlign = 'center';
+  ctx.font = '9px DM Sans';
+  const yr0 = new Date().getFullYear();
+  for (let y = 1; y <= years; y++) {
+    const t = y * 12;
+    const x = xOf(t);
+    ctx.fillText(yr0 + y, x, h - 8);
+  }
+
+  // Fan bands
+  function fillBand(upper, lower, color) {
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), yOf(upper[0]));
+    for (let t = 1; t <= steps; t++) ctx.lineTo(xOf(t), yOf(upper[t]));
+    for (let t = steps; t >= 0; t--) ctx.lineTo(xOf(t), yOf(lower[t]));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  fillBand(p90, p75, 'rgba(67,233,123,0.10)');
+  fillBand(p75, p25, 'rgba(108,99,255,0.14)');
+  fillBand(p25, p10, 'rgba(255,101,132,0.10)');
+
+  // Percentile lines
+  function drawLine(path, color, dash=[]) {
+    ctx.beginPath();
+    ctx.setLineDash(dash);
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1.5;
+    ctx.moveTo(xOf(0), yOf(path[0]));
+    for (let t = 1; t <= steps; t++) ctx.lineTo(xOf(t), yOf(path[t]));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  drawLine(p90, 'rgba(67,233,123,0.85)');
+  drawLine(p50, 'rgba(108,99,255,1)', []);
+  drawLine(p10, 'rgba(255,101,132,0.85)');
+
+  // Start value dot
+  ctx.beginPath();
+  ctx.arc(xOf(0), yOf(startGBP), 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fill();
+
+  // Objective horizontal lines
+  const objColors = ['rgba(247,183,49,0.7)', 'rgba(247,183,49,0.55)', 'rgba(247,183,49,0.4)'];
+  objectives.forEach((obj, i) => {
+    if (obj.value > maxVal) return;
+    const y = yOf(obj.value);
+    ctx.beginPath();
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = objColors[i] || 'rgba(247,183,49,0.5)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = objColors[i] || 'rgba(247,183,49,0.5)';
+    ctx.textAlign = 'left';
+    ctx.font = '8px DM Sans';
+    ctx.fillText(obj.label, PAD.left + 2, y - 2);
+  });
+}
+
+function drawMCHistogram(finalVals, startGBP, objectives) {
+  const canvas = document.getElementById('mcHistogram');
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth * dpr;
+  const H   = 120 * dpr;
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = canvas.offsetWidth;
+  const h = 120;
+
+  const PAD = { top: 8, right: 12, bottom: 22, left: 8 };
+  const plotW = w - PAD.left - PAD.right;
+  const plotH = h - PAD.top  - PAD.bottom;
+
+  const N_BINS = 40;
+  const minV = finalVals[0];
+  const maxV = finalVals[finalVals.length - 1];
+  const binW = (maxV - minV) / N_BINS;
+  const bins = new Array(N_BINS).fill(0);
+  finalVals.forEach(v => {
+    const b = Math.min(N_BINS - 1, Math.floor((v - minV) / binW));
+    bins[b]++;
+  });
+  const maxBin = Math.max(...bins);
+
+  const barW = plotW / N_BINS;
+
+  bins.forEach((count, i) => {
+    const barH = (count / maxBin) * plotH;
+    const x = PAD.left + i * barW;
+    const y = PAD.top  + plotH - barH;
+    const binMid = minV + (i + 0.5) * binW;
+    const isLoss = binMid < startGBP;
+
+    ctx.fillStyle = isLoss ? 'rgba(255,101,132,0.55)' : 'rgba(108,99,255,0.55)';
+    ctx.fillRect(x + 0.5, y, barW - 1, barH);
+  });
+
+  // Objective vertical lines
+  objectives.forEach(obj => {
+    if (obj.value < minV || obj.value > maxV) return;
+    const x = PAD.left + ((obj.value - minV) / (maxV - minV)) * plotW;
+    ctx.beginPath();
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = 'rgba(247,183,49,0.8)';
+    ctx.lineWidth   = 1.5;
+    ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // Start line
+  const xStart = PAD.left + ((startGBP - minV) / (maxV - minV)) * plotW;
+  ctx.beginPath();
+  ctx.setLineDash([2, 3]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth   = 1;
+  ctx.moveTo(xStart, PAD.top); ctx.lineTo(xStart, PAD.top + plotH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // X axis labels
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font      = '8px DM Sans';
+  ctx.textAlign = 'center';
+  [minV, (minV + maxV) / 2, maxV].forEach(v => {
+    const x = PAD.left + ((v - minV) / (maxV - minV)) * plotW;
+    ctx.fillText(fmtGBP(v), x, h - 5);
+  });
+}
+
+function fmtGBP(v) {
+  if (v >= 1000000) return '£' + (v / 1000000).toFixed(1) + 'M';
+  if (v >= 1000)    return '£' + (v / 1000).toFixed(0) + 'k';
+  return '£' + Math.round(v);
+}
+
+function renderMCStats(mean, median, p10, p90, pLoss, startGBP, years) {
+  const grid = document.getElementById('mcStatsGrid');
+  const cagr = (v) => ((v / startGBP) ** (1 / years) - 1) * 100;
+
+  grid.innerHTML = [
+    { label: 'Mediana final',   val: fmtGBP(median), cls: 'neutral' },
+    { label: 'Media final',     val: fmtGBP(mean),   cls: 'neutral' },
+    { label: 'P10 (pesimista)', val: fmtGBP(p10),    cls: p10 < startGBP ? 'down' : 'up' },
+    { label: 'P90 (optimista)', val: fmtGBP(p90),    cls: 'up' },
+    { label: 'CAGR mediano',    val: cagr(median).toFixed(1) + '%', cls: cagr(median) >= 0 ? 'up' : 'down' },
+    { label: 'Prob. pérdida',   val: (pLoss * 100).toFixed(1) + '%', cls: pLoss > 0.3 ? 'down' : pLoss > 0.1 ? 'neutral' : 'up' },
+  ].map(s => `
+    <div class="mc-stat-cell">
+      <div class="mc-stat-label">${s.label}</div>
+      <div class="mc-stat-val ${s.cls}">${s.val}</div>
+    </div>
+  `).join('');
+}
+
+function renderMCProbs(objProbs) {
+  if (!objProbs.length) { document.getElementById('mcProbWrap').innerHTML = ''; return; }
+
+  const colors = ['#43e97b', '#6c63ff', '#f7b731'];
+  let html = '<div class="mc-prob-title">Probabilidad de alcanzar objetivos</div>';
+
+  objProbs.forEach((obj, i) => {
+    const pct  = Math.round(obj.prob * 100);
+    const color = colors[i] || '#6c63ff';
+    html += `
+      <div class="mc-prob-row">
+        <span class="mc-prob-name">${obj.label}</span>
+        <div class="mc-prob-track">
+          <div class="mc-prob-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="mc-prob-pct" style="color:${color}">${pct}%</span>
+      </div>`;
+  });
+
+  document.getElementById('mcProbWrap').innerHTML = html;
+
+  // Animate bars after render
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.mc-prob-fill').forEach(el => {
+      const w = el.style.width;
+      el.style.width = '0%';
+      requestAnimationFrame(() => { el.style.width = w; });
+    });
+  });
+}
+
+// Init slider labels and scenario lock
+document.addEventListener('DOMContentLoaded', () => {
+  ['slRetorno','slVol'].forEach(id => {
+    document.getElementById(id).disabled = true;
+    document.getElementById(id).style.opacity = '0.45';
+  });
+
+  document.getElementById('mcResultsCard').style.display = 'none';
+
+  // Footnote
+  document.getElementById('mcFootnote').textContent =
+    '10,000 simulaciones · retornos log-normales mensuales · flujo de caja constante en GBP';
+});
 
 </script>
 </body>

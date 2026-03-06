@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Analytics — Portfolio</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0a0a0f;
+      --surface:  #13131a;
+      --surface2: #1c1c26;
+      --border:   rgba(255,255,255,0.07);
+      --text:     #f0f0f5;
+      --muted:    rgba(240,240,245,0.38);
+      --accent:   #6c63ff;
+      --accent3:  #43e97b;
+      --accent4:  #f7b731;
+      --accent5:  #4fc3f7;
+      --red:      #ff4d6d;
+      --font-num: 'Outfit', sans-serif;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg:#f4f4f8; --surface:#fff; --surface2:#eeeef3;
+        --border:rgba(0,0,0,0.07); --text:#0a0a0f; --muted:rgba(10,10,15,0.45);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg); color: var(--text);
+      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    .hdr {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px;
+      padding-top: calc(14px + env(safe-area-inset-top, 0px));
+    }
+    .hdr-back { font-size: 22px; color: var(--muted); text-decoration: none; line-height:1; padding: 2px 4px; }
+    .hdr-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; }
+    .hdr-sub   { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+    /* ── Layout ── */
+    .body { padding: 14px; display: flex; flex-direction: column; gap: 11px; }
+
+    /* ── Banner ── */
+    .banner {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 13px; border-radius: 11px;
+      background: rgba(67,233,123,0.07); border: 1px solid rgba(67,233,123,0.18);
+      font-size: 12px; color: var(--muted);
+    }
+    .banner .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent3); flex-shrink:0; }
+    .banner strong { color: var(--text); }
+
+    /* ── Card ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .card-lbl {
+      font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700;
+      letter-spacing: .1em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 11px;
+    }
+
+    /* ── Scenario 2×2 ── */
+    .scen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .scen-btn {
+      padding: 10px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--muted);
+      font-family: 'DM Sans', sans-serif; font-size: 13px;
+      cursor: pointer; transition: all .15s; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .scen-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+
+    /* ── Params 2-col ── */
+    .params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+    .p-item { display: flex; flex-direction: column; gap: 3px; }
+    .p-lbl  { font-size: 10px; color: var(--muted); }
+    .p-unit { font-size: 9px;  color: var(--muted); }
+    .p-inp {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 10px;
+      color: var(--text); font-family: var(--font-num);
+      font-size: 16px; font-weight: 700; outline: none; width: 100%;
+      -webkit-appearance: none; transition: border-color .15s;
+    }
+    .p-inp:focus { border-color: var(--accent); }
+
+    /* ── Cash flow toggles ── */
+    .tog-row { display: flex; gap: 7px; margin-bottom: 12px; }
+    .tog {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 9px 4px; cursor: pointer;
+      transition: all .15s; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tog.on { border-color: var(--accent3); background: rgba(67,233,123,0.09); }
+    .tog .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink:0; transition: background .15s; }
+    .tog.on .dot { background: var(--accent3); }
+    .tog span { font-size: 11px; color: var(--muted); }
+    .tog.on span { color: var(--text); }
+
+    /* ── Run button ── */
+    .run-btn {
+      width: 100%; padding: 14px; background: var(--accent); color: #fff;
+      border: none; border-radius: 11px;
+      font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+      cursor: pointer; letter-spacing: .04em; transition: opacity .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .run-btn:active { opacity: .7; }
+    .run-btn:disabled { opacity: .4; cursor: default; }
+
+    /* ── Probability row ── */
+    .prob-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; }
+    .prob-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px 8px; text-align: center;
+    }
+    .prob-yr  { font-size: 9px; color: var(--muted); letter-spacing:.05em; text-transform:uppercase; margin-bottom:3px; }
+    .prob-val { font-family: var(--font-num); font-size: 22px; font-weight: 800; line-height:1.1; }
+    .prob-tgt { font-size: 9px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Chart ── */
+    .chart-wrap { position: relative; width: 100%; height: 220px; }
+    .chart-empty {
+      display: flex; align-items: center; justify-content: center;
+      height: 220px; color: var(--muted); font-size: 12px;
+      border: 1px dashed var(--border); border-radius: 10px; text-align: center;
+      padding: 16px;
+    }
+
+    /* ── Legend ── */
+    .leg-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .leg-item { display: flex; align-items: center; gap: 4px; }
+    .leg-dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink:0; }
+    .leg-lbl  { font-size: 10px; color: var(--muted); }
+
+    /* ── Table ── */
+    .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .pct-table { width: 100%; border-collapse: collapse; min-width: 290px; }
+    .pct-table th {
+      font-size: 9px; color: var(--muted); text-align: right;
+      padding: 4px 6px; border-bottom: 1px solid var(--border);
+      font-weight: 600; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap;
+    }
+    .pct-table th:first-child { text-align: left; }
+    .pct-table td {
+      font-family: var(--font-num); font-size: 11px; font-weight: 700;
+      text-align: right; padding: 6px 6px; border-bottom: 1px solid var(--border); white-space:nowrap;
+    }
+    .pct-table td:first-child {
+      text-align: left; font-family: 'DM Sans', sans-serif;
+      font-weight: 400; color: var(--muted); font-size: 10px;
+    }
+    .pct-table tr:last-child td { border-bottom: none; }
+
+    /* ── Spinner ── */
+    .spin {
+      display: inline-block; width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+      border-radius: 50%; animation: rot .55s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="hdr">
+  <a href="/" class="hdr-back">←</a>
+  <div>
+    <div class="hdr-title">Analytics</div>
+    <div class="hdr-sub">Monte Carlo</div>
+  </div>
+</div>
+
+<div class="body">
+
+  <div class="banner">
+    <div class="dot"></div>
+    <span id="bannerText">Cargando portfolio…</span>
+  </div>
+
+  <!-- Scenario -->
+  <div class="card">
+    <div class="card-lbl">Escenario de mercado</div>
+    <div class="scen-grid">
+      <button class="scen-btn" data-scen="bear">🐻 Bajista</button>
+      <button class="scen-btn active" data-scen="neutral">📊 Neutral</button>
+      <button class="scen-btn" data-scen="bull">🚀 Alcista</button>
+      <button class="scen-btn" data-scen="custom">⚙️ Custom</button>
+    </div>
+  </div>
+
+  <!-- Params -->
+  <div class="card">
+    <div class="card-lbl">Parámetros</div>
+    <div class="params-grid">
+      <div class="p-item">
+        <span class="p-lbl">Retorno anual</span>
+        <input class="p-inp" id="p-return" type="number" inputmode="decimal" step="0.5" value="9">
+        <span class="p-unit">% anual</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Volatilidad</span>
+        <input class="p-inp" id="p-vol" type="number" inputmode="decimal" step="0.5" value="18">
+        <span class="p-unit">% anual</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Ahorro mensual</span>
+        <input class="p-inp" id="p-monthly" type="number" inputmode="numeric" step="50" value="950">
+        <span class="p-unit">£ / mes</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Bono anual</span>
+        <input class="p-inp" id="p-bonus" type="number" inputmode="numeric" step="500" value="9500">
+        <span class="p-unit">£ neto total</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">RSUs por vest</span>
+        <input class="p-inp" id="p-rsu" type="number" inputmode="numeric" step="100" value="2650">
+        <span class="p-unit">£ / trimestre</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Horizonte</span>
+        <input class="p-inp" id="p-years" type="number" inputmode="numeric" step="1" value="5">
+        <span class="p-unit">años</span>
+      </div>
+      <div class="p-item">
+        <span class="p-lbl">Simulaciones</span>
+        <input class="p-inp" id="p-sims" type="number" inputmode="numeric" step="1000" value="3000">
+        <span class="p-unit">iteraciones</span>
+      </div>
+    </div>
+
+    <div class="card-lbl" style="margin-bottom:8px">Incluir flujo de caja</div>
+    <div class="tog-row">
+      <div class="tog on" data-toggle="monthly"><div class="dot"></div><span>Ahorro</span></div>
+      <div class="tog on" data-toggle="bonus"><div class="dot"></div><span>Bono</span></div>
+      <div class="tog on" data-toggle="rsu"><div class="dot"></div><span>RSUs</span></div>
+    </div>
+
+    <button class="run-btn" id="runBtn">Simular</button>
+  </div>
+
+  <!-- Probabilities -->
+  <div class="card-lbl" style="padding:0 2px">Probabilidad de alcanzar objetivos</div>
+  <div class="prob-row">
+    <div class="prob-card">
+      <div class="prob-yr">2026</div>
+      <div class="prob-val" id="prob30k" style="color:var(--accent3)">—</div>
+      <div class="prob-tgt">£30k</div>
+    </div>
+    <div class="prob-card">
+      <div class="prob-yr">2028</div>
+      <div class="prob-val" id="prob100k" style="color:var(--accent4)">—</div>
+      <div class="prob-tgt">£100k</div>
+    </div>
+    <div class="prob-card">
+      <div class="prob-yr">2030</div>
+      <div class="prob-val" id="prob200k" style="color:var(--accent5)">—</div>
+      <div class="prob-tgt">£200k</div>
+    </div>
+  </div>
+
+  <!-- Fan chart -->
+  <div class="card">
+    <div class="card-lbl">Abanico de percentiles</div>
+    <div class="leg-row">
+      <div class="leg-item"><div class="leg-dot" style="background:var(--accent5)"></div><span class="leg-lbl">p90</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--accent3)"></div><span class="leg-lbl">p75</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--accent)"></div><span class="leg-lbl">p50</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--accent4)"></div><span class="leg-lbl">p25</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--red)"></div><span class="leg-lbl">p10</span></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-empty" id="fanEmpty">Corré la simulación para ver resultados</div>
+      <canvas id="fanChart" style="display:none"></canvas>
+    </div>
+  </div>
+
+  <!-- Histogram -->
+  <div class="card">
+    <div class="card-lbl">Distribución al año <span id="histYr">5</span></div>
+    <div class="chart-wrap">
+      <div class="chart-empty" id="histEmpty">—</div>
+      <canvas id="histChart" style="display:none"></canvas>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-lbl">Tabla de percentiles</div>
+    <div class="tbl-scroll">
+      <div id="tblWrap" style="color:var(--muted);font-size:12px;padding:4px 0">Sin datos</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://wgbssyxlxflkgbyowhuk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndnYnNzeXhseGZsa2dieW93aHVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzk3MzI5MzYsImV4cCI6MjA1NTMwODkzNn0.b5PFmV7H7pTdSfowZn8P6T3RM9QRQB0X-Q4LBoNp_S8';
+
+let portfolioGBP = null;
+let chartFan = null, chartHist = null;
+const togState = { monthly:true, bonus:true, rsu:true };
+const SCEN = { bear:{ret:3,vol:25}, neutral:{ret:9,vol:18}, bull:{ret:16,vol:22} };
+
+// ── Load portfolio value ──────────────────────────────────────────────────────
+async function loadPortfolio() {
+  try {
+    const rows = await fetch(`${SUPABASE_URL}/rest/v1/positions?select=*`, {
+      headers:{ apikey:SUPABASE_KEY, Authorization:`Bearer ${SUPABASE_KEY}` }
+    }).then(r => r.json());
+
+    let gbpusd = 1.27;
+    try {
+      const mx = await fetch('/api/macro-data').then(r => r.json());
+      if (mx.data?.['GBP=X']?.current) gbpusd = mx.data['GBP=X'].current;
+    } catch {}
+
+    let prices = {};
+    try { prices = await fetch('/api/prices').then(r => r.json()); } catch {}
+
+    let total = 0;
+    for (const p of rows) {
+      if (p.ticker === 'RENT_DEPOSIT' || p.ticker === 'RSU_META') continue;
+      const qty = parseFloat(p.qty) || 0;
+      const px  = prices[p.ticker];
+      if (!px) {
+        total += p.currency === 'GBP'
+          ? qty * (parseFloat(p.avg_cost_gbp) || 0)
+          : qty * (parseFloat(p.avg_cost_usd) || 0) / gbpusd;
+        continue;
+      }
+      total += (p.currency === 'GBP' || p.ticker.endsWith('.L'))
+        ? qty * px : qty * px / gbpusd;
+    }
+    portfolioGBP = Math.round(total);
+    document.getElementById('bannerText').innerHTML =
+      `Portfolio: <strong>£${portfolioGBP.toLocaleString('es-AR')}</strong> · base de la simulación`;
+  } catch {
+    portfolioGBP = 12000;
+    document.getElementById('bannerText').textContent = 'Usando estimado £12,000';
+  }
+}
+
+// ── Monte Carlo engine ────────────────────────────────────────────────────────
+function randn() {
+  let u, v;
+  do { u = Math.random(); v = Math.random(); } while (!u);
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function simulate({ start, annRet, annVol, years, n, monthly, bonus, rsu, useMo, useBo, useRSU }) {
+  const mr = annRet / 100 / 12;
+  const mv = annVol / 100 / Math.sqrt(12);
+  const M  = years * 12;
+  const snaps = Array.from({ length: n }, () => new Float32Array(M + 1));
+  for (let s = 0; s < n; s++) {
+    let v = start;
+    snaps[s][0] = v;
+    for (let m = 1; m <= M; m++) {
+      v *= 1 + mr + mv * randn();
+      if (useMo)  v += monthly;
+      const mo = m % 12;
+      if (useBo && (mo === 3 || mo === 9)) v += bonus / 2;
+      if (useRSU && m % 3 === 0)          v += rsu;
+      snaps[s][m] = v < 0 ? 0 : v;
+    }
+  }
+  return snaps;
+}
+
+function pct(arr, p) {
+  const sorted = Float32Array.from(arr).sort();
+  const i = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+
+function probAbove(sims, mi, target) {
+  const above = sims.reduce((acc, s) => acc + (s[mi] >= target ? 1 : 0), 0);
+  return (above / sims.length * 100).toFixed(0) + '%';
+}
+
+function fmtK(v) {
+  if (v == null) return '—';
+  return v >= 1000 ? '£' + Math.round(v / 1000) + 'k' : '£' + Math.round(v);
+}
+
+// ── Run & render ──────────────────────────────────────────────────────────────
+async function run() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Simulando…';
+  await new Promise(r => setTimeout(r, 20));
+
+  const annRet  = parseFloat(document.getElementById('p-return').value)  || 9;
+  const annVol  = parseFloat(document.getElementById('p-vol').value)     || 18;
+  const monthly = parseFloat(document.getElementById('p-monthly').value) || 950;
+  const bonus   = parseFloat(document.getElementById('p-bonus').value)   || 9500;
+  const rsu     = parseFloat(document.getElementById('p-rsu').value)     || 2650;
+  const years   = parseInt(document.getElementById('p-years').value)     || 5;
+  const n       = Math.min(parseInt(document.getElementById('p-sims').value) || 3000, 15000);
+  const start   = portfolioGBP || 12000;
+
+  document.getElementById('histYr').textContent = years;
+
+  const sims = simulate({
+    start, annRet, annVol, years, n,
+    monthly, bonus, rsu,
+    useMo: togState.monthly, useBo: togState.bonus, useRSU: togState.rsu
+  });
+
+  const M   = years * 12;
+  const now = new Date();
+
+  // ── Percentile bands (sample every 2 months for clean mobile chart) ──
+  const labels = [], p10=[], p25=[], p50=[], p75=[], p90=[];
+  for (let m = 0; m <= M; m += 2) {
+    const d = new Date(now); d.setMonth(d.getMonth() + m);
+    labels.push(m % 6 === 0
+      ? d.toLocaleDateString('es-AR', { month:'short', year:'2-digit' })
+      : '');
+    const col = sims.map(s => s[m]);
+    p10.push(pct(col,10)); p25.push(pct(col,25)); p50.push(pct(col,50));
+    p75.push(pct(col,75)); p90.push(pct(col,90));
+  }
+
+  // ── Target probabilities ──
+  const mTo = dt => Math.max(0, Math.round((new Date(dt) - now) / (1000*60*60*24*30.4)));
+  const m26 = mTo('2026-12-31'), m28 = mTo('2028-12-31'), m30 = mTo('2030-12-31');
+
+  document.getElementById('prob30k').textContent  = m26 <= M ? probAbove(sims, m26, 30000)  : '—';
+  document.getElementById('prob100k').textContent = m28 <= M ? probAbove(sims, m28, 100000) : '—';
+  document.getElementById('prob200k').textContent = m30 <= M ? probAbove(sims, m30, 200000) : '—';
+
+  // ── Theme ──
+  const dark = !window.matchMedia('(prefers-color-scheme: light)').matches;
+  const gc   = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  const tc   = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
+  const ttBg = dark ? '#1c1c26' : '#fff';
+
+  // ── Fan chart ──
+  document.getElementById('fanEmpty').style.display = 'none';
+  const fanCvs = document.getElementById('fanChart');
+  fanCvs.style.display = 'block';
+  if (chartFan) chartFan.destroy();
+  chartFan = new Chart(fanCvs, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.35 },
+        { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1', backgroundColor:'rgba(67,233,123,.06)', tension:.35 },
+        { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  tension:.35 },
+        { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1', backgroundColor:'rgba(247,183,49,.06)', tension:.35 },
+        { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.35 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:ttBg, titleColor:tc, bodyColor:tc, borderColor:gc, borderWidth:1,
+          callbacks:{ label: c => `${c.dataset.label}: ${fmtK(c.raw)}` }
+        }
+      },
+      scales:{
+        x:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:7 } },
+        y:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, callback:fmtK } }
+      }
+    }
+  });
+
+  // ── Histogram ──
+  const finals = sims.map(s => s[M]);
+  const hMin = Math.min(...finals), hMax = Math.max(...finals);
+  const B = 30;
+  const bSz = (hMax - hMin) / B;
+  const counts = new Array(B).fill(0);
+  const hLbls  = Array.from({length:B}, (_,i) => fmtK(hMin + i * bSz));
+  finals.forEach(v => {
+    counts[Math.min(Math.floor((v - hMin) / bSz), B-1)]++;
+  });
+
+  document.getElementById('histEmpty').style.display = 'none';
+  const histCvs = document.getElementById('histChart');
+  histCvs.style.display = 'block';
+  if (chartHist) chartHist.destroy();
+  chartHist = new Chart(histCvs, {
+    type:'bar',
+    data:{
+      labels:hLbls,
+      datasets:[{
+        data:counts,
+        backgroundColor: counts.map((_,i) => {
+          const v = hMin + i * bSz;
+          if (v >= 200000) return 'rgba(79,195,247,.8)';
+          if (v >= 100000) return 'rgba(67,233,123,.8)';
+          if (v >= 30000)  return 'rgba(108,99,255,.8)';
+          return 'rgba(255,77,109,.5)';
+        }),
+        borderWidth:0, borderRadius:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{ callbacks:{ label:c=>`${c.raw} sims`, title:c=>`~${c[0].label}` } }
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ color:tc, font:{size:8}, maxTicksLimit:5 } },
+        y:{ grid:{color:gc},      ticks:{ color:tc, font:{size:9} } }
+      }
+    }
+  });
+
+  // ── Percentile table ──
+  const milestones = [6,12,18,24,36,48,60].filter(m => m <= M);
+  let html = '<table class="pct-table"><thead><tr><th></th><th>p10</th><th>p25</th><th>p50</th><th>p75</th><th>p90</th></tr></thead><tbody>';
+  milestones.forEach(m => {
+    const d = new Date(now); d.setMonth(d.getMonth() + m);
+    const lbl = d.toLocaleDateString('es-AR', { month:'short', year:'numeric' });
+    const col = sims.map(s => s[m]);
+    html += `<tr><td>${lbl}</td>${[10,25,50,75,90].map(p=>`<td>${fmtK(pct(col,p))}</td>`).join('')}</tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('tblWrap').innerHTML = html;
+
+  btn.disabled = false;
+  btn.textContent = 'Simular';
+}
+
+// ── Scenario buttons ──────────────────────────────────────────────────────────
+document.querySelectorAll('.scen-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (SCEN[btn.dataset.scen]) {
+      document.getElementById('p-return').value = SCEN[btn.dataset.scen].ret;
+      document.getElementById('p-vol').value    = SCEN[btn.dataset.scen].vol;
+    }
+  });
+});
+
+['p-return','p-vol'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    document.querySelectorAll('.scen-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-scen="custom"]').classList.add('active');
+  });
+});
+
+// ── Toggles ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tog').forEach(el => {
+  el.addEventListener('click', () => {
+    const k = el.dataset.toggle;
+    togState[k] = !togState[k];
+    el.classList.toggle('on', togState[k]);
+  });
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.getElementById('runBtn').addEventListener('click', run);
+loadPortfolio().then(() => run());
+</script>
+</body>
+</html>
