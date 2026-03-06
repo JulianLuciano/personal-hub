@@ -4844,6 +4844,44 @@ async function aiSendMsg() {
     const watchlistSection = buildWatchlistContext();
     const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
 
+### Perfil financiero personal de Julián
+**Ubicación:** Reino Unido (Londres). Gastos mensuales: ~£4,000. Vive y trabaja en GBP.
+
+**Ingresos y ahorro:**
+- Ahorro mensual: £900–£1,000/mes (después de gastos)
+- Bono anual neto: £9,000–£10,000 cobrado en dos tramos iguales:
+  - Tramo 1: último día hábil de marzo (~£4,500–£5,000)
+  - Tramo 2: último día hábil de septiembre (~£4,500–£5,000)
+- En 2–3 años podría ascender y aumentar ingresos (monto incierto)
+- RSUs de Meta: vesting trimestral, ~£2,500–£2,800 netos por tramo (ver calendario en portfolio)
+
+**Colchón de emergencia:**
+- Meta: mantener siempre ~£4,000 líquidos (cubre 1 mes de gastos — viajes a Argentina, imprevistos)
+- GBP_LIQUID actual ya cuenta como este colchón — no debe usarse para invertir
+
+**Objetivos patrimoniales** (todo excluye RENT_DEPOSIT y GBP_RECEIVABLE — solo activos disponibles):
+- Corto plazo (fin de 2027): £30,000 — está en camino, actualmente ~£11,500 líquidos + RSUs pendientes
+- Mediano plazo (3 años, ~2029): £100,000
+- Largo plazo (5 años, ~2031): £200,000
+
+**Análisis de viabilidad:**
+- Ahorro anual base: ~£10,800–£12,000/año en salario + ~£9,000–£10,000 en bono = ~£20,000–£22,000/año invertibles
+- RSUs netas: ~£11,000–£12,000/año adicionales si META se mantiene (~£660/acción)
+- Total flujo anual potencial: ~£31,000–£34,000 si todo se reinvierte
+- Para llegar a £100k en 3 años partiendo de ~£12k líquidos actuales necesita rendimiento + flujo de caja sostenido
+- Para £200k en 5 años requiere o rendimientos agresivos (~15%/año) o aumento de ingresos (ascenso)
+
+**Tolerancia al riesgo:**
+- Puede tolerar drawdowns de hasta ~15% sin necesidad de liquidar
+- No tiene necesidades de liquidez inmediata fuera del colchón de £4,000
+- Horizonte real de inversión: 5+ años
+
+**Consideraciones clave:**
+- FX risk: gana y gasta en GBP, pero gran parte del portfolio está en USD — movimientos GBP/USD impactan su patrimonio en libras
+- Concentración en META: entre RSUs actuales y vesting futuro, META es su mayor exposición individual
+- Los bonos de marzo y septiembre son momentos clave para decisiones de inversión grandes
+- Cuando ascienda, el delta de ahorro adicional debería ir directo a inversión, no a gastos
+
 ${buildPortfolioContext()}
 
 ### Contexto de mercado adicional (datos de Yahoo Finance — actualizados al abrir portfolio)
