@@ -29,42 +29,27 @@ let marketDataCache    = null;
 let marketDataCachedAt = 0;
 let marketDataTickers  = null;
 
-// Lazy-load so server still boots if package not installed yet
-let yf = null;
-function getYF() {
-  if (!yf) {
-    try {
-      const mod = require('yahoo-finance2');
-      // v3: export is a class — instantiate it
-      // v2: export has a .default singleton
-      if (mod.YahooFinance) {
-        yf = new mod.YahooFinance();
-      } else if (mod.default && typeof mod.default.quoteSummary === 'function') {
-        yf = mod.default;
-      } else if (typeof mod.quoteSummary === 'function') {
-        yf = mod;
-      } else {
-        throw new Error('Unrecognised yahoo-finance2 export shape');
-      }
-    } catch (e) {
-      throw new Error('yahoo-finance2 not installed — run: npm install yahoo-finance2');
-    }
-  }
-  return yf;
+// yahoo-finance2 v3 exports a YahooFinance class — instantiate once at startup
+let yf;
+try {
+  const { YahooFinance } = require('yahoo-finance2');
+  yf = new YahooFinance();
+} catch(e) {
+  console.error('[market-data] yahoo-finance2 load error:', e.message);
 }
 
 // Some tickers arrive from the frontend in short form — map to Yahoo symbols
 const TICKER_MAP = {
   'BTC':    'BTC-USD',
   'BRK.B':  'BRK-B',
-  'ARKK.L': 'ARKK',   // ARKK.L isn't on Yahoo; use US ticker
+  'ARKK.L': 'ARKK',
 };
 
 async function fetchFundamentals(ticker) {
-  const lib      = getYF();
-  const yticker  = TICKER_MAP[ticker] || ticker;
+  if (!yf) throw new Error('yahoo-finance2 not loaded');
+  const yticker = TICKER_MAP[ticker] || ticker;
 
-  const q = await lib.quoteSummary(yticker, {
+  const q = await yf.quoteSummary(yticker, {
     modules: ['summaryDetail', 'defaultKeyStatistics', 'price']
   });
 
@@ -75,8 +60,8 @@ async function fetchFundamentals(ticker) {
   const n = v => (v !== undefined && v !== null ? v : null);
 
   return {
-    ticker,          // keep original key so frontend can look it up
-    yahooTicker: yticker,
+    ticker,
+    yahooTicker:        yticker,
     trailingPE:         n(sd.trailingPE),
     forwardPE:          n(ks.forwardPE),
     priceToBook:        n(ks.priceToBook),
