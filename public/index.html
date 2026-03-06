@@ -1417,7 +1417,7 @@
                 </div>
               </div>
               <!-- Arrow floats below pie, centered, points left -->
-              <div id="ribbonArrowHintRight" style="pointer-events:none;line-height:1">
+              <div id="ribbonArrowHintRight" style="pointer-events:none;line-height:1;margin-top:4px">
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="10,3 3,6.5 10,10" stroke="rgba(240,240,245,0.35)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </div>
             </div>
@@ -1466,7 +1466,7 @@
         <div style="display:flex;align-items:center;gap:12px">
           <img src="/logos/meta.png" style="width:44px;height:44px;border-radius:50%;object-fit:contain;background:#fff;padding:4px;flex-shrink:0" onerror="this.outerHTML='<div style=\'width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0\'>🏆</div>'">
           <div>
-            <h2 style="margin-bottom:2px">Meta RSUs</h2>
+            <h2 style="margin-bottom:2px">META</h2>
             <p style="margin-bottom:0;font-size:12px" id="rsuSubtitle">Cargando...</p>
           </div>
         </div>
@@ -1937,7 +1937,7 @@ const TICKER_META = {
   'ARKK.L':          { name: 'ARK Innovation',  logo: '🚀', logoUrl: '/logos/arkk.png',   cat: 'acciones', showTicker: true },
   'VWRP.L':          { name: 'Vanguard All-World', logo: '🌍', logoUrl: '/logos/vwrp.png', cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',        logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',  showTicker: true },
-  'RSU_META':        { name: 'Meta RSUs',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
+  'RSU_META':        { name: 'META',      logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',     showTicker: false, rsu: true },
   'GBP_LIQUID':      { name: 'Libras',         logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',    showTicker: false },
   'GBP_RECEIVABLE':  { name: 'Deuda a cobrar', logo: '📋', logoUrl: null,                cat: 'fiat',    showTicker: false },
   'USD_CASH':        { name: 'USD Cash',       logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',    showTicker: false },
@@ -2748,7 +2748,7 @@ function drawEquityPieFrame(prog, focusTicker, slices, totalUSD) {
   const canvas = document.getElementById('equityPie');
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
-  const SIZE = 140;
+  const SIZE = 110;
   canvas.width  = SIZE * dpr;
   canvas.height = SIZE * dpr;
   canvas.style.width  = SIZE + 'px';
@@ -2758,7 +2758,7 @@ function drawEquityPieFrame(prog, focusTicker, slices, totalUSD) {
   ctx.clearRect(0, 0, SIZE, SIZE);
 
   const cx = SIZE / 2, cy = SIZE / 2;
-  const BASE_R = 56, BASE_r = 36;
+  const BASE_R = 44, BASE_r = 28;
   const EXPAND = 10; // how far focused slice pops out
   const easedProg = easeInOut(prog);
 
@@ -2893,9 +2893,9 @@ function hitTestEquityPie(e) {
   const dx = touch.clientX - cx2;
   const dy = touch.clientY - cy2;
   const dist = Math.sqrt(dx*dx + dy*dy);
-  const SIZE = 140;
+  const SIZE = 110;
   const scale = rect.width / SIZE;
-  const BASE_R = 56 * scale, BASE_r = 36 * scale;
+  const BASE_R = 44 * scale, BASE_r = 28 * scale;
   if (dist < BASE_r || dist > BASE_R + 12 * scale) return null; // center hole or outside
   let ang = Math.atan2(dy, dx);
   if (ang < -Math.PI / 2) ang += Math.PI * 2; // normalize to start from -π/2
@@ -2933,7 +2933,7 @@ function renderEquityPie() {
     if (!cat || !equityActiveCats.has(cat)) return;
     if (valueUSD <= 0.5) return;
     const color = EQUITY_TICKER_COLORS[pos.ticker] || '#aaa';
-    const label = (pos.ticker === 'RSU_META') ? 'META RSU' : pos.ticker;
+    const label = (pos.ticker === 'RSU_META') ? 'META' : pos.ticker;
     slices.push({ ticker: pos.ticker, label, color, valueUSD, cat });
     totalUSD += valueUSD;
   });
@@ -2949,15 +2949,15 @@ function renderEquityPie() {
     const canvas = document.getElementById('equityPie');
     if (canvas) {
       const dpr = window.devicePixelRatio || 1;
-      const SIZE = 140;
+      const SIZE = 110;
       canvas.width = SIZE * dpr; canvas.height = SIZE * dpr;
       canvas.style.width = SIZE + 'px'; canvas.style.height = SIZE + 'px';
       const ctx = canvas.getContext('2d');
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, SIZE, SIZE);
       ctx.beginPath();
-      ctx.arc(SIZE/2, SIZE/2, 56, 0, Math.PI * 2);
-      ctx.arc(SIZE/2, SIZE/2, 36, Math.PI * 2, 0, true);
+      ctx.arc(SIZE/2, SIZE/2, 44, 0, Math.PI * 2);
+      ctx.arc(SIZE/2, SIZE/2, 28, Math.PI * 2, 0, true);
       ctx.fillStyle = 'var(--surface2)'; ctx.fill();
     }
   } else {
@@ -2998,7 +2998,7 @@ function renderEquityPie() {
       '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0;transition:transform 0.22s"></div>' +
       '<span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + s.label + '</span>' +
       '<span style="font-size:11px;font-weight:700;flex-shrink:0">' + pct + '%</span>' +
-      '<span class="equity-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:42px;text-align:right">' + valStr + '</span>';
+      '<span class="equity-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right">' + valStr + '</span>';
     row.addEventListener('click', function() {
       focusEquitySlice(s.ticker, equityPieSlices, equityPieSlices.reduce((a,b)=>a+b.valueUSD,0));
     });
