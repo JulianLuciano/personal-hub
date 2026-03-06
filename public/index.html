@@ -4842,34 +4842,55 @@ async function aiSendMsg() {
 
   try {
     const watchlistSection = buildWatchlistContext();
-    const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
+
+    // Calculate USD vs GBP exposure dynamically from live portfolio
+    let usdExposurePct = null;
+    if (liveData && liveData.totalUSD > 0) {
+      const usdAssets = liveData.assets.filter(a => {
+        const pos = a.pos;
+        if (pos.category === 'fiat') return pos.currency === 'USD';
+        // LSE tickers that actually hold USD-priced assets
+        const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
+        return pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker);
+      });
+      const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
+      usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
+    }
+    const fxLine = usdExposurePct !== null
+      ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
+      : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
+
+    const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio y watchlist en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
 
 ### Perfil financiero personal de Julián
 **Ubicación:** Reino Unido (Londres). Gastos mensuales: ~£4,000. Vive y trabaja en GBP.
 
-**Ingresos y ahorro:**
+**Ingresos y ahorro (situación actual):**
 - Ahorro mensual: £900–£1,000/mes (después de gastos)
 - Bono anual neto: £9,000–£10,000 cobrado en dos tramos iguales:
   - Tramo 1: último día hábil de marzo (~£4,500–£5,000)
   - Tramo 2: último día hábil de septiembre (~£4,500–£5,000)
-- En 2–3 años podría ascender y aumentar ingresos (monto incierto)
 - RSUs de Meta: vesting trimestral, ~£2,500–£2,800 netos por tramo (ver calendario en portfolio)
+- En 2–3 años podría ascender. Si eso ocurre, se estima (sin garantía):
+  - Bono neto: +10% (~£9,900–£11,000/año)
+  - Ahorro mensual neto: +20% (~£1,080–£1,200/mes)
+  - RSUs netas por tramo: +15% (~£2,875–£3,220 por vest)
 
 **Colchón de emergencia:**
 - Meta: mantener siempre ~£4,000 líquidos (cubre 1 mes de gastos — viajes a Argentina, imprevistos)
-- GBP_LIQUID actual ya cuenta como este colchón — no debe usarse para invertir
+- GBP_LIQUID ya cuenta como este colchón. No debe usarse para invertir salvo que esté muy por encima de £4,000. El mínimo absolutamente intocable es £2,500.
 
-**Objetivos patrimoniales** (todo excluye RENT_DEPOSIT y GBP_RECEIVABLE — solo activos disponibles):
-- Corto plazo (fin de 2027): £30,000 — está en camino, actualmente ~£11,500 líquidos + RSUs pendientes
-- Mediano plazo (3 años, ~2029): £100,000
-- Largo plazo (5 años, ~2031): £200,000
+**Objetivos patrimoniales** (excluye RENT_DEPOSIT — incluye todo lo demás: acciones, cripto, RSUs, cash líquido y deudas a cobrar):
+- Corto plazo (fin de 2026): £30,000
+- Mediano plazo (fin de 2028): £100,000
+- Largo plazo (fin de 2030): £200,000
 
-**Análisis de viabilidad:**
-- Ahorro anual base: ~£10,800–£12,000/año en salario + ~£9,000–£10,000 en bono = ~£20,000–£22,000/año invertibles
-- RSUs netas: ~£11,000–£12,000/año adicionales si META se mantiene (~£660/acción)
+**Análisis de viabilidad (escenario base, sin ascenso):**
+- Ahorro anual: ~£10,800–£12,000 salario + ~£9,000–£10,000 bono = ~£20,000–£22,000/año invertibles
+- RSUs netas: ~£11,000–£12,000/año adicionales si META se mantiene al precio actual
 - Total flujo anual potencial: ~£31,000–£34,000 si todo se reinvierte
-- Para llegar a £100k en 3 años partiendo de ~£12k líquidos actuales necesita rendimiento + flujo de caja sostenido
-- Para £200k en 5 años requiere o rendimientos agresivos (~15%/año) o aumento de ingresos (ascenso)
+- Para £100k en fin de 2028 necesita rendimiento + flujo de caja sostenido
+- Para £200k en fin de 2030 requiere rendimientos agresivos o que se concrete el ascenso
 
 **Tolerancia al riesgo:**
 - Puede tolerar drawdowns de hasta ~15% sin necesidad de liquidar
@@ -4877,10 +4898,10 @@ async function aiSendMsg() {
 - Horizonte real de inversión: 5+ años
 
 **Consideraciones clave:**
-- FX risk: gana y gasta en GBP, pero gran parte del portfolio está en USD — movimientos GBP/USD impactan su patrimonio en libras
+- ${fxLine}
 - Concentración en META: entre RSUs actuales y vesting futuro, META es su mayor exposición individual
 - Los bonos de marzo y septiembre son momentos clave para decisiones de inversión grandes
-- Cuando ascienda, el delta de ahorro adicional debería ir directo a inversión, no a gastos
+- Si se concreta el ascenso, el delta adicional debería ir directo a inversión, no a gastos
 
 ${buildPortfolioContext()}
 
