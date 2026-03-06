@@ -549,15 +549,15 @@ async function run() {
   btn.innerHTML = '<span class="spin"></span>Simulando…';
   await new Promise(r => setTimeout(r, 20));
 
-  const annRet  = parseFloat(document.getElementById('p-return').value)  || 9;
-  const annVol  = parseFloat(document.getElementById('p-vol').value)     || 18;
-  const monthly = parseFloat(document.getElementById('p-monthly').value) || 950;
-  const bonus   = parseFloat(document.getElementById('p-bonus').value)   || 9500;
-  const rsu     = parseFloat(document.getElementById('p-rsu').value)     || 2650;
-  const years   = parseInt(document.getElementById('p-years').value)     || 5;
+  const _n = (id, fb) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? fb : v; };
+  const annRet  = _n('p-return', 9);
+  const annVol  = _n('p-vol',    18);
+  const monthly = _n('p-monthly',950);
+  const bonus   = _n('p-bonus',  9500);
+  const rsu     = _n('p-rsu',    2650);
+  const years   = parseInt(document.getElementById('p-years').value) || 5;
   const n       = Math.min(parseInt(document.getElementById('p-sims').value) || 3000, 15000);
-  // Use editable start value — updated from Supabase on load, editable manually
-  const start   = parseFloat(document.getElementById('p-start').value) || portfolioGBP || 12000;
+  const start   = _n('p-start',  portfolioGBP || 12000);
 
   const M = years * 12;
   simMonths = M;
@@ -617,11 +617,11 @@ async function run() {
     data: {
       labels,
       datasets: [
-        { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.3 },
-        { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1',   backgroundColor:'rgba(67,233,123,.06)', tension:.3 },
-        { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  tension:.3 },
-        { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1',   backgroundColor:'rgba(247,183,49,.06)', tension:.3 },
-        { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  tension:.3 },
+        { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  stepped:true },
+        { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1',   backgroundColor:'rgba(67,233,123,.06)', stepped:true },
+        { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  stepped:true },
+        { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1',   backgroundColor:'rgba(247,183,49,.06)', stepped:true },
+        { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  stepped:true },
       ]
     },
     options: {
@@ -734,3 +734,4 @@ loadPortfolio().then(() => run());
 </script>
 </body>
 </html>
+
