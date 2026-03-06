@@ -2203,6 +2203,15 @@ async function loadPortfolio() {
     }
 
     liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD };
+
+    // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
+    // result lands in window._marketMeta before user opens AI chat
+    if (!window._marketMeta) {
+      fetch('/api/market-data')
+        .then(r => r.json())
+        .then(json => { if (json && json.data) window._marketMeta = json.data; })
+        .catch(() => {}); // silent fail — AI will use static fallbacks
+    }
     renderPortfolio();
 
   } catch(e) {
@@ -4465,6 +4474,69 @@ async function drawPosChart(ticker, meta) {
 // ── AI CHAT ────────────────────────────────────────────────────────────────
 const aiHistory = [];
 
+function buildMarketContext() {
+  const mm = window._marketMeta || {};
+
+  // Static fallbacks used when Yahoo data isn't available
+  const FALLBACK = {
+    'META':    { beta: 1.3,  trailingPE: 25,   dividendYield: null, note: 'Alta volatilidad individual' },
+    'SPY':     { beta: 1.0,  trailingPE: 22,   dividendYield: 0.013, note: 'S&P 500 — referencia de mercado' },
+    'VWRP.L':  { beta: 0.95, trailingPE: 18,   dividendYield: null, note: 'Global (acumulante, EEUU 65% / Europa 15% / Asia 20%)' },
+    'BRK-B':   { beta: 0.9,  trailingPE: 22,   dividendYield: null, note: 'Berkshire — diversificado, bajo riesgo idiosincrático' },
+    'BTC-USD': { beta: 1.8,  trailingPE: null, dividendYield: null, note: 'Baja correlación con acciones (~0.25 vs SPY), especulativo' },
+  };
+
+  const fmt2 = v => v !== null && v !== undefined ? v.toFixed(2) : '—';
+  const fmtPct = v => v !== null && v !== undefined ? (v * 100).toFixed(2) + '%' : '—';
+  const fmtBig = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '—';
+
+  const dataSource = Object.keys(mm).length > 0 ? 'Yahoo Finance (live)' : 'valores de referencia estáticos (Yahoo no disponible)';
+  const lines = [`Fuente: ${dataSource}`, ''];
+
+  const TICKERS = ['META', 'SPY', 'VWRP.L', 'BRK-B', 'BTC-USD'];
+
+  TICKERS.forEach(ticker => {
+    const live = mm[ticker] || {};
+    const fb   = FALLBACK[ticker] || {};
+
+    const beta       = live.beta        ?? fb.beta;
+    const pe         = live.trailingPE  ?? fb.trailingPE;
+    const fwdPE      = live.forwardPE   ?? null;
+    const yield_     = live.dividendYield ?? fb.dividendYield;
+    const hi52       = live.fiftyTwoWeekHigh ?? null;
+    const lo52       = live.fiftyTwoWeekLow  ?? null;
+    const ma50       = live.fiftyDayAvg      ?? null;
+    const ma200      = live.twoHundredDayAvg ?? null;
+    const mktCap     = live.marketCap        ?? null;
+    const shortRatio = live.shortRatio       ?? null;
+    const note       = fb.note || '';
+
+    const parts = [
+      `**${ticker}**`,
+      note ? `(${note})` : '',
+      `Beta: ${beta !== null && beta !== undefined ? fmt2(beta) : '—'}`,
+      pe        ? `P/E trailing: ${fmt2(pe)}`                          : '',
+      fwdPE     ? `P/E forward: ${fmt2(fwdPE)}`                        : '',
+      yield_    ? `Dividend yield: ${fmtPct(yield_)}`                  : '',
+      (hi52 && lo52) ? `52w: $${fmt2(lo52)}–$${fmt2(hi52)}`           : '',
+      ma50      ? `MA50: $${fmt2(ma50)}`                               : '',
+      ma200     ? `MA200: $${fmt2(ma200)}`                             : '',
+      mktCap    ? `Mkt cap: ${fmtBig(mktCap)}`                        : '',
+      shortRatio ? `Short ratio: ${fmt2(shortRatio)}d`                 : '',
+    ].filter(Boolean).join(' | ');
+
+    lines.push(parts);
+  });
+
+  lines.push('');
+  lines.push('Correlaciones estimadas con SPY: META ~0.70 | VWRP.L ~0.92 | BRK-B ~0.65 | BTC ~0.25');
+  lines.push('FX risk: portfolio mixto USD/GBP — movimientos en tipo de cambio impactan valor en GBP.');
+  lines.push('RSUs: exposición concentrada a META, riesgo idiosincrático alto.');
+  lines.push('Usá estos datos para análisis de riesgo, diversificación, correlaciones y estrategia.');
+
+  return lines.join('\n');
+}
+
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
   const { totalUSD, changeUSD, breakdown, assets } = liveData;
@@ -4663,26 +4735,8 @@ async function aiSendMsg() {
 
 ${buildPortfolioContext()}
 
-### Contexto de mercado adicional (datos de referencia, pueden estar levemente desactualizados)
-**SPY (S&P 500 ETF):** Beta = 1.0 (referencia). Correlación con portfolio de acciones: alta (VWRP ~0.97, SPY directo = 1.0).
-
-**Características por activo:**
-- SPY: Beta ~1.0 | Correlación SPY ~1.0 | P/E trailing ~22x | Dividend yield ~1.3% | Exposición: 500 empresas EEUU
-- VWRP.L: Beta ~0.95 | Correlación SPY ~0.92 | Exposición: mercado global (EEUU 65%, Europa 15%, Asia 20%) | Sin dividendo (acumulante)
-- META: Beta ~1.3 | Correlación SPY ~0.70 | P/E trailing ~25x | Sin dividendo | Alta volatilidad individual
-- BTC: Beta ~1.8 (vs mercado tradicional) | Correlación SPY ~0.25 (baja, diversificador) | Sin P/E | Activo especulativo
-
-**Métricas de riesgo del portfolio estimadas:**
-- Beta ponderado del portfolio de renta variable: calcular en base a pesos actuales
-- Diversificación: VWRP da exposición global, SPY concentra en EEUU, META es riesgo concentrado
-- El cash (GBP) actúa como cobertura natural frente a volatilidad de mercados
-
-**Contexto macroeconómico relevante para preguntas:**
-- Tasas de interés: política de la Fed y BoE afectan valuaciones
-- FX risk: portfolio mixto USD/GBP, cambios en tipo de cambio impactan el valor en GBP
-- RSUs: exposición concentrada a Meta, riesgo idiosincrático alto
-
-Usá estos datos para dar análisis más ricos cuando Julián pregunte sobre riesgo, diversificación, correlaciones o estrategia.`;
+### Contexto de mercado adicional (datos de Yahoo Finance — actualizados al abrir portfolio)
+${buildMarketContext()}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -5107,4 +5161,3 @@ function updatePinDots() {
 </script>
 </body>
 </html>
-
