@@ -67,6 +67,34 @@
     }
     .scen-mini-btn.active { background:var(--accent); border-color:var(--accent); }
 
+    /* Scenario row + advanced toggle */
+    .scen-header { display:flex; align-items:center; gap:8px; margin-bottom:0; }
+    .scen-row3 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; flex:1; }
+    .scen-mini-btn {
+      padding:9px 6px; border-radius:9px; border:1px solid var(--border);
+      background:var(--surface2); color:var(--muted);
+      font-family:'DM Sans',sans-serif; font-size:12px;
+      cursor:pointer; transition:all .15s; text-align:center;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .scen-mini-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+    .adv-btn {
+      background:none; border:none; color:var(--muted);
+      font-size:11px; font-family:'DM Sans',sans-serif;
+      cursor:pointer; white-space:nowrap; padding:4px 0;
+      -webkit-tap-highlight-color:transparent;
+      transition:color .15s;
+    }
+    .adv-btn:hover { color:var(--text); }
+    .adv-btn.open  { color:var(--accent); }
+
+    /* Advanced panel — collapsed by default */
+    .adv-panel {
+      max-height:0; overflow:hidden;
+      transition:max-height .25s ease, margin .25s ease;
+    }
+    .adv-panel.open { max-height:120px; margin-top:10px; }
+
     /* Params — 3 col */
     .params-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
     .p-item { display:flex; flex-direction:column; gap:3px; }
@@ -190,28 +218,34 @@
 
   <!-- Params + Scenarios merged -->
   <div class="card">
-    <div class="card-lbl">Parámetros</div>
-    <div class="params-grid">
-      <div class="p-item">
-        <span class="p-lbl">Retorno anual</span>
-        <input class="p-inp" id="p-return" type="number" inputmode="decimal" step="0.5" value="9">
-        <span class="p-unit">% anual</span>
+    <!-- Scenario row + advanced toggle -->
+    <div class="scen-header">
+      <div class="scen-row3">
+        <button class="scen-mini-btn" data-scen="bear">🐻 Bajista</button>
+        <button class="scen-mini-btn active" data-scen="neutral">📊 Neutral</button>
+        <button class="scen-mini-btn" data-scen="bull">🚀 Alcista</button>
       </div>
-      <div class="p-item">
-        <span class="p-lbl">Volatilidad</span>
-        <input class="p-inp" id="p-vol" type="number" inputmode="decimal" step="0.5" value="18">
-        <span class="p-unit">% anual</span>
-      </div>
-      <!-- Scenario selector in 3rd slot -->
-      <div class="p-item">
-        <span class="p-lbl">Escenario</span>
-        <div class="scen-mini">
-          <button class="scen-mini-btn" data-scen="bear">🐻</button>
-          <button class="scen-mini-btn active" data-scen="neutral">📊</button>
-          <button class="scen-mini-btn" data-scen="bull">🚀</button>
+      <button class="adv-btn" id="advBtn">⚙ ajustar</button>
+    </div>
+
+    <!-- Advanced: retorno + vol, hidden by default -->
+    <div class="adv-panel" id="advPanel">
+      <div class="params-grid" style="margin-bottom:0">
+        <div class="p-item">
+          <span class="p-lbl">Retorno anual</span>
+          <input class="p-inp" id="p-return" type="number" inputmode="decimal" step="0.5" value="9">
+          <span class="p-unit">% anual</span>
         </div>
-        <span class="p-unit">bajista / neutral / alcista</span>
+        <div class="p-item">
+          <span class="p-lbl">Volatilidad</span>
+          <input class="p-inp" id="p-vol" type="number" inputmode="decimal" step="0.5" value="18">
+          <span class="p-unit">% anual</span>
+        </div>
       </div>
+    </div>
+
+    <!-- Cash flow params -->
+    <div class="params-grid" style="margin-top:12px">
       <div class="p-item">
         <span class="p-lbl">Valor actual</span>
         <input class="p-inp" id="p-start" type="number" inputmode="numeric" step="500" value="12000">
@@ -244,7 +278,7 @@
       </div>
     </div>
 
-    <div class="card-lbl" style="margin-bottom:8px">Incluir flujo de caja</div>
+    <div class="card-lbl" style="margin-bottom:8px;margin-top:12px">Incluir</div>
     <div class="tog-row">
       <div class="tog on"  data-toggle="monthly"><div class="dot"></div><span>Ahorro</span></div>
       <div class="tog on"  data-toggle="bonus">  <div class="dot"></div><span>Bono</span></div>
@@ -692,6 +726,15 @@ async function run() {
 // ── Zoom reset ────────────────────────────────────────────────────────────────
 document.getElementById('zoomReset').addEventListener('click', () => {
   if (chartFan) chartFan.resetZoom();
+});
+
+// ── Advanced panel toggle ─────────────────────────────────────────────────────
+document.getElementById('advBtn').addEventListener('click', () => {
+  const panel = document.getElementById('advPanel');
+  const btn   = document.getElementById('advBtn');
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('open', open);
+  btn.textContent = open ? '⚙ cerrar' : '⚙ ajustar';
 });
 
 // ── Scenario buttons ──────────────────────────────────────────────────────────
