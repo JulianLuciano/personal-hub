@@ -171,21 +171,23 @@ let macroCache = null, macroCachedAt = 0;
 async function fetchMacro(yahooTicker) {
   if (!yf) throw new Error('yahoo-finance2 not loaded');
 
-  // chart() gives us OHLCV history — we need 1mo of daily closes
+  // v3: chart() takes period1 (Date) + interval, not range
+  const period1 = new Date();
+  period1.setDate(period1.getDate() - 35); // 35 days back to ensure ~30 trading days
+
   const result = await yf.chart(yahooTicker, {
+    period1,
     interval: '1d',
-    range:    '1mo',
   });
 
   const quotes = result?.quotes || [];
   if (!quotes.length) throw new Error('No quotes returned');
 
-  // Sort ascending by date just in case
   quotes.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const current  = quotes[quotes.length - 1]?.close ?? null;
-  const ago7d    = quotes[Math.max(0, quotes.length - 6)]?.close ?? null;  // ~5 trading days
-  const ago30d   = quotes[0]?.close ?? null;                               // oldest in 1mo range
+  const current = quotes[quotes.length - 1]?.close ?? null;
+  const ago7d   = quotes[Math.max(0, quotes.length - 6)]?.close ?? null;
+  const ago30d  = quotes[0]?.close ?? null;
 
   const chg7d  = (current != null && ago7d  != null) ? ((current - ago7d)  / Math.abs(ago7d)  * 100) : null;
   const chg30d = (current != null && ago30d != null) ? ((current - ago30d) / Math.abs(ago30d) * 100) : null;
