@@ -53,12 +53,13 @@ try {
   console.error('[market-data] yahoo-finance2 load error:', e.message);
 }
 
-// Ticker aliases: frontend short names → Yahoo symbols
+// Ticker aliases for fundamentals fetching only (P/E, beta, etc.)
+// LSE tickers don't have fundamentals on Yahoo — map to US equivalents
 const TICKER_MAP = {
   'BTC':    'BTC-USD',
   'BRK.B':  'BRK-B',
   'ARKK.L': 'ARKK',
-  'NDIA.L': 'NDIA',   // Global X India ETF — LSE version maps to US ticker
+  'NDIA.L': 'NDIA',
 };
 
 async function fetchFundamentals(ticker) {

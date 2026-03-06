@@ -10,14 +10,14 @@ const YAHOO_TICKER_MAP = {
   'BRK.B':    'BRK-B',
   'BTC':      'BTC-USD',
   'RSU_META': 'META',
-  'ARKK.L':   'ARKK',   // LSE UCITS version — use US ticker for price
-  'NDIA.L':   'NDIA',   // Global X India ETF LSE — use US ticker for price
+  // ARKK.L and NDIA.L are fetched as their LSE tickers directly
+  // Yahoo returns prices in GBp (pence) for LSE stocks — handled in GBP_PRICED_TICKERS
 };
 
 // Tickers whose Yahoo price is in GBP (LSE stocks) — must convert to USD before storing
-// Note: ARKK.L and NDIA.L are mapped to their US tickers (ARKK, NDIA) so Yahoo
-// returns USD prices directly — no conversion needed for them.
-const GBP_PRICED_TICKERS = new Set(['VWRP.L']);
+// Note: LSE prices from Yahoo are in GBp (pence), so divide by 100 first to get GBP,
+// then divide by fxRate to get USD.
+const GBP_PRICED_TICKERS = new Set(['VWRP.L', 'ARKK.L', 'NDIA.L']);
 
 function toYahoo(ticker) {
   return YAHOO_TICKER_MAP[ticker] || ticker;
@@ -83,15 +83,17 @@ async function run() {
   }
 
   // 5. Build prices map keyed by DB ticker
-  // For LSE stocks (GBP_PRICED_TICKERS), convert GBP price → USD before storing
-  // so all price_usd values are consistently in USD
+  // For LSE stocks (GBP_PRICED_TICKERS), convert to USD before storing.
+  // VWRP.L: Yahoo returns price in GBP → divide by fxRate
+  // ARKK.L, NDIA.L: Yahoo returns price in GBp (pence) → divide by 100 to get GBP, then by fxRate
+  const GBP_PENCE_TICKERS = new Set(['ARKK.L', 'NDIA.L']);
   const prices = {};
   for (const [yahooTicker, price] of Object.entries(pricesByYahoo)) {
     const dbTicker = toDb(yahooTicker);
     if (GBP_PRICED_TICKERS.has(dbTicker)) {
-      // Yahoo gives price in GBP — convert to USD
-      prices[dbTicker] = price / fxRate;
-      console.log(`${dbTicker}: £${price} → $${(price / fxRate).toFixed(2)} (converted GBP→USD)`);
+      const gbpPrice = GBP_PENCE_TICKERS.has(dbTicker) ? price / 100 : price;
+      prices[dbTicker] = gbpPrice / fxRate;
+      console.log(`${dbTicker}: ${GBP_PENCE_TICKERS.has(dbTicker) ? gbpPrice.toFixed(4) + 'p→£' + (price/100).toFixed(4) : '£' + price} → $${(gbpPrice / fxRate).toFixed(2)} (converted GBP→USD)`);
     } else {
       prices[dbTicker] = price;
     }
