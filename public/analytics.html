@@ -277,7 +277,7 @@
 
   <!-- Fan chart -->
   <div class="card">
-    <div class="card-lbl">Abanico de percentiles</div>
+    <div class="card-lbl">Evolución de cartera · abanico de percentiles</div>
     <div class="leg-row">
       <div class="leg-item"><div class="leg-dot" style="background:var(--accent5)"></div><span class="leg-lbl">p90</span></div>
       <div class="leg-item"><div class="leg-dot" style="background:var(--accent3)"></div><span class="leg-lbl">p75</span></div>
@@ -305,6 +305,12 @@
     <div class="chart-wrap">
       <div class="chart-empty" id="histEmpty">—</div>
       <canvas id="histChart" style="display:none"></canvas>
+    </div>
+    <div class="leg-row" style="margin-top:10px;margin-bottom:0">
+      <div class="leg-item"><div class="leg-dot" style="background:rgba(255,77,109,.7)"></div><span class="leg-lbl">&lt; £30k</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:rgba(108,99,255,.8)"></div><span class="leg-lbl">£30k–£100k</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:rgba(67,233,123,.8)"></div><span class="leg-lbl">£100k–£200k</span></div>
+      <div class="leg-item"><div class="leg-dot" style="background:rgba(79,195,247,.8)"></div><span class="leg-lbl">&gt; £200k</span></div>
     </div>
   </div>
 
@@ -654,7 +660,7 @@ async function run() {
       scales:{
         x:{
           grid:{color:gc},
-          ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:10 }
+          ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:14 }
         },
         y:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, callback:fmtK } }
       }
@@ -734,4 +740,3 @@ loadPortfolio().then(() => run());
 </script>
 </body>
 </html>
-
