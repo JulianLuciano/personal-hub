@@ -1382,7 +1382,7 @@
         </div>
 
         <!-- CARD 2: Renta Variable -->
-        <div class="chart-card" id="equityPieCard" style="width:calc(50% - 5px);flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative;padding-bottom:8px">
+        <div class="chart-card" id="equityPieCard" style="width:calc(50% - 5px);flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative;padding-bottom:8px;overflow:visible">
           <!-- Header -->
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
             <h3 style="margin-bottom:0">Renta variable</h3>
@@ -1406,7 +1406,7 @@
           </div>
 
           <!-- Pie + scrollable legend -->
-          <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="display:flex;align-items:flex-start;gap:10px;overflow:visible">
             <!-- Donut canvas only — arrow is now absolute on the card -->
             <div style="flex-shrink:0;width:130px;height:130px;position:relative">
               <canvas id="equityPie" width="140" height="140" style="width:130px;height:130px;display:block"></canvas>
