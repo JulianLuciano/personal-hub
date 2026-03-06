@@ -34,8 +34,18 @@ let yf = null;
 function getYF() {
   if (!yf) {
     try {
-      yf = require('yahoo-finance2').default;
-      yf.setGlobalConfig({ validation: { logErrors: false } });
+      const mod = require('yahoo-finance2');
+      // v3: export is a class — instantiate it
+      // v2: export has a .default singleton
+      if (mod.YahooFinance) {
+        yf = new mod.YahooFinance();
+      } else if (mod.default && typeof mod.default.quoteSummary === 'function') {
+        yf = mod.default;
+      } else if (typeof mod.quoteSummary === 'function') {
+        yf = mod;
+      } else {
+        throw new Error('Unrecognised yahoo-finance2 export shape');
+      }
     } catch (e) {
       throw new Error('yahoo-finance2 not installed — run: npm install yahoo-finance2');
     }
@@ -43,10 +53,19 @@ function getYF() {
   return yf;
 }
 
+// Some tickers arrive from the frontend in short form — map to Yahoo symbols
+const TICKER_MAP = {
+  'BTC':    'BTC-USD',
+  'BRK.B':  'BRK-B',
+  'ARKK.L': 'ARKK',   // ARKK.L isn't on Yahoo; use US ticker
+};
+
 async function fetchFundamentals(ticker) {
-  const lib = getYF();
-  const q   = await lib.quoteSummary(ticker, {
-    modules: ['summaryDetail', 'defaultKeyStatistics', 'price', 'financialData']
+  const lib      = getYF();
+  const yticker  = TICKER_MAP[ticker] || ticker;
+
+  const q = await lib.quoteSummary(yticker, {
+    modules: ['summaryDetail', 'defaultKeyStatistics', 'price']
   });
 
   const sd = q.summaryDetail        || {};
@@ -56,7 +75,8 @@ async function fetchFundamentals(ticker) {
   const n = v => (v !== undefined && v !== null ? v : null);
 
   return {
-    ticker,
+    ticker,          // keep original key so frontend can look it up
+    yahooTicker: yticker,
     trailingPE:         n(sd.trailingPE),
     forwardPE:          n(ks.forwardPE),
     priceToBook:        n(ks.priceToBook),
