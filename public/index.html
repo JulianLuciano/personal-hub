@@ -1313,18 +1313,17 @@
 
     <!-- DUAL CARD RIBBON: Evolución (left) + Renta Variable (right) -->
     <div id="cardRibbonOuter" style="position:relative;overflow:hidden;margin-bottom:16px;border-radius:var(--card-radius)">
-      <!-- Arrow hint — outside bubble on the right, absolutely positioned -->
-      <div id="ribbonArrowHint" style="position:absolute;right:-2px;top:50%;transform:translateY(-50%);z-index:10;pointer-events:none;transition:opacity 0.3s;display:flex;align-items:center">
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="3,2 7,5 3,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-      </div>
 
-      <!-- Sliding track -->
-      <div id="cardRibbonTrack" style="display:flex;width:200%;will-change:transform;transition:none">
+      <!-- Sliding track — 10px gap between the two cards via padding -->
+      <div id="cardRibbonTrack" style="display:flex;width:200%;will-change:transform;transition:none;gap:10px">
 
         <!-- CARD 1: Evolución -->
-        <div class="chart-card" id="evolCard" style="width:50%;flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative">
+        <div class="chart-card" id="evolCard" style="width:calc(50% - 5px);flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative">
+          <!-- Arrow hint — bottom-right corner of this card, no circle -->
+          <div id="ribbonArrowHint" style="position:absolute;bottom:10px;right:12px;z-index:10;pointer-events:none;transition:opacity 0.3s">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="4,4 12,8 4,12" stroke="rgba(240,240,245,0.35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <h3 style="margin-bottom:0">Evolución</h3>
             <div class="period-tabs" style="margin-bottom:0;gap:5px">
@@ -1382,8 +1381,13 @@
           </div>
         </div>
 
-        <!-- CARD 2: Renta Variable (same height as Evolución) -->
-        <div class="chart-card" id="equityPieCard" style="width:50%;flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box">
+        <!-- CARD 2: Renta Variable -->
+        <div class="chart-card" id="equityPieCard" style="width:calc(50% - 5px);flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative">
+          <!-- Arrow hint — bottom-left corner, pointing left, no circle -->
+          <div id="ribbonArrowHintRight" style="position:absolute;bottom:10px;left:12px;z-index:10;pointer-events:none;transition:opacity 0.3s">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="12,4 4,8 12,12" stroke="rgba(240,240,245,0.35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+
           <!-- Header -->
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
             <h3 style="margin-bottom:0">Renta variable</h3>
@@ -1408,16 +1412,16 @@
 
           <!-- Pie + scrollable legend -->
           <div style="display:flex;align-items:flex-start;gap:14px">
-            <!-- Donut canvas -->
-            <div style="position:relative;flex-shrink:0;width:120px;height:120px">
-              <canvas id="equityPie" width="140" height="140" style="width:120px;height:120px"></canvas>
-              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center">
-                <div style="font-family:var(--font-num);font-size:11px;font-weight:800;line-height:1.2" id="equityPieCenter">—</div>
-                <div style="font-size:8px;color:var(--muted);margin-top:1px" id="equityPieCenterSub">total</div>
+            <!-- Donut canvas — fixed square container, canvas centered inside -->
+            <div style="position:relative;flex-shrink:0;width:120px;height:120px;display:flex;align-items:center;justify-content:center">
+              <canvas id="equityPie" width="140" height="140" style="width:120px;height:120px;display:block"></canvas>
+              <div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center;padding:0">
+                <div style="font-family:var(--font-num);font-size:11px;font-weight:800;line-height:1.2;white-space:nowrap" id="equityPieCenter">—</div>
+                <div style="font-size:8px;color:var(--muted);margin-top:2px;white-space:nowrap" id="equityPieCenterSub">total</div>
               </div>
             </div>
-            <!-- Scrollable legend list -->
-            <div id="equityPieLegend" style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;max-height:120px;overflow-y:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+            <!-- Scrollable legend list — vertical only, taller -->
+            <div id="equityPieLegend" style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;max-height:160px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch">
               <!-- rendered by JS -->
             </div>
           </div>
@@ -2591,7 +2595,7 @@ function toggleEquityPie() { /* no-op — cards are now side-by-side in ribbon *
 
   function getCardWidth() {
     const outer = document.getElementById('cardRibbonOuter');
-    return outer ? outer.offsetWidth : 320;
+    return outer ? outer.offsetWidth + 10 : 330; // +10 for the gap
   }
 
   function setRibbonPos(x, animate) {
@@ -2631,14 +2635,7 @@ function toggleEquityPie() { /* no-op — cards are now side-by-side in ribbon *
   }
 
   function updateArrowHint() {
-    const hint = document.getElementById('ribbonArrowHint');
-    if (!hint) return;
-    // Arrow points right when on left card, left when on right card
-    if (ribbonOnRight) {
-      hint.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="7,2 3,5 7,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
-    } else {
-      hint.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="3,2 7,5 3,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
-    }
+    // Arrows are static per-card, nothing to update dynamically
   }
 
   // Attach events to the outer container
