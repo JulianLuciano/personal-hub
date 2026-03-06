@@ -10,9 +10,13 @@ const YAHOO_TICKER_MAP = {
   'BRK.B':    'BRK-B',
   'BTC':      'BTC-USD',
   'RSU_META': 'META',
+  'ARKK.L':   'ARKK',   // LSE UCITS version — use US ticker for price
+  'NDIA.L':   'NDIA',   // Global X India ETF LSE — use US ticker for price
 };
 
 // Tickers whose Yahoo price is in GBP (LSE stocks) — must convert to USD before storing
+// Note: ARKK.L and NDIA.L are mapped to their US tickers (ARKK, NDIA) so Yahoo
+// returns USD prices directly — no conversion needed for them.
 const GBP_PRICED_TICKERS = new Set(['VWRP.L']);
 
 function toYahoo(ticker) {
