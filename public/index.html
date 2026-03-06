@@ -1416,7 +1416,7 @@
               </div>
             </div>
             <!-- Scrollable legend list — fixed narrow width, vertical only -->
-            <div id="equityPieLegend" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;max-height:168px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+            <div id="equityPieLegend" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;max-height:168px;overflow-y:auto;overflow-x:visible;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 4px;margin:-2px -4px">
               <!-- rendered by JS -->
             </div>
           </div>
@@ -4496,17 +4496,18 @@ function buildPortfolioContext() {
     `### Posiciones detalladas`,
   ];
 
-  assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pct, dayPct }) => {
+  assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
     const pnlPct = (pctUSD !== null || pctGBP !== null) ? ` | P&L USD: ${pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '—'} / GBP: ${pctGBP !== null ? (pctGBP >= 0 ? '+' : '') + pctGBP.toFixed(2) + '%' : '—'}` : '';
-    const pnlAbs = pct !== null && pos.initial_investment_usd
+    const pnlAbs = pctUSD !== null && pos.initial_investment_usd
       ? ` (${fmtUSD(valueUSD - Number(pos.initial_investment_usd))} absoluto)`
       : '';
+    const weightPct = totalUSD > 0 ? (valueUSD / totalUSD * 100).toFixed(1) : '—';
     const dayStr = dayPct !== null ? ` | Hoy: ${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '';
     const priceStr = priceUSD ? ` | Precio actual: $${priceUSD.toLocaleString('en-US', {maximumFractionDigits:2})}` : '';
     const avgStr = pos.avg_cost_usd ? ` | Precio prom compra: $${Number(pos.avg_cost_usd).toFixed(2)}` : '';
     const invStr = pos.initial_investment_usd ? ` | Inversión original: ${fmtUSD(Number(pos.initial_investment_usd))}` : '';
-    lines.push(`- **${meta.name}** (${pos.ticker}): ${fmt(valueUSD)} | Qty: ${pos.qty}${priceStr}${avgStr}${invStr}${pnlPct}${pnlAbs}${dayStr}`);
+    lines.push(`- **${meta.name}** (${pos.ticker}) [${weightPct}% del portfolio]: ${fmt(valueUSD)} | Qty: ${pos.qty}${priceStr}${avgStr}${invStr}${pnlPct}${pnlAbs}${dayStr}`);
   });
 
   // Vesting schedule context
@@ -4660,7 +4661,28 @@ async function aiSendMsg() {
   try {
     const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
 
-${buildPortfolioContext()}`;
+${buildPortfolioContext()}
+
+### Contexto de mercado adicional (datos de referencia, pueden estar levemente desactualizados)
+**SPY (S&P 500 ETF):** Beta = 1.0 (referencia). Correlación con portfolio de acciones: alta (VWRP ~0.97, SPY directo = 1.0).
+
+**Características por activo:**
+- SPY: Beta ~1.0 | Correlación SPY ~1.0 | P/E trailing ~22x | Dividend yield ~1.3% | Exposición: 500 empresas EEUU
+- VWRP.L: Beta ~0.95 | Correlación SPY ~0.92 | Exposición: mercado global (EEUU 65%, Europa 15%, Asia 20%) | Sin dividendo (acumulante)
+- META: Beta ~1.3 | Correlación SPY ~0.70 | P/E trailing ~25x | Sin dividendo | Alta volatilidad individual
+- BTC: Beta ~1.8 (vs mercado tradicional) | Correlación SPY ~0.25 (baja, diversificador) | Sin P/E | Activo especulativo
+
+**Métricas de riesgo del portfolio estimadas:**
+- Beta ponderado del portfolio de renta variable: calcular en base a pesos actuales
+- Diversificación: VWRP da exposición global, SPY concentra en EEUU, META es riesgo concentrado
+- El cash (GBP) actúa como cobertura natural frente a volatilidad de mercados
+
+**Contexto macroeconómico relevante para preguntas:**
+- Tasas de interés: política de la Fed y BoE afectan valuaciones
+- FX risk: portfolio mixto USD/GBP, cambios en tipo de cambio impactan el valor en GBP
+- RSUs: exposición concentrada a Meta, riesgo idiosincrático alto
+
+Usá estos datos para dar análisis más ricos cuando Julián pregunte sobre riesgo, diversificación, correlaciones o estrategia.`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
