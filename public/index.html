@@ -2531,6 +2531,181 @@ function toggleEquityCat(el) {
   renderEquityPie();
 }
 
+// ── EQUITY PIE FOCUS STATE ───────────────────────────────────────────────────
+let equityFocusTicker = null;   // null = all normal; string = focused ticker
+let equityPieSlices   = [];     // last computed slices (for hit-testing canvas taps)
+let equityPieAnimReq  = null;   // requestAnimationFrame id
+let equityPieAnimProg = 1;      // 0..1 animation progress (1 = complete)
+let equityPieAnimDir  = 1;      // 1 = focusing, -1 = unfocusing
+let equityPieAnimFrom = null;   // ticker we're animating from
+
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+function drawEquityPieFrame(prog, focusTicker, slices, totalUSD) {
+  const canvas = document.getElementById('equityPie');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const SIZE = 140;
+  canvas.width  = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  const cx = SIZE / 2, cy = SIZE / 2;
+  const BASE_R = 56, BASE_r = 36;
+  const EXPAND = 10; // how far focused slice pops out
+  const easedProg = easeInOut(prog);
+
+  let angle = -Math.PI / 2;
+  slices.forEach(s => {
+    const sweep = (s.valueUSD / totalUSD) * Math.PI * 2;
+    const isFocused = focusTicker && s.ticker === focusTicker;
+    const isOther   = focusTicker && s.ticker !== focusTicker;
+
+    // Radii: focused slice grows outward, others shrink slightly
+    const R = BASE_R + (isFocused ? EXPAND * easedProg : isOther ? -3 * easedProg : 0);
+    const r = BASE_r + (isFocused ? -2 * easedProg : 0);
+
+    // Offset focused slice away from center along its bisector
+    const bisect = angle + sweep / 2;
+    const offset = isFocused ? EXPAND * 0.6 * easedProg : 0;
+    const ox = Math.cos(bisect) * offset;
+    const oy = Math.sin(bisect) * offset;
+
+    // Opacity: others fade when something is focused
+    const alpha = isOther ? 1 - 0.55 * easedProg : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(ox, oy);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, angle, angle + sweep);
+    ctx.arc(cx, cy, r, angle + sweep, angle, true);
+    ctx.closePath();
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    // Gap stroke
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 1, angle, angle + sweep);
+    ctx.arc(cx, cy, r - 1, angle + sweep, angle, true);
+    ctx.closePath();
+    ctx.strokeStyle = 'var(--bg)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    // Store midpoint for hit testing
+    s._angle = angle;
+    s._sweep = sweep;
+    angle += sweep;
+  });
+
+  // Center label
+  const center    = document.getElementById('equityPieCenter');
+  const centerSub = document.getElementById('equityPieCenterSub');
+  if (center && centerSub) {
+    if (focusTicker && easedProg > 0.5) {
+      const fs = slices.find(s => s.ticker === focusTicker);
+      if (fs) {
+        const pct = ((fs.valueUSD / totalUSD) * 100).toFixed(1);
+        center.textContent    = pct + '%';
+        centerSub.textContent = fs.label;
+        center.style.color    = fs.color;
+      }
+    } else if (!focusTicker) {
+      const isGBP2 = currentCurrency === 'GBP';
+      center.textContent    = fmtVal(totalUSD, isGBP2 ? FX_RATE : 1, isGBP2 ? '£' : '$');
+      center.style.color    = '';
+      centerSub.textContent = equityActiveCats.size < 3 ? [...equityActiveCats].join('+') : 'renta variable';
+      if (valuesHidden) maskElement(center);
+    }
+  }
+}
+
+function animateEquityPie(targetTicker, slices, totalUSD) {
+  if (equityPieAnimReq) cancelAnimationFrame(equityPieAnimReq);
+  const startProg = equityPieAnimProg;
+  const focusing  = !!targetTicker;
+  const DURATION  = 280; // ms
+  const startTime = performance.now();
+
+  // If we're switching focus from one ticker to another, restart from 0
+  if (targetTicker && equityFocusTicker && targetTicker !== equityFocusTicker) {
+    equityFocusTicker = null;
+    equityPieAnimProg = 0;
+  }
+
+  function step(now) {
+    const t = Math.min((now - startTime) / DURATION, 1);
+    equityPieAnimProg = focusing ? t : 1 - t;
+    const drawTicker = focusing ? targetTicker : equityPieAnimFrom;
+    drawEquityPieFrame(equityPieAnimProg, drawTicker, slices, totalUSD);
+
+    // Update legend opacity
+    const legend = document.getElementById('equityPieLegend');
+    if (legend) {
+      legend.querySelectorAll('.pie-legend-row').forEach(row => {
+        const isF = row.dataset.ticker === (drawTicker || '');
+        const isO = drawTicker && row.dataset.ticker !== drawTicker;
+        row.style.opacity  = isO ? String(1 - 0.55 * easeInOut(equityPieAnimProg)) : '1';
+        row.style.fontWeight = isF ? '700' : '';
+        row.style.transform  = isF ? 'scale(1.03)' : 'scale(1)';
+      });
+    }
+
+    if (t < 1) {
+      equityPieAnimReq = requestAnimationFrame(step);
+    } else {
+      equityFocusTicker = targetTicker;
+      equityPieAnimReq  = null;
+    }
+  }
+  equityPieAnimFrom = equityFocusTicker;
+  equityPieAnimReq  = requestAnimationFrame(step);
+}
+
+function focusEquitySlice(ticker, slices, totalUSD) {
+  if (equityFocusTicker === ticker) {
+    // Already focused → unfocus
+    animateEquityPie(null, slices, totalUSD);
+  } else {
+    animateEquityPie(ticker, slices, totalUSD);
+  }
+}
+
+// Hit test canvas tap: returns ticker string or null
+function hitTestEquityPie(e) {
+  const canvas = document.getElementById('equityPie');
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const cx2 = rect.left + rect.width  / 2;
+  const cy2 = rect.top  + rect.height / 2;
+  const touch = e.changedTouches ? e.changedTouches[0] : e;
+  const dx = touch.clientX - cx2;
+  const dy = touch.clientY - cy2;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const SIZE = 140;
+  const scale = rect.width / SIZE;
+  const BASE_R = 56 * scale, BASE_r = 36 * scale;
+  if (dist < BASE_r || dist > BASE_R + 12 * scale) return null; // center hole or outside
+  let ang = Math.atan2(dy, dx);
+  if (ang < -Math.PI / 2) ang += Math.PI * 2; // normalize to start from -π/2
+  for (const s of equityPieSlices) {
+    let a0 = s._angle, a1 = s._angle + s._sweep;
+    // Normalize ang relative to -π/2 start
+    let normAng = ang + Math.PI / 2;
+    if (normAng < 0) normAng += Math.PI * 2;
+    let normA0 = a0 + Math.PI / 2;
+    if (normA0 < 0) normA0 += Math.PI * 2;
+    let normA1 = normA0 + s._sweep;
+    if (normAng >= normA0 && normAng <= normA1) return s.ticker;
+  }
+  return null;
+}
+
 function renderEquityPie() {
   if (!liveData) return;
   const { assets } = liveData;
@@ -2560,59 +2735,46 @@ function renderEquityPie() {
   // Sort descending
   slices.sort((a, b) => b.valueUSD - a.valueUSD);
 
-  // Draw donut
-  const canvas = document.getElementById('equityPie');
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const SIZE = 140;
-  canvas.width = SIZE * dpr;
-  canvas.height = SIZE * dpr;
-  canvas.style.width = SIZE + 'px';
-  canvas.style.height = SIZE + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, SIZE, SIZE);
+  // Store slices globally for hit testing and animation
+  equityPieSlices = slices;
 
-  const cx = SIZE / 2, cy = SIZE / 2, R = 56, r = 36;
-
+  // Draw via frame function (handles focus animation)
   if (totalUSD === 0) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.arc(cx, cy, r, Math.PI * 2, 0, true);
-    ctx.fillStyle = 'var(--surface2)';
-    ctx.fill();
+    const canvas = document.getElementById('equityPie');
+    if (canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const SIZE = 140;
+      canvas.width = SIZE * dpr; canvas.height = SIZE * dpr;
+      canvas.style.width = SIZE + 'px'; canvas.style.height = SIZE + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      ctx.beginPath();
+      ctx.arc(SIZE/2, SIZE/2, 56, 0, Math.PI * 2);
+      ctx.arc(SIZE/2, SIZE/2, 36, Math.PI * 2, 0, true);
+      ctx.fillStyle = 'var(--surface2)'; ctx.fill();
+    }
   } else {
-    let angle = -Math.PI / 2;
-    slices.forEach(s => {
-      const sweep = (s.valueUSD / totalUSD) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, angle, angle + sweep);
-      ctx.arc(cx, cy, r, angle + sweep, angle, true);
-      ctx.closePath();
-      ctx.fillStyle = s.color;
-      ctx.fill();
-      // Gap
-      ctx.beginPath();
-      ctx.arc(cx, cy, R + 1, angle, angle + sweep);
-      ctx.arc(cx, cy, r - 1, angle + sweep, angle, true);
-      ctx.closePath();
-      ctx.strokeStyle = 'var(--bg)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      angle += sweep;
-    });
+    // Reset focus if categories changed
+    if (equityFocusTicker && !slices.find(s => s.ticker === equityFocusTicker)) {
+      equityFocusTicker = null; equityPieAnimProg = 1;
+    }
+    drawEquityPieFrame(equityFocusTicker ? equityPieAnimProg : 1, equityFocusTicker, slices, totalUSD);
   }
 
-  // Center label
-  const center = document.getElementById('equityPieCenter');
-  const centerSub = document.getElementById('equityPieCenterSub');
-  if (center) {
-    center.textContent = fmtVal(totalUSD, rate, sym);
-    delete center.dataset.real;
-    if (valuesHidden) maskElement(center);
-  }
-  if (centerSub) {
-    centerSub.textContent = equityActiveCats.size < 3 ? [...equityActiveCats].join('+') : 'renta variable';
+  // Center label (only update if not in focus state)
+  if (!equityFocusTicker) {
+    const center = document.getElementById('equityPieCenter');
+    const centerSub = document.getElementById('equityPieCenterSub');
+    if (center) {
+      center.textContent = fmtVal(totalUSD, rate, sym);
+      center.style.color = '';
+      delete center.dataset.real;
+      if (valuesHidden) maskElement(center);
+    }
+    if (centerSub) {
+      centerSub.textContent = equityActiveCats.size < 3 ? [...equityActiveCats].join('+') : 'renta variable';
+    }
   }
 
   // Legend
@@ -2623,12 +2785,17 @@ function renderEquityPie() {
     const pct = totalUSD > 0 ? ((s.valueUSD / totalUSD) * 100).toFixed(1) : '0.0';
     const valStr = fmtVal(s.valueUSD, rate, sym);
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0';
+    row.className = 'pie-legend-row';
+    row.dataset.ticker = s.ticker;
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;transition:opacity 0.22s,transform 0.22s,font-weight 0.1s;border-radius:8px;padding:2px 4px;margin:-2px -4px';
     row.innerHTML =
-      '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0"></div>' +
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0;transition:transform 0.22s"></div>' +
       '<span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + s.label + '</span>' +
       '<span style="font-size:11px;font-weight:700;flex-shrink:0">' + pct + '%</span>' +
       '<span class="equity-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:42px;text-align:right">' + valStr + '</span>';
+    row.addEventListener('click', function() {
+      focusEquitySlice(s.ticker, equityPieSlices, equityPieSlices.reduce((a,b)=>a+b.valueUSD,0));
+    });
     legend.appendChild(row);
   });
 
@@ -2637,6 +2804,47 @@ function renderEquityPie() {
     legend.querySelectorAll('.equity-val').forEach(maskElement);
   }
 }
+
+// Equity pie canvas tap
+(function() {
+  let tapping = false, tapX = 0, tapY = 0;
+  const getCanvas = () => document.getElementById('equityPie');
+  document.addEventListener('touchstart', function(e) {
+    const c = getCanvas();
+    if (!c) return;
+    const t = e.touches[0];
+    const rect = c.getBoundingClientRect();
+    if (t.clientX < rect.left || t.clientX > rect.right || t.clientY < rect.top || t.clientY > rect.bottom) return;
+    tapping = true; tapX = t.clientX; tapY = t.clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    if (!tapping) return;
+    tapping = false;
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - tapX) > 10 || Math.abs(t.clientY - tapY) > 10) return;
+    const ticker = hitTestEquityPie(e);
+    const total = equityPieSlices.reduce((a,b) => a + b.valueUSD, 0);
+    if (ticker) {
+      focusEquitySlice(ticker, equityPieSlices, total);
+    } else if (equityFocusTicker) {
+      // Tap inside canvas but outside slices (center hole) → unfocus
+      animateEquityPie(null, equityPieSlices, total);
+    }
+  }, { passive: true });
+  // Tap outside canvas/legend → unfocus
+  document.addEventListener('touchend', function(e) {
+    if (!equityFocusTicker) return;
+    const c  = getCanvas();
+    const lg = document.getElementById('equityPieLegend');
+    const t  = e.changedTouches[0];
+    const inCanvas = c  && (() => { const r=c.getBoundingClientRect();  return t.clientX>=r.left && t.clientX<=r.right  && t.clientY>=r.top && t.clientY<=r.bottom; })();
+    const inLegend = lg && (() => { const r=lg.getBoundingClientRect(); return t.clientX>=r.left && t.clientX<=r.right  && t.clientY>=r.top && t.clientY<=r.bottom; })();
+    if (!inCanvas && !inLegend) {
+      animateEquityPie(null, equityPieSlices, equityPieSlices.reduce((a,b)=>a+b.valueUSD,0));
+    }
+  }, { passive: true });
+})();
+
 
 let valuesHidden = false;
 const MASK = '*****';
