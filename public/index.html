@@ -2062,16 +2062,19 @@ async function loadPortfolio() {
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
-    // Get enough snapshots to find today's latest AND yesterday's latest
-    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=*&order=captured_at.desc&limit=100');
+    // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
+    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
     if (snapData.length > 0) {
       FX_RATE = snapData[0].fx_rate;
       lastSnapshotAt = new Date(snapData[0].captured_at);
       updateLastUpdatedLabel();
     }
-    // Find yesterday's last snapshot: last entry whose calendar day (UTC) differs from today's latest
     const todayDay = snapData.length > 0 ? new Date(snapData[0].captured_at).toISOString().slice(0,10) : null;
-    const yesterdaySnap = snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== todayDay) || null;
+    const yesterdaySnap   = snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== todayDay) || null;
+    const yesterdayDay    = yesterdaySnap ? new Date(yesterdaySnap.captured_at).toISOString().slice(0,10) : null;
+    const dayBeforeSnapObj = yesterdayDay
+      ? snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== todayDay && new Date(s.captured_at).toISOString().slice(0,10) !== yesterdayDay)
+      : null;
 
     // Calculate values
     let totalUSD = 0;
@@ -2150,35 +2153,35 @@ async function loadPortfolio() {
       }
     }
 
-    // ── Portfolio daily change: detect which market opened first (LSE at 7/8 UTC) ──
-    // If LSE hasn't opened yet, use yesterday's snapshot vs day-before; 
-    // once LSE opens, use today vs yesterday.
-    // NYSE opens later (13:30/14:30 UTC) but that's even further, so LSE is the gate.
-    let changeUSD = 0;
-    let changeBaseline = 'today'; // 'today' or 'yesterday'
+    // ── Portfolio daily change ──────────────────────────────────────────────────
+    // If LSE hasn't opened yet, use yesterday vs day-before snapshots.
+    // Compute BOTH USD and GBP change from snapshot native values — no FX conversion needed.
+    let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
     if (lseOpened) {
-      // Normal: today total vs yesterday total
-      if (yesterdaySnap) changeUSD = totalUSD - yesterdaySnap.total_usd;
-      changeBaseline = 'today';
+      // Normal: today vs yesterday
+      if (yesterdaySnap) {
+        changeUSD = totalUSD - yesterdaySnap.total_usd;
+        const todayGBP = totalUSD * FX_RATE;
+        const prevGBP  = yesterdaySnap.total_gbp || (yesterdaySnap.total_usd * (yesterdaySnap.fx_rate || FX_RATE));
+        changeGBP = todayGBP - prevGBP;
+      }
     } else {
-      // Pre-market: yesterday vs day-before snapshot
-      const twoDaysAgoISO = twoDaysUTC + 'T00:00:00.000Z';
-      const dayBeforeSnaps = await sbFetch(
-        '/rest/v1/portfolio_snapshots?select=total_usd,captured_at&order=captured_at.desc&limit=50' +
-        '&captured_at=gte.' + twoDaysAgoISO + '&captured_at=lt.' + ydStart
-      );
-      const dayBeforeSnap = dayBeforeSnaps && dayBeforeSnaps.length > 0 ? dayBeforeSnaps[0] : null;
-      if (yesterdaySnap && dayBeforeSnap) {
-        changeUSD = yesterdaySnap.total_usd - dayBeforeSnap.total_usd;
-        changeBaseline = 'yesterday';
+      // Pre-market: yesterday vs day-before
+      if (yesterdaySnap && dayBeforeSnapObj) {
+        changeUSD = yesterdaySnap.total_usd - dayBeforeSnapObj.total_usd;
+        const yGBP  = yesterdaySnap.total_gbp   || (yesterdaySnap.total_usd   * (yesterdaySnap.fx_rate   || FX_RATE));
+        const d2GBP = dayBeforeSnapObj.total_gbp || (dayBeforeSnapObj.total_usd * (dayBeforeSnapObj.fx_rate || FX_RATE));
+        changeGBP = yGBP - d2GBP;
       } else if (yesterdaySnap) {
         changeUSD = totalUSD - yesterdaySnap.total_usd;
-        changeBaseline = 'today';
+        const todayGBP = totalUSD * FX_RATE;
+        const prevGBP  = yesterdaySnap.total_gbp || (yesterdaySnap.total_usd * (yesterdaySnap.fx_rate || FX_RATE));
+        changeGBP = todayGBP - prevGBP;
       }
     }
 
-    liveData = { totalUSD, changeUSD, changeBaseline, breakdown, assets, prices, costBasisUSD };
+    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD };
     renderPortfolio();
 
   } catch(e) {
@@ -2380,7 +2383,7 @@ function getMarketStatus(ticker, category) {
 
 function renderPortfolio() {
   if (!liveData) return;
-  const { totalUSD, changeUSD, changeBaseline, costBasisUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeGBP, costBasisUSD, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
@@ -2388,19 +2391,18 @@ function renderPortfolio() {
   // Total
   document.getElementById('portfolioTotal').textContent = fmtVal(totalUSD, rate, sym);
 
-  // Change — convert changeUSD to display currency
+  // Change — use native GBP or USD change from snapshot (no FX conversion needed)
   const changeEl = document.getElementById('portfolioChange');
-  const changeDisplay = isGBP ? changeUSD * FX_RATE : changeUSD; // convert to GBP if needed
-  const totalDisplay  = isGBP ? totalUSD  * FX_RATE : totalUSD;
-  const prevDisplay   = totalDisplay - changeDisplay;
-  const changePct = prevDisplay > 0 ? (changeDisplay / prevDisplay) * 100 : 0;
-  const changeFormatted = fmtVal(Math.abs(changeUSD), rate, sym);
-  const arrow = changeDisplay >= 0 ? '↑' : '↓';
+  const changeDisplay   = isGBP ? (changeGBP || 0) : (changeUSD || 0);
+  const totalDisplay    = isGBP ? totalUSD * FX_RATE : totalUSD;
+  const prevDisplay     = totalDisplay - changeDisplay;
+  const changePct       = prevDisplay > 0 ? (changeDisplay / prevDisplay) * 100 : 0;
+  const changeFormatted = fmtVal(Math.abs(changeDisplay), rate, sym);
+  const arrow      = changeDisplay >= 0 ? '↑' : '↓';
   const changeColor = changeDisplay > 0 ? 'var(--accent3)' : changeDisplay < 0 ? 'var(--accent2)' : 'var(--muted)';
-  const vsLabel = changeBaseline === 'yesterday' ? 'vs anteayer' : 'vs ayer';
   changeEl.className = 'portfolio-change';
   changeEl.style.color = changeColor;
-  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeDisplay >= 0 ? '+' : '') + changePct.toFixed(2) + '% ' + vsLabel;
+  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeDisplay >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs ayer';
 
   // Cost basis line
   const cbEl = document.getElementById('portfolioCostBasis');
@@ -3508,7 +3510,7 @@ function switchPosTab(el, cat) {
   let tooltipPinned = false;
   document.addEventListener('touchmove', function(e) {
     if (e.touches[0]) {
-      tooltipPinned = false;
+      // While dragging finger, show tooltip but don't pin — pin only on tap (touchend)
       showTip(e.touches[0].clientX, e.touches[0].clientY);
     }
   }, { passive: true });
@@ -3523,21 +3525,18 @@ function switchPosTab(el, cat) {
     const onTip   = tx >= tipRect.left && tx <= tipRect.right && ty >= tipRect.top && ty <= tipRect.bottom;
     const onChart = tx >= rect.left && tx <= rect.right && ty >= rect.top - 20 && ty <= rect.bottom + 20;
 
-    if (onTip && tooltipPinned) {
-      // Tap directly on the tooltip bubble → hide it
+    const tipVisible = t.classList.contains('visible');
+    if (onTip && tipVisible) {
+      // Tap on visible tooltip bubble → always hide
       tooltipPinned = false;
       t.classList.remove('visible');
       clearDotOverlay();
-    } else if (onChart) {
-      if (tooltipPinned) {
-        // Second tap on chart (not on bubble) → move tooltip
-        showTip(tx, ty);
-      } else {
-        tooltipPinned = true;
-        showTip(tx, ty);
-      }
-    } else {
-      // Tap outside — unpin
+    } else if (onChart && !onTip) {
+      // Tap on chart (not on bubble) → pin/show
+      tooltipPinned = true;
+      showTip(tx, ty);
+    } else if (!onChart) {
+      // Tap outside chart — hide
       tooltipPinned = false;
       t.classList.remove('visible');
       clearDotOverlay();
