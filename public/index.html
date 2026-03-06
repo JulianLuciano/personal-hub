@@ -2205,9 +2205,15 @@ async function loadPortfolio() {
     liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
-    // result lands in window._marketMeta before user opens AI chat
+    // result lands in window._marketMeta before user opens AI chat.
+    // Pass the actual live tickers so the server fetches exactly what's in the portfolio.
     if (!window._marketMeta) {
-      fetch('/api/market-data')
+      const liveTickers = assets
+        .filter(a => a.valueUSD > 0.5 && a.pos.category !== 'fiat')
+        .map(a => a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker)
+        .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe
+        .join(',');
+      fetch('/api/market-data' + (liveTickers ? '?tickers=' + liveTickers : ''))
         .then(r => r.json())
         .then(json => { if (json && json.data) window._marketMeta = json.data; })
         .catch(() => {}); // silent fail — AI will use static fallbacks
@@ -4477,61 +4483,68 @@ const aiHistory = [];
 function buildMarketContext() {
   const mm = window._marketMeta || {};
 
-  // Static fallbacks used when Yahoo data isn't available
+  // Static fallbacks for tickers where Yahoo data may be missing
   const FALLBACK = {
-    'META':    { beta: 1.3,  trailingPE: 25,   dividendYield: null, note: 'Alta volatilidad individual' },
-    'SPY':     { beta: 1.0,  trailingPE: 22,   dividendYield: 0.013, note: 'S&P 500 — referencia de mercado' },
-    'VWRP.L':  { beta: 0.95, trailingPE: 18,   dividendYield: null, note: 'Global (acumulante, EEUU 65% / Europa 15% / Asia 20%)' },
-    'BRK-B':   { beta: 0.9,  trailingPE: 22,   dividendYield: null, note: 'Berkshire — diversificado, bajo riesgo idiosincrático' },
-    'BTC-USD': { beta: 1.8,  trailingPE: null, dividendYield: null, note: 'Baja correlación con acciones (~0.25 vs SPY), especulativo' },
+    'META':    { beta: 1.3,  trailingPE: 25,  dividendYield: null },
+    'SPY':     { beta: 1.0,  trailingPE: 22,  dividendYield: 0.013 },
+    'VWRP.L':  { beta: 0.95, trailingPE: 18,  dividendYield: null },
+    'BRK-B':   { beta: 0.9,  trailingPE: 22,  dividendYield: null },
+    'BTC-USD': { beta: 1.8,  trailingPE: null, dividendYield: null },
+    'MELI':    { beta: 1.6,  trailingPE: 55,  dividendYield: null },
+    'NU':      { beta: 1.5,  trailingPE: 40,  dividendYield: null },
+    'ARKK':    { beta: 1.4,  trailingPE: null, dividendYield: null },
+    'ARKK.L':  { beta: 1.4,  trailingPE: null, dividendYield: null },
   };
 
-  const fmt2 = v => v !== null && v !== undefined ? v.toFixed(2) : '—';
-  const fmtPct = v => v !== null && v !== undefined ? (v * 100).toFixed(2) + '%' : '—';
-  const fmtBig = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '—';
+  const fmt2   = v => (v !== null && v !== undefined) ? Number(v).toFixed(2) : null;
+  const fmtPct = v => (v !== null && v !== undefined) ? (Number(v) * 100).toFixed(2) + '%' : null;
+  const fmtBig = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : null;
 
-  const dataSource = Object.keys(mm).length > 0 ? 'Yahoo Finance (live)' : 'valores de referencia estáticos (Yahoo no disponible)';
+  // Build the ticker list from live data first, then add any fallback-only tickers
+  const liveTickers  = Object.keys(mm);
+  const allTickers   = [...new Set([...liveTickers, ...Object.keys(FALLBACK)])];
+  // Only include tickers that either have live data or a fallback
+  const tickersToShow = allTickers.filter(t => mm[t] || FALLBACK[t]);
+
+  const hasLiveData  = liveTickers.length > 0;
+  const dataSource   = hasLiveData ? 'Yahoo Finance (live)' : 'valores de referencia estáticos (Yahoo no disponible)';
+
   const lines = [`Fuente: ${dataSource}`, ''];
 
-  const TICKERS = ['META', 'SPY', 'VWRP.L', 'BRK-B', 'BTC-USD'];
-
-  TICKERS.forEach(ticker => {
+  tickersToShow.forEach(ticker => {
     const live = mm[ticker] || {};
     const fb   = FALLBACK[ticker] || {};
 
-    const beta       = live.beta        ?? fb.beta;
-    const pe         = live.trailingPE  ?? fb.trailingPE;
-    const fwdPE      = live.forwardPE   ?? null;
-    const yield_     = live.dividendYield ?? fb.dividendYield;
-    const hi52       = live.fiftyTwoWeekHigh ?? null;
-    const lo52       = live.fiftyTwoWeekLow  ?? null;
-    const ma50       = live.fiftyDayAvg      ?? null;
-    const ma200      = live.twoHundredDayAvg ?? null;
-    const mktCap     = live.marketCap        ?? null;
-    const shortRatio = live.shortRatio       ?? null;
-    const note       = fb.note || '';
+    const beta    = live.beta             ?? fb.beta;
+    const pe      = live.trailingPE       ?? fb.trailingPE;
+    const fwdPE   = live.forwardPE        ?? null;
+    const yield_  = live.dividendYield    ?? fb.dividendYield;
+    const hi52    = live.fiftyTwoWeekHigh ?? null;
+    const lo52    = live.fiftyTwoWeekLow  ?? null;
+    const ma50    = live.fiftyDayAvg      ?? null;
+    const ma200   = live.twoHundredDayAvg ?? null;
+    const mktCap  = live.marketCap        ?? null;
+    const short_  = live.shortRatio       ?? null;
 
     const parts = [
       `**${ticker}**`,
-      note ? `(${note})` : '',
-      `Beta: ${beta !== null && beta !== undefined ? fmt2(beta) : '—'}`,
-      pe        ? `P/E trailing: ${fmt2(pe)}`                          : '',
-      fwdPE     ? `P/E forward: ${fmt2(fwdPE)}`                        : '',
-      yield_    ? `Dividend yield: ${fmtPct(yield_)}`                  : '',
-      (hi52 && lo52) ? `52w: $${fmt2(lo52)}–$${fmt2(hi52)}`           : '',
-      ma50      ? `MA50: $${fmt2(ma50)}`                               : '',
-      ma200     ? `MA200: $${fmt2(ma200)}`                             : '',
-      mktCap    ? `Mkt cap: ${fmtBig(mktCap)}`                        : '',
-      shortRatio ? `Short ratio: ${fmt2(shortRatio)}d`                 : '',
+      beta    != null ? `Beta: ${fmt2(beta)}`                       : null,
+      pe      != null ? `P/E trailing: ${fmt2(pe)}`                 : null,
+      fwdPE   != null ? `P/E forward: ${fmt2(fwdPE)}`               : null,
+      yield_  != null ? `Yield: ${fmtPct(yield_)}`                  : null,
+      (hi52 && lo52)  ? `52w: $${fmt2(lo52)}–$${fmt2(hi52)}`        : null,
+      ma50    != null ? `MA50: $${fmt2(ma50)}`                      : null,
+      ma200   != null ? `MA200: $${fmt2(ma200)}`                    : null,
+      mktCap  != null ? `Mkt cap: ${fmtBig(mktCap)}`                : null,
+      short_  != null ? `Short ratio: ${fmt2(short_)}d`             : null,
     ].filter(Boolean).join(' | ');
 
     lines.push(parts);
   });
 
   lines.push('');
-  lines.push('Correlaciones estimadas con SPY: META ~0.70 | VWRP.L ~0.92 | BRK-B ~0.65 | BTC ~0.25');
-  lines.push('FX risk: portfolio mixto USD/GBP — movimientos en tipo de cambio impactan valor en GBP.');
-  lines.push('RSUs: exposición concentrada a META, riesgo idiosincrático alto.');
+  lines.push('Correlaciones estimadas con SPY: META ~0.70 | VWRP.L ~0.92 | BRK-B ~0.65 | BTC ~0.25 | MELI ~0.65 | NU ~0.55 | ARKK ~0.80');
+  lines.push('FX risk: portfolio mixto USD/GBP — movimientos en el tipo de cambio afectan el valor total en GBP.');
   lines.push('Usá estos datos para análisis de riesgo, diversificación, correlaciones y estrategia.');
 
   return lines.join('\n');
