@@ -29,11 +29,11 @@ let marketDataCache    = null;
 let marketDataCachedAt = 0;
 let marketDataTickers  = null;
 
-// yahoo-finance2 v3 exports a YahooFinance class — instantiate once at startup
+// yahoo-finance2 v3: .default is the YahooFinance class, must instantiate with new
 let yf;
 try {
-  const { YahooFinance } = require('yahoo-finance2');
-  yf = new YahooFinance();
+  const YahooFinance = require('yahoo-finance2').default;
+  yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 } catch(e) {
   console.error('[market-data] yahoo-finance2 load error:', e.message);
 }
