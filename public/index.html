@@ -410,6 +410,12 @@
   .stat-card .stat-trend.up { color: var(--accent3); }
   .stat-card .stat-trend.down { color: var(--accent2); }
 
+  /* Card ribbon — equal-height side-by-side cards */
+  #cardRibbonOuter { touch-action: pan-y; }
+  #cardRibbonTrack { align-items: stretch; }
+  #cardRibbonTrack .chart-card { display: flex; flex-direction: column; }
+  #equityPieCard #equityPieLegend::-webkit-scrollbar { display: none; }
+
   .chart-card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1305,109 +1311,120 @@
 
     </div>
 
-    <div class="chart-card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 style="margin-bottom:0">Evolución</h3>
-        <div class="period-tabs" style="margin-bottom:0;gap:5px">
-          <div class="period-tab active">1S</div>
-          <div class="period-tab">1M</div>
-          <div class="period-tab">3M</div>
-          <div class="period-tab">6M</div>
-          <div class="period-tab">1A</div>
+    <!-- DUAL CARD RIBBON: Evolución (left) + Renta Variable (right) -->
+    <div id="cardRibbonOuter" style="position:relative;overflow:hidden;margin-bottom:16px;border-radius:var(--card-radius)">
+      <!-- Arrow hint — outside bubble on the right, absolutely positioned -->
+      <div id="ribbonArrowHint" style="position:absolute;right:-2px;top:50%;transform:translateY(-50%);z-index:10;pointer-events:none;transition:opacity 0.3s;display:flex;align-items:center">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="3,2 7,5 3,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
       </div>
 
-      <!-- Individual/Total toggle -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:11px;color:var(--muted)">Individual</span>
-          <div id="totalToggle" onclick="toggleTotalMode()" style="width:36px;height:20px;border-radius:100px;background:var(--accent);position:relative;cursor:pointer;transition:background 0.2s;border:1px solid var(--accent)">
-            <div id="totalToggleKnob" style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);transform:translateX(16px)"></div>
-          </div>
-          <span style="font-size:11px;color:var(--muted)">Total</span>
-        </div>
-      </div>
-      <!-- Category chips -->
-      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" id="catFilters">
-        <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#43e97b;display:inline-block"></span>Acciones
-        </div>
-        <div class="cat-chip active" data-cat="cripto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#ff6584;display:inline-block"></span>Cripto
-        </div>
-        <div class="cat-chip active" data-cat="rsu" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#f7b731;display:inline-block"></span>RSUs
-        </div>
-        <div class="cat-chip active" data-cat="fiat" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #4fc3f7;color:#4fc3f7;background:rgba(79,195,247,0.1);transition:all 0.2s">
-          <span style="width:7px;height:7px;border-radius:50%;background:#4fc3f7;display:inline-block"></span>Cash
-        </div>
-      </div>
+      <!-- Sliding track -->
+      <div id="cardRibbonTrack" style="display:flex;width:200%;will-change:transform;transition:none">
 
-      <!-- Chart with y-axis -->
-      <div style="display:flex;gap:0;align-items:stretch">
-        <div style="display:flex;flex-direction:column;justify-content:space-between;padding:2px 6px 2px 0;width:32px;flex-shrink:0" id="yAxis">
-          <span id="yTop" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
-          <span id="yMid" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
-          <span id="yBot" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
-        </div>
-        <div style="flex:1;position:relative" id="chartWrap">
-          <div class="mini-chart" style="height:90px;position:relative">
-            <canvas id="portfolioChart" style="width:100%;height:100%;display:block"></canvas>
-            <canvas id="chartDotOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
-          </div>
-          <div id="chartTooltip"><div class="tt-date" id="ttDate"></div><div class="tt-val" id="ttVal"></div></div>
-        </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px" id="chartXLabels">
-        <span></span><span></span><span></span><span></span>
-      </div>
-    </div>
-
-    <!-- EQUITY BREAKDOWN PIE CHART -->
-    <div class="chart-card" id="equityPieCard" style="margin-bottom:16px">
-      <!-- Header: toggle collapse -->
-      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none" onclick="toggleEquityPie()">
-        <h3 style="margin-bottom:0">Renta variable</h3>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div id="equityPieChevron" style="font-size:14px;color:var(--muted);transition:transform 0.25s">▼</div>
-        </div>
-      </div>
-
-      <!-- Collapsible body -->
-      <div id="equityPieBody" style="overflow:hidden;transition:max-height 0.35s ease,opacity 0.25s;max-height:400px;opacity:1">
-        <!-- Category filter pills -->
-        <div style="display:flex;gap:6px;margin-top:14px;margin-bottom:12px;flex-wrap:wrap" id="equityCatFilters">
-          <div class="eq-cat-pill active" data-cat="acciones" onclick="toggleEquityCat(this)"
-            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.12);transition:all 0.2s;white-space:nowrap">
-            <span style="width:6px;height:6px;border-radius:50%;background:#43e97b;display:inline-block;flex-shrink:0"></span>Acciones
-          </div>
-          <div class="eq-cat-pill active" data-cat="cripto" onclick="toggleEquityCat(this)"
-            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.12);transition:all 0.2s;white-space:nowrap">
-            <span style="width:6px;height:6px;border-radius:50%;background:#ff6584;display:inline-block;flex-shrink:0"></span>Cripto
-          </div>
-          <div class="eq-cat-pill active" data-cat="rsu" onclick="toggleEquityCat(this)"
-            style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap">
-            <span style="width:6px;height:6px;border-radius:50%;background:#f7b731;display:inline-block;flex-shrink:0"></span>RSUs
-          </div>
-        </div>
-
-        <!-- Chart + legend -->
-        <div style="display:flex;align-items:center;gap:16px">
-          <!-- Donut canvas -->
-          <div style="position:relative;flex-shrink:0;width:140px;height:140px">
-            <canvas id="equityPie" width="140" height="140"></canvas>
-            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center">
-              <div style="font-family:var(--font-num);font-size:11px;font-weight:800;line-height:1.2" id="equityPieCenter">—</div>
-              <div style="font-size:8px;color:var(--muted);margin-top:1px" id="equityPieCenterSub">total</div>
+        <!-- CARD 1: Evolución -->
+        <div class="chart-card" id="evolCard" style="width:50%;flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 style="margin-bottom:0">Evolución</h3>
+            <div class="period-tabs" style="margin-bottom:0;gap:5px">
+              <div class="period-tab active">1S</div>
+              <div class="period-tab">1M</div>
+              <div class="period-tab">3M</div>
+              <div class="period-tab">6M</div>
+              <div class="period-tab">1A</div>
             </div>
           </div>
-          <!-- Legend list -->
-          <div style="flex:1;display:flex;flex-direction:column;gap:7px;min-width:0" id="equityPieLegend">
-            <!-- rendered by JS -->
+
+          <!-- Individual/Total toggle -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:11px;color:var(--muted)">Individual</span>
+              <div id="totalToggle" onclick="toggleTotalMode()" style="width:36px;height:20px;border-radius:100px;background:var(--accent);position:relative;cursor:pointer;transition:background 0.2s;border:1px solid var(--accent)">
+                <div id="totalToggleKnob" style="position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);transform:translateX(16px)"></div>
+              </div>
+              <span style="font-size:11px;color:var(--muted)">Total</span>
+            </div>
+          </div>
+          <!-- Category chips -->
+          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap" id="catFilters">
+            <div class="cat-chip active" data-cat="acciones" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.1);transition:all 0.2s">
+              <span style="width:7px;height:7px;border-radius:50%;background:#43e97b;display:inline-block"></span>Acciones
+            </div>
+            <div class="cat-chip active" data-cat="cripto" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.1);transition:all 0.2s">
+              <span style="width:7px;height:7px;border-radius:50%;background:#ff6584;display:inline-block"></span>Cripto
+            </div>
+            <div class="cat-chip active" data-cat="rsu" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.1);transition:all 0.2s">
+              <span style="width:7px;height:7px;border-radius:50%;background:#f7b731;display:inline-block"></span>RSUs
+            </div>
+            <div class="cat-chip active" data-cat="fiat" onclick="toggleCat(this)" style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #4fc3f7;color:#4fc3f7;background:rgba(79,195,247,0.1);transition:all 0.2s">
+              <span style="width:7px;height:7px;border-radius:50%;background:#4fc3f7;display:inline-block"></span>Cash
+            </div>
+          </div>
+
+          <!-- Chart with y-axis -->
+          <div style="display:flex;gap:0;align-items:stretch">
+            <div style="display:flex;flex-direction:column;justify-content:space-between;padding:2px 6px 2px 0;width:32px;flex-shrink:0" id="yAxis">
+              <span id="yTop" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
+              <span id="yMid" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
+              <span id="yBot" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
+            </div>
+            <div style="flex:1;position:relative" id="chartWrap">
+              <div class="mini-chart" style="height:90px;position:relative">
+                <canvas id="portfolioChart" style="width:100%;height:100%;display:block"></canvas>
+                <canvas id="chartDotOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+              </div>
+              <div id="chartTooltip"><div class="tt-date" id="ttDate"></div><div class="tt-val" id="ttVal"></div></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px" id="chartXLabels">
+            <span></span><span></span><span></span><span></span>
           </div>
         </div>
-      </div>
-    </div>
+
+        <!-- CARD 2: Renta Variable (same height as Evolución) -->
+        <div class="chart-card" id="equityPieCard" style="width:50%;flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box">
+          <!-- Header -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
+            <h3 style="margin-bottom:0">Renta variable</h3>
+            <div id="equityPieChevron" style="display:none"></div>
+          </div>
+
+          <!-- Category filter pills -->
+          <div style="display:flex;gap:6px;margin-top:12px;margin-bottom:10px;flex-wrap:wrap" id="equityCatFilters">
+            <div class="eq-cat-pill active" data-cat="acciones" onclick="toggleEquityCat(this)"
+              style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #43e97b;color:#43e97b;background:rgba(67,233,123,0.12);transition:all 0.2s;white-space:nowrap">
+              <span style="width:6px;height:6px;border-radius:50%;background:#43e97b;display:inline-block;flex-shrink:0"></span>Acciones
+            </div>
+            <div class="eq-cat-pill active" data-cat="cripto" onclick="toggleEquityCat(this)"
+              style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #ff6584;color:#ff6584;background:rgba(255,101,132,0.12);transition:all 0.2s;white-space:nowrap">
+              <span style="width:6px;height:6px;border-radius:50%;background:#ff6584;display:inline-block;flex-shrink:0"></span>Cripto
+            </div>
+            <div class="eq-cat-pill active" data-cat="rsu" onclick="toggleEquityCat(this)"
+              style="display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid #f7b731;color:#f7b731;background:rgba(247,183,49,0.12);transition:all 0.2s;white-space:nowrap">
+              <span style="width:6px;height:6px;border-radius:50%;background:#f7b731;display:inline-block;flex-shrink:0"></span>RSUs
+            </div>
+          </div>
+
+          <!-- Pie + scrollable legend -->
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <!-- Donut canvas -->
+            <div style="position:relative;flex-shrink:0;width:120px;height:120px">
+              <canvas id="equityPie" width="140" height="140" style="width:120px;height:120px"></canvas>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center">
+                <div style="font-family:var(--font-num);font-size:11px;font-weight:800;line-height:1.2" id="equityPieCenter">—</div>
+                <div style="font-size:8px;color:var(--muted);margin-top:1px" id="equityPieCenterSub">total</div>
+              </div>
+            </div>
+            <!-- Scrollable legend list -->
+            <div id="equityPieLegend" style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;max-height:120px;overflow-y:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+              <!-- rendered by JS -->
+            </div>
+          </div>
+        </div>
+
+      </div><!-- end track -->
+    </div><!-- end ribbon outer -->
 
     <!-- Positions with category subtabs -->
     <p class="section-label">Posiciones</p>
@@ -2408,9 +2425,8 @@ function renderPortfolio() {
   const cbEl = document.getElementById('portfolioCostBasis');
   if (cbEl && costBasisUSD) {
     const cbDisplay = fmtVal(costBasisUSD, rate, sym);
-    cbEl.innerHTML = 'Base de costo: <span id="portfolioCostBasisNum">' + cbDisplay + '</span>';
-    const cbNumEl = document.getElementById('portfolioCostBasisNum');
-    if (valuesHidden && cbNumEl) maskElement(cbNumEl);
+    cbEl.textContent = 'Base de costo: ' + cbDisplay;
+    if (valuesHidden) maskElement(cbEl);
   }
 
   // Alloc bar (4 cats)
@@ -2553,22 +2569,147 @@ const EQUITY_TICKER_COLORS = {
 let equityActiveCats = new Set(['acciones','cripto','rsu']);
 let equityPieCollapsed = false;
 
-function toggleEquityPie() {
-  equityPieCollapsed = !equityPieCollapsed;
-  const body = document.getElementById('equityPieBody');
-  const chevron = document.getElementById('equityPieChevron');
-  if (equityPieCollapsed) {
-    body.style.maxHeight = '0';
-    body.style.opacity = '0';
-    chevron.style.transform = 'rotate(-90deg)';
-  } else {
-    body.style.maxHeight = '400px';
-    body.style.opacity = '1';
-    chevron.style.transform = 'rotate(0deg)';
-    // Redraw after expand
-    setTimeout(renderEquityPie, 50);
+function toggleEquityPie() { /* no-op — cards are now side-by-side in ribbon */ }
+
+// ── CARD RIBBON DRAG (Evolución ↔ Renta Variable) ─────────────────────────
+(function() {
+  const SPRING_TENSION = 0.18; // how fast it springs back
+  const MAX_OVERDRAG   = 80;   // max pixels you can pull past the "edge"
+  const REVEAL_THRESHOLD = 60; // how far you drag before it "sticks" to right card
+
+  let ribbonDragStartX = 0;
+  let ribbonDragStartY = 0;
+  let ribbonDragCurX   = 0;
+  let ribbonCurrentOffset = 0; // 0 = left card, negative = shifted right
+  let ribbonTargetOffset  = 0;
+  let ribbonDragging   = false;
+  let ribbonAnimReq    = null;
+  let ribbonOnRight    = false; // true when fully on equity card
+  let ribbonPointerDown = false;
+  let ribbonIsHorizDrag = false; // confirmed horizontal drag
+  let ribbonIsVertDrag  = false; // confirmed vertical drag (suppress horiz)
+
+  function getCardWidth() {
+    const outer = document.getElementById('cardRibbonOuter');
+    return outer ? outer.offsetWidth : 320;
   }
-}
+
+  function setRibbonPos(x, animate) {
+    const track = document.getElementById('cardRibbonTrack');
+    if (!track) return;
+    if (animate) {
+      track.style.transition = 'transform 0.38s cubic-bezier(0.25,0.46,0.45,0.94)';
+    } else {
+      track.style.transition = 'none';
+    }
+    track.style.transform = `translateX(${x}px)`;
+  }
+
+  function clampOffset(raw) {
+    const W = getCardWidth();
+    const minOff = -(W); // fully on right card
+    // Rubber band: allow overdrag with resistance
+    if (raw > 0) return raw * 0.2; // overdrag left (no card there)
+    if (raw < minOff) return minOff - (raw - minOff) * -0.2; // overdrag right
+    return raw;
+  }
+
+  function snapRibbon(velocity) {
+    const W = getCardWidth();
+    const cur = ribbonCurrentOffset;
+    // If dragged far enough or has enough velocity → snap to right card
+    if (cur < -(W * 0.3) || velocity < -0.8) {
+      ribbonTargetOffset = -W;
+      ribbonOnRight = true;
+    } else {
+      ribbonTargetOffset = 0;
+      ribbonOnRight = false;
+    }
+    setRibbonPos(ribbonTargetOffset, true);
+    ribbonCurrentOffset = ribbonTargetOffset;
+    updateArrowHint();
+  }
+
+  function updateArrowHint() {
+    const hint = document.getElementById('ribbonArrowHint');
+    if (!hint) return;
+    // Arrow points right when on left card, left when on right card
+    if (ribbonOnRight) {
+      hint.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="7,2 3,5 7,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
+    } else {
+      hint.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="3,2 7,5 3,8" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
+    }
+  }
+
+  // Attach events to the outer container
+  document.addEventListener('DOMContentLoaded', function() {
+    const outer = document.getElementById('cardRibbonOuter');
+    if (!outer) return;
+
+    let lastX = 0, lastT = 0, velX = 0;
+
+    outer.addEventListener('pointerdown', function(e) {
+      // Don't intercept touches on the chart canvas (hover area)
+      if (e.target.closest('#chartWrap') || e.target.closest('#portfolioChart') || e.target.closest('#chartDotOverlay')) return;
+      ribbonPointerDown = true;
+      ribbonDragging = false;
+      ribbonIsHorizDrag = false;
+      ribbonIsVertDrag  = false;
+      ribbonDragStartX  = e.clientX;
+      ribbonDragStartY  = e.clientY;
+      ribbonDragCurX    = ribbonCurrentOffset;
+      lastX = e.clientX;
+      lastT = performance.now();
+      velX  = 0;
+    }, { passive: true });
+
+    document.addEventListener('pointermove', function(e) {
+      if (!ribbonPointerDown) return;
+      const dx = e.clientX - ribbonDragStartX;
+      const dy = e.clientY - ribbonDragStartY;
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+
+      // Determine drag direction once we have enough movement
+      if (!ribbonIsHorizDrag && !ribbonIsVertDrag) {
+        if (absDx > 6 || absDy > 6) {
+          if (absDx > absDy * 1.4) ribbonIsHorizDrag = true;
+          else ribbonIsVertDrag = true;
+        }
+      }
+      if (!ribbonIsHorizDrag) return;
+
+      ribbonDragging = true;
+      e.preventDefault();
+      const now = performance.now();
+      const dt = now - lastT || 16;
+      velX = (e.clientX - lastX) / dt;
+      lastX = e.clientX; lastT = now;
+
+      const raw = ribbonDragCurX + dx;
+      setRibbonPos(clampOffset(raw), false);
+      ribbonCurrentOffset = clampOffset(raw);
+    }, { passive: false });
+
+    document.addEventListener('pointerup', function(e) {
+      if (!ribbonPointerDown) return;
+      ribbonPointerDown = false;
+      if (!ribbonIsHorizDrag) return;
+      snapRibbon(velX);
+      // If snapped to equity card, redraw pie
+      if (ribbonOnRight) setTimeout(renderEquityPie, 60);
+    });
+
+    document.addEventListener('pointercancel', function() {
+      if (!ribbonPointerDown) return;
+      ribbonPointerDown = false;
+      snapRibbon(0);
+    });
+  });
+
+  // Expose for external use if needed
+  window._ribbonSnapLeft  = function() { ribbonTargetOffset=0; ribbonOnRight=false; setRibbonPos(0,true); ribbonCurrentOffset=0; updateArrowHint(); };
+  window._ribbonSnapRight = function() { const W=getCardWidth(); ribbonTargetOffset=-W; ribbonOnRight=true; setRibbonPos(-W,true); ribbonCurrentOffset=-W; updateArrowHint(); setTimeout(renderEquityPie,60); };
+})();
 
 function toggleEquityCat(el) {
   const cat = el.dataset.cat;
@@ -2978,7 +3119,7 @@ function toggleHideValues() {
   document.getElementById('eyeBtn').innerHTML = valuesHidden ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>` : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
   // Only mask pure monetary value elements — NOT category labels/pct, NOT axis labels
-  const ids = ['portfolioTotal','pieTotal','pl0','pl1','pl2','pl3','pl4','portfolioCostBasisNum'];
+  const ids = ['portfolioTotal','pieTotal','pl0','pl1','pl2','pl3','pl4'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     valuesHidden ? maskElement(el) : unmaskElement(el);
@@ -3649,11 +3790,8 @@ function drawAllocPieFrame(prog, focusCat, slices) {
       const isF = focusCat && row.dataset.cat === focusCat;
       const isO = focusCat && row.dataset.cat !== focusCat;
       const dimAmount = easeInOut(prog);
-      row.style.opacity    = isO ? String(1 - 0.55 * dimAmount) : '1';
-      row.style.transform  = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
-      row.style.fontWeight = isF && dimAmount > 0.5 ? '700' : '';
-      const labelSpan = row.querySelector('span');
-      if (labelSpan) labelSpan.style.color = isF && dimAmount > 0.5 ? '#ffffff' : '';
+      row.style.opacity   = isO ? String(1 - 0.55 * dimAmount) : '1';
+      row.style.transform = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
     });
   }
 }
