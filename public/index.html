@@ -2730,11 +2730,54 @@ function toggleEquityCat(el) {
     equityActiveCats.add(cat);
     el.style.opacity = '1';
   }
-  // Clear any focused slice so the pie redraws cleanly with new cat set
-  equityFocusTicker = null;
-  equityPieAnimProg = 1;
-  if (equityPieAnimReq) { cancelAnimationFrame(equityPieAnimReq); equityPieAnimReq = null; }
-  renderEquityPie();
+
+  if (equityFocusTicker) {
+    // Phase 1: animate unfocus on current slices, then re-render new slices
+    const oldSlices   = equityPieSlices.slice();
+    const oldTotal    = oldSlices.reduce((a, b) => a + b.valueUSD, 0);
+    const fromTicker  = equityFocusTicker;
+
+    if (equityPieAnimReq) { cancelAnimationFrame(equityPieAnimReq); equityPieAnimReq = null; }
+    equityFocusTicker = null;
+
+    const DURATION  = 260;
+    const startTime = performance.now();
+    const startProg = equityPieAnimProg;
+
+    function unfocusStep(now) {
+      const t = Math.min((now - startTime) / DURATION, 1);
+      equityPieAnimProg = startProg * (1 - t); // goes from startProg → 0
+      drawEquityPieFrame(equityPieAnimProg, fromTicker, oldSlices, oldTotal);
+
+      // Fade legend rows back to normal during unfocus
+      const legend = document.getElementById('equityPieLegend');
+      if (legend) {
+        const dimAmount = easeInOut(equityPieAnimProg);
+        legend.querySelectorAll('.pie-legend-row').forEach(row => {
+          const isF = row.dataset.ticker === fromTicker;
+          const isO = row.dataset.ticker !== fromTicker;
+          row.style.opacity    = isO ? String(1 - 0.55 * dimAmount) : '1';
+          row.style.fontWeight = isF && dimAmount > 0.5 ? '700' : '';
+          row.style.transform  = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
+        });
+      }
+
+      if (t < 1) {
+        equityPieAnimReq = requestAnimationFrame(unfocusStep);
+      } else {
+        equityPieAnimProg = 1;
+        equityPieAnimReq  = null;
+        // Phase 2: re-render with new cat set (morphs via renderEquityPie)
+        renderEquityPie();
+      }
+    }
+    equityPieAnimReq = requestAnimationFrame(unfocusStep);
+  } else {
+    // No focus active — just re-render directly
+    equityPieAnimProg = 1;
+    if (equityPieAnimReq) { cancelAnimationFrame(equityPieAnimReq); equityPieAnimReq = null; }
+    renderEquityPie();
+  }
 }
 
 // ── EQUITY PIE FOCUS STATE ───────────────────────────────────────────────────
