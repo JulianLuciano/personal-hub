@@ -2216,7 +2216,15 @@ async function loadPortfolio() {
       fetch('/api/market-data' + (liveTickers ? '?tickers=' + liveTickers : ''))
         .then(r => r.json())
         .then(json => { if (json && json.data) window._marketMeta = json.data; })
-        .catch(() => {}); // silent fail — AI will use static fallbacks
+        .catch(() => {});
+    }
+
+    // Fetch watchlist (broader market universe for AI recommendations) — also fire-and-forget
+    if (!window._watchlistMeta) {
+      fetch('/api/watchlist-data')
+        .then(r => r.json())
+        .then(json => { if (json && json.data) window._watchlistMeta = json.data; })
+        .catch(() => {});
     }
     renderPortfolio();
 
@@ -4480,6 +4488,64 @@ async function drawPosChart(ticker, meta) {
 // ── AI CHAT ────────────────────────────────────────────────────────────────
 const aiHistory = [];
 
+function buildWatchlistContext() {
+  const wl = window._watchlistMeta || {};
+  if (!Object.keys(wl).length) return null;
+
+  const fmt2   = v => (v != null) ? Number(v).toFixed(2) : null;
+  const fmtPct = v => (v != null) ? (Number(v) * 100).toFixed(2) + '%' : null;
+  const fmtBig = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : null;
+  const rangePos = (price, lo, hi) => {
+    if (!price || !lo || !hi || hi === lo) return null;
+    return ((price - lo) / (hi - lo) * 100).toFixed(0) + '%';
+  };
+
+  const GROUPS = {
+    'Portfolio core':      ['SPY','MELI','NU','BRK-B','VWRP.L'],
+    'Mega-cap tech':       ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN'],
+    'Defensivos / valor':  ['KO','MCD','WMT','JNJ','XOM'],
+    'ETFs EEUU':           ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE'],
+    'Emergentes':          ['EEM','INDA','EWZ','ARGT'],
+    'Latam':               ['YPF','PBR','GGAL'],
+    'Bonos':               ['TLT','IEF','HYG'],
+    'UK':                  ['IGLT.L','VUKE.L'],
+    'Macro / cobertura':   ['GLD'],
+  };
+
+  const lines = ['### Universo de inversión (watchlist para recomendaciones)', ''];
+
+  Object.entries(GROUPS).forEach(([group, tickers]) => {
+    const rows = tickers.map(t => {
+      const d = wl[t];
+      if (!d) return null;
+      const price = d.regularMarketPrice;
+      const pos   = rangePos(price, d.fiftyTwoWeekLow, d.fiftyTwoWeekHigh);
+      const parts = [
+        t,
+        d.name ? `(${d.name.replace(/,.*/, '')})` : '',
+        d.beta        != null ? `β${fmt2(d.beta)}`             : '',
+        d.trailingPE  != null ? `P/E ${fmt2(d.trailingPE)}`    : '',
+        d.forwardPE   != null ? `fwd ${fmt2(d.forwardPE)}`     : '',
+        d.dividendYield != null ? `yield ${fmtPct(d.dividendYield)}` : '',
+        (d.fiftyTwoWeekLow && d.fiftyTwoWeekHigh)
+          ? `52w $${fmt2(d.fiftyTwoWeekLow)}–$${fmt2(d.fiftyTwoWeekHigh)}` : '',
+        pos != null ? `pos ${pos}` : '',
+        d.marketCap   != null ? `cap ${fmtBig(d.marketCap)}`   : '',
+      ].filter(Boolean).join(' | ');
+      return parts;
+    }).filter(Boolean);
+
+    if (rows.length) {
+      lines.push(`**${group}:**`);
+      rows.forEach(r => lines.push('  ' + r));
+      lines.push('');
+    }
+  });
+
+  lines.push('Usá estos datos para sugerir alternativas de inversión, comparar valuaciones, o identificar oportunidades cuando Julián pregunte.');
+  return lines.join('\n');
+}
+
 function buildMarketContext() {
   const mm = window._marketMeta || {};
 
@@ -4757,12 +4823,14 @@ async function aiSendMsg() {
   thinkingEl._tmInterval = tmInterval;
 
   try {
+    const watchlistSection = buildWatchlistContext();
     const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
 
 ${buildPortfolioContext()}
 
 ### Contexto de mercado adicional (datos de Yahoo Finance — actualizados al abrir portfolio)
-${buildMarketContext()}`;
+${buildMarketContext()}
+${watchlistSection ? '\n' + watchlistSection : ''}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

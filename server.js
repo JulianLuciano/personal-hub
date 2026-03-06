@@ -15,34 +15,49 @@ app.get('/api/config', (req, res) => {
 });
 
 // ── Market data via yahoo-finance2 ──────────────────────────────────────────
-// yahoo-finance2 handles Yahoo's auth/crumb automatically — no 401s.
-// Install once: npm install yahoo-finance2
-//
-// Accepts ?tickers=META,SPY,MELI so the frontend passes its live portfolio tickers.
-// Falls back to DEFAULT_TICKERS if no param provided.
-// Cached in memory for 1 hour.
 
-const CACHE_TTL_MS    = 60 * 60 * 1000;
-const DEFAULT_TICKERS = ['META', 'SPY', 'VWRP.L', 'BRK-B', 'BTC-USD', 'MELI', 'NU', 'ARKK'];
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-let marketDataCache    = null;
-let marketDataCachedAt = 0;
-let marketDataTickers  = null;
+// Tickers the frontend passes dynamically (live portfolio positions)
+// Separate watchlist fetched proactively on startup for AI recommendations
+const WATCHLIST_TICKERS = [
+  // Portfolio core (always included even if not held)
+  'SPY', 'MELI', 'NU', 'BRK-B', 'VWRP.L',
+  // Mega-cap tech
+  'GOOGL', 'NVDA', 'AAPL', 'TSLA', 'MSFT', 'AMZN',
+  // Defensivos / valor
+  'KO', 'MCD', 'WMT', 'JNJ', 'XOM',
+  // Índices / ETFs EEUU
+  'QQQ', 'DIA', 'IWM', 'VNQ',
+  // Sectorial
+  'XLK', 'XLF', 'XLE',
+  // Emergentes
+  'EEM', 'INDA', 'EWZ', 'ARGT',
+  // Latam individual
+  'YPF', 'PBR', 'GGAL',
+  // Bonos
+  'TLT', 'IEF', 'HYG',
+  // UK
+  'IGLT.L', 'VUKE.L',
+  // Macro / cobertura
+  'GLD',
+];
 
-// yahoo-finance2 v3: .default is the YahooFinance class, must instantiate with new
+// yahoo-finance2 v3: .default is the class, instantiate with new
 let yf;
 try {
   const YahooFinance = require('yahoo-finance2').default;
   yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+  console.log('[market-data] yahoo-finance2 loaded');
 } catch(e) {
   console.error('[market-data] yahoo-finance2 load error:', e.message);
 }
 
-// Some tickers arrive from the frontend in short form — map to Yahoo symbols
+// Ticker aliases: frontend short names → Yahoo symbols
 const TICKER_MAP = {
   'BTC':    'BTC-USD',
   'BRK.B':  'BRK-B',
-  'ARKK.L': 'ARKK',
+  'ARKK.L': 'ARKK',   // LSE version, use US ticker for fundamentals
 };
 
 async function fetchFundamentals(ticker) {
@@ -56,12 +71,12 @@ async function fetchFundamentals(ticker) {
   const sd = q.summaryDetail        || {};
   const ks = q.defaultKeyStatistics || {};
   const pr = q.price                || {};
-
-  const n = v => (v !== undefined && v !== null ? v : null);
+  const n  = v => (v !== undefined && v !== null ? v : null);
 
   return {
     ticker,
     yahooTicker:        yticker,
+    name:               pr.longName || pr.shortName || null,
     trailingPE:         n(sd.trailingPE),
     forwardPE:          n(ks.forwardPE),
     priceToBook:        n(ks.priceToBook),
@@ -79,42 +94,71 @@ async function fetchFundamentals(ticker) {
   };
 }
 
+// ── Two separate caches ──────────────────────────────────────────────────────
+
+let portfolioCache      = null, portfolioCachedAt = 0, portfolioTickers = null;
+let watchlistCache      = null, watchlistCachedAt = 0;
+
+// Portfolio tickers: passed dynamically by the frontend (?tickers=...)
 app.get('/api/market-data', async (req, res) => {
   const requested = req.query.tickers
     ? req.query.tickers.split(',').map(t => t.trim()).filter(Boolean)
-    : DEFAULT_TICKERS;
+    : [];
 
-  // Cache hit: same tickers, still fresh
-  const sameSet = marketDataTickers &&
-    requested.length === marketDataTickers.length &&
-    requested.every(t => marketDataTickers.includes(t));
+  if (!requested.length) return res.json({ data: {}, errors: {}, cached: false });
 
-  if (marketDataCache && sameSet && (Date.now() - marketDataCachedAt) < CACHE_TTL_MS) {
-    return res.json({ data: marketDataCache, cached: true, cachedAt: marketDataCachedAt });
+  const sameSet = portfolioTickers &&
+    requested.length === portfolioTickers.length &&
+    requested.every(t => portfolioTickers.includes(t));
+
+  if (portfolioCache && sameSet && (Date.now() - portfolioCachedAt) < CACHE_TTL_MS) {
+    return res.json({ data: portfolioCache, cached: true, cachedAt: portfolioCachedAt });
   }
 
-  const results = {};
-  const errors  = {};
-
-  await Promise.allSettled(
-    requested.map(async ticker => {
-      try {
-        results[ticker] = await fetchFundamentals(ticker);
-      } catch (e) {
-        errors[ticker] = e.message;
-        console.warn(`[market-data] ${ticker}:`, e.message);
-      }
-    })
-  );
+  const results = {}, errors = {};
+  await Promise.allSettled(requested.map(async t => {
+    try   { results[t] = await fetchFundamentals(t); }
+    catch (e) { errors[t] = e.message; console.warn(`[portfolio] ${t}:`, e.message); }
+  }));
 
   if (Object.keys(results).length > 0) {
-    marketDataCache    = results;
-    marketDataCachedAt = Date.now();
-    marketDataTickers  = requested;
+    portfolioCache    = results;
+    portfolioCachedAt = Date.now();
+    portfolioTickers  = requested;
   }
 
-  res.json({ data: results, errors, cached: false, cachedAt: marketDataCachedAt });
+  res.json({ data: results, errors, cached: false, cachedAt: portfolioCachedAt });
 });
+
+// Watchlist: fixed list, fetched once and cached
+app.get('/api/watchlist-data', async (req, res) => {
+  if (watchlistCache && (Date.now() - watchlistCachedAt) < CACHE_TTL_MS) {
+    return res.json({ data: watchlistCache, cached: true, cachedAt: watchlistCachedAt });
+  }
+
+  const results = {}, errors = {};
+  await Promise.allSettled(WATCHLIST_TICKERS.map(async t => {
+    try   { results[t] = await fetchFundamentals(t); }
+    catch (e) { errors[t] = e.message; console.warn(`[watchlist] ${t}:`, e.message); }
+  }));
+
+  if (Object.keys(results).length > 0) {
+    watchlistCache    = results;
+    watchlistCachedAt = Date.now();
+  }
+
+  res.json({ data: results, errors, cached: false, cachedAt: watchlistCachedAt });
+});
+
+// Pre-warm watchlist in background 30s after startup (avoids slowing boot)
+setTimeout(() => {
+  if (!yf) return;
+  console.log('[watchlist] pre-warming cache...');
+  fetch(`http://localhost:${PORT}/api/watchlist-data`)
+    .then(() => console.log('[watchlist] cache ready'))
+    .catch(e => console.warn('[watchlist] pre-warm failed:', e.message));
+}, 30000);
+
 // ───────────────────────────────────────────────────────────────────────────
 
 app.get('*', (req, res) => {
