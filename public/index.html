@@ -4508,13 +4508,18 @@ function buildWatchlistContext() {
     'Portfolio core':      ['SPY','MELI','NU','BRK-B','VWRP.L'],
     'Mega-cap tech':       ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN'],
     'Defensivos / valor':  ['KO','MCD','WMT','JNJ','XOM'],
-    'ETFs EEUU':           ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE'],
-    'Emergentes':          ['EEM','INDA','EWZ','ARGT'],
+    'ETFs EEUU':           ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE','SOXX','ICLN'],
+    'Dividendos':          ['VIG','SCHD'],
+    'Emergentes':          ['EEM','INDA','EWZ','ARGT','ILF'],
+    'China':               ['FXI','KWEB','BABA'],
     'Latam':               ['YPF','PBR','GGAL'],
     'Bonos':               ['TLT','IEF','HYG'],
     'UK':                  ['IGLT.L','VUKE.L'],
-    'Macro / cobertura':   ['GLD'],
+    'Commodities':         ['GLD','SLV','USO','PDBC'],
+    'Cripto':              ['BTC-USD','ETH-USD','ADA-USD'],
   };
+
+  const RATING_LABEL = { 1:'Strong Buy', 2:'Buy', 3:'Hold', 4:'Underperform', 5:'Sell' };
 
   const lines = ['### Universo de inversión (watchlist para recomendaciones)', ''];
 
@@ -4527,14 +4532,18 @@ function buildWatchlistContext() {
       const parts = [
         t,
         d.name ? `(${d.name.replace(/,.*/, '')})` : '',
-        d.beta        != null ? `β${fmt2(d.beta)}`             : '',
-        d.trailingPE  != null ? `P/E ${fmt2(d.trailingPE)}`    : '',
-        d.forwardPE   != null ? `fwd ${fmt2(d.forwardPE)}`     : '',
-        d.dividendYield != null ? `yield ${fmtPct(d.dividendYield)}` : '',
+        d.beta           != null ? `β${fmt2(d.beta)}`                        : '',
+        d.trailingPE     != null ? `P/E ${fmt2(d.trailingPE)}`               : '',
+        d.forwardPE      != null ? `fwd ${fmt2(d.forwardPE)}`                : '',
+        d.dividendYield  != null ? `yield ${fmtPct(d.dividendYield)}`        : '',
         (d.fiftyTwoWeekLow && d.fiftyTwoWeekHigh)
-          ? `52w $${fmt2(d.fiftyTwoWeekLow)}–$${fmt2(d.fiftyTwoWeekHigh)}` : '',
-        pos != null ? `pos ${pos}` : '',
-        d.marketCap   != null ? `cap ${fmtBig(d.marketCap)}`   : '',
+          ? `52w $${fmt2(d.fiftyTwoWeekLow)}–$${fmt2(d.fiftyTwoWeekHigh)}`  : '',
+        pos != null ? `pos ${pos}`                                            : '',
+        d.analystTarget  != null ? `target $${fmt2(d.analystTarget)}`        : '',
+        d.analystRating  != null
+          ? `consenso: ${RATING_LABEL[Math.round(d.analystRating)] || fmt2(d.analystRating)}` : '',
+        d.nextEarningsDate != null ? `earnings: ${d.nextEarningsDate}`       : '',
+        d.marketCap      != null ? `cap ${fmtBig(d.marketCap)}`              : '',
       ].filter(Boolean).join(' | ');
       return parts;
     }).filter(Boolean);
@@ -4618,6 +4627,11 @@ function buildMarketContext() {
       pos52w     != null ? `pos. en rango anual: ${pos52w}`               : null,
       ma50       != null ? `MA50: $${fmt2(ma50)}`                         : null,
       ma200      != null ? `MA200: $${fmt2(ma200)}`                       : null,
+      live.analystTarget != null
+        ? `Target analistas: $${fmt2(live.analystTarget)} (${live.numberOfAnalysts || '?'} analistas)` : null,
+      live.analystRating != null
+        ? `Consenso: ${['','Strong Buy','Buy','Hold','Underperform','Sell'][Math.round(live.analystRating)] || fmt2(live.analystRating)}` : null,
+      live.nextEarningsDate != null ? `Próx. earnings: ${live.nextEarningsDate}` : null,
       mktCap     != null ? `Mkt cap: ${fmtBig(mktCap)}`                   : null,
       short_     != null ? `Short ratio: ${fmt2(short_)}d`                : null,
     ].filter(Boolean).join(' | ');
@@ -4828,7 +4842,7 @@ async function aiSendMsg() {
 
   try {
     const watchlistSection = buildWatchlistContext();
-    const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio y watchlist en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
+    const systemPrompt = `Sos un asesor financiero personal de Julián. Tenés acceso completo a su portfolio en tiempo real. Respondé en español, de forma clara y concisa. No uses markdown excesivo — usá texto simple con saltos de línea. Sé directo y útil.
 
 ${buildPortfolioContext()}
 

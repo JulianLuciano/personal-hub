@@ -30,17 +30,23 @@ const WATCHLIST_TICKERS = [
   // Índices / ETFs EEUU
   'QQQ', 'DIA', 'IWM', 'VNQ',
   // Sectorial
-  'XLK', 'XLF', 'XLE',
+  'XLK', 'XLF', 'XLE', 'SOXX', 'ICLN',
+  // Dividendos
+  'VIG', 'SCHD',
   // Emergentes
-  'EEM', 'INDA', 'EWZ', 'ARGT',
+  'EEM', 'INDA', 'EWZ', 'ARGT', 'ILF',
+  // China
+  'FXI', 'KWEB', 'BABA',
   // Latam individual
   'YPF', 'PBR', 'GGAL',
   // Bonos
   'TLT', 'IEF', 'HYG',
   // UK
   'IGLT.L', 'VUKE.L',
-  // Macro / cobertura
-  'GLD',
+  // Commodities
+  'GLD', 'SLV', 'USO', 'PDBC',
+  // Cripto
+  'BTC-USD', 'ETH-USD', 'ADA-USD',
 ];
 
 // yahoo-finance2 v3: .default is the class, instantiate with new
@@ -54,12 +60,9 @@ try {
 }
 
 // Ticker aliases for fundamentals fetching only (P/E, beta, etc.)
-// LSE tickers don't have fundamentals on Yahoo — map to US equivalents
 const TICKER_MAP = {
-  'BTC':    'BTC-USD',
-  'BRK.B':  'BRK-B',
-  'ARKK.L': 'ARKK',
-  'NDIA.L': 'NDIA',
+  'BTC':   'BTC-USD',
+  'BRK.B': 'BRK-B',
 };
 
 async function fetchFundamentals(ticker) {
@@ -67,13 +70,20 @@ async function fetchFundamentals(ticker) {
   const yticker = TICKER_MAP[ticker] || ticker;
 
   const q = await yf.quoteSummary(yticker, {
-    modules: ['summaryDetail', 'defaultKeyStatistics', 'price']
+    modules: ['summaryDetail', 'defaultKeyStatistics', 'price', 'financialData', 'calendarEvents']
   });
 
   const sd = q.summaryDetail        || {};
   const ks = q.defaultKeyStatistics || {};
   const pr = q.price                || {};
+  const fd = q.financialData        || {};
+  const ce = q.calendarEvents       || {};
   const n  = v => (v !== undefined && v !== null ? v : null);
+
+  // Earnings date — calendarEvents.earnings.earningsDate is an array
+  const earningsDates = ce.earnings?.earningsDate;
+  const nextEarnings  = Array.isArray(earningsDates) && earningsDates.length > 0
+    ? earningsDates[0] : null;
 
   return {
     ticker,
@@ -92,7 +102,15 @@ async function fetchFundamentals(ticker) {
     averageVolume:      n(sd.averageVolume),
     dividendYield:      n(sd.dividendYield),
     regularMarketPrice: n(pr.regularMarketPrice),
-    currency:           pr.currency || null
+    currency:           pr.currency || null,
+    // Analyst consensus
+    analystRating:      n(fd.recommendationMean),   // 1=Strong Buy … 5=Sell
+    analystTarget:      n(fd.targetMeanPrice),       // mean price target
+    numberOfAnalysts:   n(fd.numberOfAnalystOpinions),
+    // Upcoming earnings
+    nextEarningsDate:   nextEarnings instanceof Date
+      ? nextEarnings.toISOString().slice(0, 10)
+      : typeof nextEarnings === 'string' ? nextEarnings.slice(0, 10) : null,
   };
 }
 
