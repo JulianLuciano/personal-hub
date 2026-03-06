@@ -1255,6 +1255,7 @@
           <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
         </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
+        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar" id="allocBar">
             <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
@@ -1289,11 +1290,11 @@
             </div>
           </div>
           <div style="flex:1;display:flex;flex-direction:column;gap:6px" id="pieLegend">
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#ff6584"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Líquido</span></div><span style="font-weight:600" id="pl3">—</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:11px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#2a8f9f;border:1px dashed #4fc3f7"></div><span style="color:var(--muted)">Ilíquido</span></div><span style="font-weight:600" id="pl4">—</span></div>
+            <div class="alloc-legend-row" data-cat="acciones" onclick="focusAllocSlice('acciones')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
+            <div class="alloc-legend-row" data-cat="cripto" onclick="focusAllocSlice('cripto')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#ff6584"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
+            <div class="alloc-legend-row" data-cat="rsu" onclick="focusAllocSlice('rsu')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
+            <div class="alloc-legend-row" data-cat="liquid" onclick="focusAllocSlice('liquid')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Líquido</span></div><span style="font-weight:600" id="pl3">—</span></div>
+            <div class="alloc-legend-row" data-cat="locked" onclick="focusAllocSlice('locked')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#2a8f9f;border:1px dashed #4fc3f7"></div><span style="color:var(--muted)">Ilíquido</span></div><span style="font-weight:600" id="pl4">—</span></div>
           </div>
         </div>
         <div style="display:flex;justify-content:center;gap:5px;margin-top:10px">
@@ -2137,11 +2138,47 @@ async function loadPortfolio() {
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
     }
 
-    // Change vs yesterday's last snapshot
-    let changeUSD = 0;
-    if (yesterdaySnap) changeUSD = totalUSD - yesterdaySnap.total_usd;
+    // ── Cost basis: sum of (qty × avg_cost_usd) for priced assets + raw fiat ──
+    let costBasisUSD = 0;
+    for (const pos of posData) {
+      if (pos.category === 'fiat') {
+        if (pos.currency === 'GBP') costBasisUSD += pos.qty / FX_RATE;
+        else costBasisUSD += Number(pos.qty);
+      } else {
+        const avg = Number(pos.avg_cost_usd);
+        if (avg) costBasisUSD += avg * Number(pos.qty);
+      }
+    }
 
-    liveData = { totalUSD, changeUSD, breakdown, assets, prices };
+    // ── Portfolio daily change: detect which market opened first (LSE at 7/8 UTC) ──
+    // If LSE hasn't opened yet, use yesterday's snapshot vs day-before; 
+    // once LSE opens, use today vs yesterday.
+    // NYSE opens later (13:30/14:30 UTC) but that's even further, so LSE is the gate.
+    let changeUSD = 0;
+    let changeBaseline = 'today'; // 'today' or 'yesterday'
+    const lseOpened = marketOpenedTodayUTC('LSE');
+    if (lseOpened) {
+      // Normal: today total vs yesterday total
+      if (yesterdaySnap) changeUSD = totalUSD - yesterdaySnap.total_usd;
+      changeBaseline = 'today';
+    } else {
+      // Pre-market: yesterday vs day-before snapshot
+      const twoDaysAgoISO = twoDaysUTC + 'T00:00:00.000Z';
+      const dayBeforeSnaps = await sbFetch(
+        '/rest/v1/portfolio_snapshots?select=total_usd,captured_at&order=captured_at.desc&limit=50' +
+        '&captured_at=gte.' + twoDaysAgoISO + '&captured_at=lt.' + ydStart
+      );
+      const dayBeforeSnap = dayBeforeSnaps && dayBeforeSnaps.length > 0 ? dayBeforeSnaps[0] : null;
+      if (yesterdaySnap && dayBeforeSnap) {
+        changeUSD = yesterdaySnap.total_usd - dayBeforeSnap.total_usd;
+        changeBaseline = 'yesterday';
+      } else if (yesterdaySnap) {
+        changeUSD = totalUSD - yesterdaySnap.total_usd;
+        changeBaseline = 'today';
+      }
+    }
+
+    liveData = { totalUSD, changeUSD, changeBaseline, breakdown, assets, prices, costBasisUSD };
     renderPortfolio();
 
   } catch(e) {
@@ -2351,15 +2388,28 @@ function renderPortfolio() {
   // Total
   document.getElementById('portfolioTotal').textContent = fmtVal(totalUSD, rate, sym);
 
-  // Change
+  // Change — convert changeUSD to display currency
   const changeEl = document.getElementById('portfolioChange');
-  const changePct = totalUSD > 0 ? (changeUSD / (totalUSD - changeUSD)) * 100 : 0;
+  const { changeUSD, changeBaseline, costBasisUSD } = liveData;
+  const changeDisplay = isGBP ? changeUSD * FX_RATE : changeUSD; // convert to GBP if needed
+  const totalDisplay  = isGBP ? totalUSD  * FX_RATE : totalUSD;
+  const prevDisplay   = totalDisplay - changeDisplay;
+  const changePct = prevDisplay > 0 ? (changeDisplay / prevDisplay) * 100 : 0;
   const changeFormatted = fmtVal(Math.abs(changeUSD), rate, sym);
-  const arrow = changeUSD >= 0 ? '↑' : '↓';
-  const changeColor = changeUSD > 0 ? 'var(--accent3)' : changeUSD < 0 ? 'var(--accent2)' : 'var(--muted)';
+  const arrow = changeDisplay >= 0 ? '↑' : '↓';
+  const changeColor = changeDisplay > 0 ? 'var(--accent3)' : changeDisplay < 0 ? 'var(--accent2)' : 'var(--muted)';
+  const vsLabel = changeBaseline === 'yesterday' ? 'vs anteayer' : 'vs ayer';
   changeEl.className = 'portfolio-change';
   changeEl.style.color = changeColor;
-  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeUSD >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs ayer';
+  changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeDisplay >= 0 ? '+' : '') + changePct.toFixed(2) + '% ' + vsLabel;
+
+  // Cost basis line
+  const cbEl = document.getElementById('portfolioCostBasis');
+  if (cbEl && costBasisUSD) {
+    const cbDisplay = fmtVal(costBasisUSD, rate, sym);
+    cbEl.textContent = 'Base de costo: ' + cbDisplay;
+    if (valuesHidden) maskElement(cbEl);
+  }
 
   // Alloc bar (4 cats)
   const CATS = ['acciones','cripto','rsu','fiat'];
@@ -2615,7 +2665,8 @@ function drawEquityPieFrame(prog, focusTicker, slices, totalUSD) {
         centerSub.textContent = fs.label;
         center.style.color    = fs.color;
       }
-    } else if (!focusTicker) {
+    } else if (!focusTicker || easedProg <= 0.5) {
+      // Unfocusing or no focus — show total
       const isGBP2 = currentCurrency === 'GBP';
       center.textContent    = fmtVal(totalUSD, isGBP2 ? FX_RATE : 1, isGBP2 ? '£' : '$');
       center.style.color    = '';
@@ -2648,11 +2699,13 @@ function animateEquityPie(targetTicker, slices, totalUSD) {
     const legend = document.getElementById('equityPieLegend');
     if (legend) {
       legend.querySelectorAll('.pie-legend-row').forEach(row => {
-        const isF = row.dataset.ticker === (drawTicker || '');
+        const isF = drawTicker && row.dataset.ticker === drawTicker;
         const isO = drawTicker && row.dataset.ticker !== drawTicker;
-        row.style.opacity  = isO ? String(1 - 0.55 * easeInOut(equityPieAnimProg)) : '1';
-        row.style.fontWeight = isF ? '700' : '';
-        row.style.transform  = isF ? 'scale(1.03)' : 'scale(1)';
+        // When unfocusing (focusing=false), equityPieAnimProg goes 1→0, so opacity restores
+        const dimAmount = easeInOut(equityPieAnimProg);
+        row.style.opacity    = isO ? String(1 - 0.55 * dimAmount) : '1';
+        row.style.fontWeight = isF && dimAmount > 0.5 ? '700' : '';
+        row.style.transform  = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
       });
     }
 
@@ -3463,24 +3516,29 @@ function switchPosTab(el, cat) {
   document.addEventListener('touchend', function(e) {
     const t = document.getElementById('chartTooltip');
     if (!t) return;
-    const canvas = document.getElementById('portfolioChart');
+    const canvas  = document.getElementById('portfolioChart');
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
+    const rect    = canvas.getBoundingClientRect();
+    const tipRect = t.getBoundingClientRect();
     const tx = e.changedTouches[0].clientX, ty = e.changedTouches[0].clientY;
-    // If tap was on/near the chart, pin the tooltip
-    if (tx >= rect.left && tx <= rect.right && ty >= rect.top - 20 && ty <= rect.bottom + 20) {
+    const onTip   = tx >= tipRect.left && tx <= tipRect.right && ty >= tipRect.top && ty <= tipRect.bottom;
+    const onChart = tx >= rect.left && tx <= rect.right && ty >= rect.top - 20 && ty <= rect.bottom + 20;
+
+    if (onTip && tooltipPinned) {
+      // Tap directly on the tooltip bubble → hide it
+      tooltipPinned = false;
+      t.classList.remove('visible');
+      clearDotOverlay();
+    } else if (onChart) {
       if (tooltipPinned) {
-        // Second tap on chart — unpin
-        tooltipPinned = false;
-        t.classList.remove('visible');
-        clearDotOverlay();
+        // Second tap on chart (not on bubble) → move tooltip
+        showTip(tx, ty);
       } else {
         tooltipPinned = true;
-        // Keep visible — showTip already called in touchmove or call now for static taps
         showTip(tx, ty);
       }
     } else {
-      // Tap outside chart — unpin
+      // Tap outside — unpin
       tooltipPinned = false;
       t.classList.remove('visible');
       clearDotOverlay();
@@ -3500,60 +3558,188 @@ function swipeEnd(e) {
   if (allocSlide === 1) { setTimeout(drawPie, 50); }
 }
 
-// Draw pie chart
-function drawPie() {
+// ── ALLOC PIE (header) focus state ──────────────────────────────────────────
+let allocFocusCat   = null;
+let allocPieSlices  = [];
+let allocPieAnimReq = null;
+let allocPieAnimProg = 1;
+
+function buildAllocSlices() {
+  const bd  = liveData ? liveData.breakdown : { acciones:1, cripto:0.1, rsu:2.5, fiat:6 };
+  const tot = (bd.acciones||0) + (bd.cripto||0) + (bd.rsu||0) + (bd.fiat||0) || 1;
+  const liquid = Math.max(0, (bd.fiat||0) - (bd.fiat_locked||0));
+  const locked = bd.fiat_locked || 0;
+  return [
+    { cat:'acciones', label:'Acciones', pct:(bd.acciones||0)/tot, color:'#43e97b', pattern:null },
+    { cat:'cripto',   label:'Cripto',   pct:(bd.cripto||0)/tot,   color:'#ff6584', pattern:null },
+    { cat:'rsu',      label:'RSUs',     pct:(bd.rsu||0)/tot,      color:'f7b731',  color:'#f7b731', pattern:null },
+    { cat:'liquid',   label:'Líquido',  pct:liquid/tot,           color:'#4fc3f7', pattern:null },
+    { cat:'locked',   label:'Ilíquido', pct:locked/tot,           color:'#2a8f9f', pattern:'stripe' },
+  ].filter(s => s.pct > 0.001);
+}
+
+function drawAllocPieFrame(prog, focusCat, slices) {
   const canvas = document.getElementById('allocPie');
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
   const SIZE = 130;
-  canvas.width = SIZE * dpr;
-  canvas.height = SIZE * dpr;
-  canvas.style.width = SIZE + 'px';
-  canvas.style.height = SIZE + 'px';
+  canvas.width  = SIZE * dpr; canvas.height = SIZE * dpr;
+  canvas.style.width = SIZE + 'px'; canvas.style.height = SIZE + 'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
-  const cx = SIZE/2, cy = SIZE/2, r = SIZE*0.38, iR = SIZE*0.25;
-  // Use live data if available
-  const bd = liveData ? liveData.breakdown : { acciones:1, cripto:0.1, rsu:2.5, fiat:6 };
-  const tot = (bd.acciones||0) + (bd.cripto||0) + (bd.rsu||0) + (bd.fiat||0) || 1;
-  const liquidPct = (bd.fiat||0) - (bd.fiat_locked||0);
-  const lockedPct = (bd.fiat_locked||0);
-  const slices = [
-    { pct: (bd.acciones||0)/tot, color: '#43e97b', pattern: null },
-    { pct: (bd.cripto||0)/tot,   color: '#ff6584', pattern: null },
-    { pct: (bd.rsu||0)/tot,      color: '#f7b731', pattern: null },
-    { pct: liquidPct/tot,        color: '#4fc3f7', pattern: null },
-    { pct: lockedPct/tot,        color: '#2a8f9f', pattern: 'stripe' },
-  ].filter(s => s.pct > 0);
-  ctx.clearRect(0,0,SIZE,SIZE);
-  // Create stripe pattern for locked cash
+  const cx = SIZE/2, cy = SIZE/2, R = SIZE*0.38, iR = SIZE*0.25;
+  const EXPAND = 9;
+  const easedProg = easeInOut(prog);
+
+  // Stripe pattern
   const patCanvas = document.createElement('canvas');
   patCanvas.width = 6; patCanvas.height = 6;
   const patCtx = patCanvas.getContext('2d');
-  patCtx.strokeStyle = '#4fc3f7';
-  patCtx.lineWidth = 1.5;
+  patCtx.strokeStyle = '#4fc3f7'; patCtx.lineWidth = 1.5;
   patCtx.beginPath(); patCtx.moveTo(0,6); patCtx.lineTo(6,0); patCtx.stroke();
-  patCtx.beginPath(); patCtx.moveTo(-1,1); patCtx.lineTo(1,-1); patCtx.stroke();
-  patCtx.beginPath(); patCtx.moveTo(5,7); patCtx.lineTo(7,5); patCtx.stroke();
   const stripePattern = ctx.createPattern(patCanvas, 'repeat');
+
+  ctx.clearRect(0, 0, SIZE, SIZE);
   let angle = -Math.PI / 2;
   slices.forEach(s => {
-    const sweep = s.pct * Math.PI * 2;
+    const sweep    = s.pct * Math.PI * 2;
+    const isFocused = focusCat && s.cat === focusCat;
+    const isOther   = focusCat && s.cat !== focusCat;
+    const r  = R  + (isFocused ? EXPAND * easedProg : isOther ? -3 * easedProg : 0);
+    const ir = iR + (isFocused ? -2 * easedProg : 0);
+    const bisect = angle + sweep / 2;
+    const offset = isFocused ? EXPAND * 0.5 * easedProg : 0;
+    const ox = Math.cos(bisect) * offset, oy = Math.sin(bisect) * offset;
+    ctx.save();
+    ctx.globalAlpha = isOther ? 1 - 0.55 * easedProg : 1;
+    ctx.translate(ox, oy);
     ctx.beginPath();
     ctx.arc(cx, cy, r, angle, angle + sweep);
-    ctx.arc(cx, cy, iR, angle + sweep, angle, true);
+    ctx.arc(cx, cy, ir, angle + sweep, angle, true);
     ctx.closePath();
     if (s.pattern === 'stripe') {
-      ctx.fillStyle = '#1a5f6f';
-      ctx.fill();
+      ctx.fillStyle = '#1a5f6f'; ctx.fill();
       ctx.fillStyle = stripePattern;
     } else {
       ctx.fillStyle = s.color;
     }
     ctx.fill();
+    ctx.restore();
+    s._angle = angle; s._sweep = sweep;
     angle += sweep;
   });
+
+  // Center: show % if focused
+  const pieTotal = document.getElementById('pieTotal');
+  if (pieTotal) {
+    if (focusCat && easedProg > 0.5) {
+      const fs = slices.find(s => s.cat === focusCat);
+      if (fs) { pieTotal.textContent = (fs.pct * 100).toFixed(1) + '%'; pieTotal.style.color = fs.color; }
+    } else {
+      const isGBP2 = currentCurrency === 'GBP';
+      const tot2 = liveData ? liveData.totalUSD : 0;
+      pieTotal.textContent = fmtVal(tot2, isGBP2 ? FX_RATE : 1, isGBP2 ? '£' : '$');
+      pieTotal.style.color = '';
+      if (valuesHidden) maskElement(pieTotal);
+    }
+  }
+  // Legend rows
+  const pieLegend = document.getElementById('pieLegend');
+  if (pieLegend) {
+    pieLegend.querySelectorAll('.alloc-legend-row').forEach(row => {
+      const isF = focusCat && row.dataset.cat === focusCat;
+      const isO = focusCat && row.dataset.cat !== focusCat;
+      const dimAmount = easeInOut(prog);
+      row.style.opacity   = isO ? String(1 - 0.55 * dimAmount) : '1';
+      row.style.transform = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
+    });
+  }
 }
+
+function animateAllocPie(targetCat) {
+  if (allocPieAnimReq) cancelAnimationFrame(allocPieAnimReq);
+  const focusing  = !!targetCat;
+  const DURATION  = 280;
+  const startTime = performance.now();
+  const slices    = buildAllocSlices();
+  allocPieSlices  = slices;
+  if (targetCat && allocFocusCat && targetCat !== allocFocusCat) {
+    allocFocusCat = null; allocPieAnimProg = 0;
+  }
+  const fromCat = allocFocusCat;
+  function step(now) {
+    const t = Math.min((now - startTime) / DURATION, 1);
+    allocPieAnimProg = focusing ? t : 1 - t;
+    const drawCat = focusing ? targetCat : fromCat;
+    drawAllocPieFrame(allocPieAnimProg, drawCat, slices);
+    if (t < 1) { allocPieAnimReq = requestAnimationFrame(step); }
+    else { allocFocusCat = targetCat; allocPieAnimReq = null; }
+  }
+  allocPieAnimReq = requestAnimationFrame(step);
+}
+
+function focusAllocSlice(cat) {
+  if (allocFocusCat === cat) animateAllocPie(null);
+  else animateAllocPie(cat);
+}
+
+function hitTestAllocPie(e) {
+  const canvas = document.getElementById('allocPie');
+  if (!canvas) return null;
+  const rect   = canvas.getBoundingClientRect();
+  const touch  = e.changedTouches ? e.changedTouches[0] : e;
+  const dx = touch.clientX - (rect.left + rect.width  / 2);
+  const dy = touch.clientY - (rect.top  + rect.height / 2);
+  const dist  = Math.sqrt(dx*dx + dy*dy);
+  const SIZE  = 130, scale = rect.width / SIZE;
+  const R = SIZE * 0.38 * scale, iR = SIZE * 0.25 * scale;
+  if (dist < iR || dist > R + 10 * scale) return null;
+  let ang = Math.atan2(dy, dx) + Math.PI / 2;
+  if (ang < 0) ang += Math.PI * 2;
+  for (const s of allocPieSlices) {
+    let a0 = s._angle + Math.PI / 2;
+    if (a0 < 0) a0 += Math.PI * 2;
+    const a1 = a0 + s._sweep;
+    if (ang >= a0 && ang <= a1) return s.cat;
+  }
+  return null;
+}
+
+// Draw pie chart
+function drawPie() {
+  const slices = buildAllocSlices();
+  allocPieSlices = slices;
+  drawAllocPieFrame(allocFocusCat ? allocPieAnimProg : 1, allocFocusCat, slices);
+}
+
+// Tap handler for allocPie
+(function() {
+  let tapping = false, tapX = 0, tapY = 0;
+  const getCanvas = () => document.getElementById('allocPie');
+  document.addEventListener('touchstart', function(e) {
+    const c = getCanvas(); if (!c) return;
+    const t = e.touches[0], rect = c.getBoundingClientRect();
+    if (t.clientX < rect.left || t.clientX > rect.right || t.clientY < rect.top || t.clientY > rect.bottom) return;
+    tapping = true; tapX = t.clientX; tapY = t.clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    if (!tapping) return; tapping = false;
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - tapX) > 10 || Math.abs(t.clientY - tapY) > 10) return;
+    const cat = hitTestAllocPie(e);
+    if (cat) { focusAllocSlice(cat); }
+    else if (allocFocusCat) { animateAllocPie(null); }
+  }, { passive: true });
+  // Tap outside → unfocus
+  document.addEventListener('touchend', function(e) {
+    if (!allocFocusCat) return;
+    const c = getCanvas(), lg = document.getElementById('pieLegend');
+    const t = e.changedTouches[0];
+    const inC  = c  && (() => { const r=c.getBoundingClientRect();  return t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom; })();
+    const inLg = lg && (() => { const r=lg.getBoundingClientRect(); return t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom; })();
+    if (!inC && !inLg) animateAllocPie(null);
+  }, { passive: true });
+})();
 
 // pie legend now handled inside renderPortfolio()
 
