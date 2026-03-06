@@ -2380,7 +2380,7 @@ function getMarketStatus(ticker, category) {
 
 function renderPortfolio() {
   if (!liveData) return;
-  const { totalUSD, changeUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeBaseline, costBasisUSD, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
@@ -2390,7 +2390,6 @@ function renderPortfolio() {
 
   // Change — convert changeUSD to display currency
   const changeEl = document.getElementById('portfolioChange');
-  const { changeUSD, changeBaseline, costBasisUSD } = liveData;
   const changeDisplay = isGBP ? changeUSD * FX_RATE : changeUSD; // convert to GBP if needed
   const totalDisplay  = isGBP ? totalUSD  * FX_RATE : totalUSD;
   const prevDisplay   = totalDisplay - changeDisplay;
