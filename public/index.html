@@ -1500,7 +1500,7 @@
           <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
         </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
-        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Base de costo: <span id="cbValue"></span></div>
+        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Costo base: <span id="cbValue"></span></div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar" id="allocBar">
             <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
@@ -1834,13 +1834,22 @@
 
       <!-- MC Params + Scenarios -->
       <div class="mc-card" style="overflow:visible">
-        <div style="padding:14px 16px 0">
-          <div style="display:flex;align-items:center;gap:8px">
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1">
-              <button class="mc-scen-btn" data-scen="bear">▼ Bajista</button>
-              <button class="mc-scen-btn active" data-scen="neutral">◆ Neutral</button>
-              <button class="mc-scen-btn" data-scen="bull">▲ Alcista</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer" onclick="toggleMcParams()">
+          <div style="display:flex;align-items:center;gap:5px">
+            <svg id="mcParamsChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
+            <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;white-space:nowrap">Parámetros</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
+            <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+              <button class="mc-scen-btn" data-scen="bear" style="padding:4px 8px;font-size:10px">▼ Bajista</button>
+              <button class="mc-scen-btn active" data-scen="neutral" style="padding:4px 8px;font-size:10px">◆ Neutral</button>
+              <button class="mc-scen-btn" data-scen="bull" style="padding:4px 8px;font-size:10px">▲ Alcista</button>
             </div>
+          </div>
+        </div>
+        <div id="mcParamsBody" style="display:none">
+        <div style="padding:0 16px">
+          <div style="display:flex;align-items:center;justify-content:flex-end">
             <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
           </div>
         </div>
@@ -1929,6 +1938,7 @@
             <span class="mc-p-unit">sims</span>
           </div>
         </div>
+        </div><!-- end mcParamsBody -->
       </div>
 
       <!-- Probabilities -->
@@ -5562,7 +5572,8 @@ async function aiSendMsg() {
 PROFILE
 location: London, UK | currency: GBP | monthly_expenses: £4000
 savings: £900-1000/mo | bonus_net: £9000-10000/yr (Mar+Sep, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
-emergency_fund: target £4000 (GBP_LIQUID), min £2500 intocable
+emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
+cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
 goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
 
@@ -6031,6 +6042,15 @@ function updatePinDots() {
 
 // ── PORTFOLIO HEALTH ENGINE ──────────────────────────────────────────────────
 
+let mcParamsCollapsed = true;
+function toggleMcParams() {
+  mcParamsCollapsed = !mcParamsCollapsed;
+  const body = document.getElementById('mcParamsBody');
+  const chevron = document.getElementById('mcParamsChevron');
+  if (body) body.style.display = mcParamsCollapsed ? 'none' : '';
+  if (chevron) chevron.style.transform = mcParamsCollapsed ? 'rotate(-90deg)' : '';
+}
+
 function switchAnalyticsTab(tab, btn) {
   document.querySelectorAll('.analytics-pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
@@ -6397,7 +6417,7 @@ function openHealthDetail(type) {
       const rowspan = positions.length;
       positions.forEach((p, i) => {
         html += '<tr style="border-bottom:1px solid var(--border)">';
-        if (i === 0) html += `<td style="padding:6px 4px;font-weight:700;color:var(--accent);vertical-align:top;font-size:10px;width:70px;max-width:70px;word-wrap:break-word" rowspan="${rowspan}">${sector}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${(sectorWeight*100).toFixed(0)}%</span></td>`;
+        if (i === 0) html += `<td style="padding:6px 4px;font-weight:700;color:var(--accent);vertical-align:top;font-size:11px;width:100px;min-width:100px" rowspan="${rowspan}">${sector}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${(sectorWeight*100).toFixed(0)}%</span></td>`;
         html += `<td style="padding:4px 4px;font-weight:500">${p.ticker}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(p.weight*100).toFixed(1)}%</td></tr>`;
       });
     });
