@@ -5705,13 +5705,20 @@ function aiAddMsg(role, text) {
 
   const indicator = document.getElementById('ptr-indicator');
   const spinner   = document.getElementById('ptr-spinner');
-  const appEl     = document.getElementById('app');
+
+  function isAtTop() {
+    // Check all possible scroll containers
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const docTop  = document.documentElement.scrollTop || 0;
+    const bodyTop = document.body.scrollTop || 0;
+    return scrollY <= 0 && docTop <= 0 && bodyTop <= 0;
+  }
 
   document.addEventListener('touchstart', function(e) {
     // Disable pull-to-refresh when any modal is open
     if (document.querySelector('.modal-overlay.open')) return;
     // ONLY activate when scroll is truly at the top
-    if (appEl.scrollTop > 0) return;
+    if (!isAtTop()) return;
     active = true;
     startY = e.touches[0].clientY;
     currentPull = 0;
@@ -5719,6 +5726,16 @@ function aiAddMsg(role, text) {
 
   document.addEventListener('touchmove', function(e) {
     if (!active) return;
+
+    // Re-check scroll position — user may have started at top but content scrolled
+    if (!isAtTop()) {
+      active = false;
+      currentPull = 0;
+      indicator.classList.remove('visible', 'releasing');
+      spinner.style.transform = '';
+      return;
+    }
+
     const rawDy = e.touches[0].clientY - startY;
 
     // If user scrolls up at any point, cancel entirely
@@ -5729,6 +5746,9 @@ function aiAddMsg(role, text) {
       spinner.style.transform = '';
       return;
     }
+
+    // Only show indicator after significant downward pull (avoid accidental triggers)
+    if (rawDy < 15) return;
 
     currentPull = Math.min(rawDy * DAMPEN, MAX_PULL);
     spinner.style.transform = `rotate(${currentPull * 2.5}deg)`;
