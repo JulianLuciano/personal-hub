@@ -3021,7 +3021,19 @@ function renderPnlAttribution() {
 
   const contribs = [];
   assets.forEach(({ pos, valueUSD, dayPct, pctUSD }) => {
-    if (pos.category === 'fiat' || valueUSD < 1) return;
+    // Fiat: only show in USD mode (historic) where GBP cash has FX P&L
+    if (pos.category === 'fiat') {
+      if (isGBP || pnlAttrMode === 'day') return; // no FX P&L in GBP view or daily mode
+      if (valueUSD < 1) return;
+      const inv = Number(pos.initial_investment_usd);
+      if (!inv) return; // no initial_investment = can't compute FX P&L
+      const contribUSD = valueUSD - inv;
+      if (Math.abs(contribUSD) < 0.01) return;
+      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD });
+      return;
+    }
+
+    if (valueUSD < 1) return;
 
     if (pnlAttrMode === 'day') {
       // Daily contribution (always USD-based, converted at display)
