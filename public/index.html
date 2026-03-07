@@ -1994,6 +1994,10 @@
           <img src="/logos/claude.png" style="width:16px;height:16px;object-fit:contain" alt="Claude">
         </div>
         <div class="ai-title">Análisis de Portfolio</div>
+        <div id="aiModelToggle" style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border);flex-shrink:0">
+          <div id="aiModelSonnet" onclick="setAiModel('sonnet')" style="padding:3px 8px;border-radius:100px;font-size:9px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s;letter-spacing:0.3px">SONNET</div>
+          <div id="aiModelOpus" onclick="setAiModel('opus')" style="padding:3px 8px;border-radius:100px;font-size:9px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s;letter-spacing:0.3px">OPUS</div>
+        </div>
         <button class="ai-close" onclick="closeAIChat()">×</button>
       </div>
       <div id="aiMessages">
@@ -4987,6 +4991,25 @@ function buildPortfolioContext() {
   return ctx.trim();
 }
 
+let aiModel = 'sonnet'; // 'sonnet' or 'opus'
+const AI_MODELS = {
+  sonnet: 'claude-sonnet-4-6',
+  opus:   'claude-opus-4-6'
+};
+
+function setAiModel(m) {
+  aiModel = m;
+  const sEl = document.getElementById('aiModelSonnet');
+  const oEl = document.getElementById('aiModelOpus');
+  if (m === 'sonnet') {
+    sEl.style.background = 'var(--accent)'; sEl.style.color = '#fff';
+    oEl.style.background = 'transparent'; oEl.style.color = 'var(--muted)';
+  } else {
+    oEl.style.background = 'linear-gradient(135deg, #e8824a, #d4602a)'; oEl.style.color = '#fff';
+    sEl.style.background = 'transparent'; sEl.style.color = 'var(--muted)';
+  }
+}
+
 function openAIChat() {
   document.getElementById('aiModal').classList.add('open');
   const app = document.getElementById('app');
@@ -5153,8 +5176,8 @@ ${watchlistSection ? '\n' + watchlistSection : ''}`;
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        model: AI_MODELS[aiModel],
+        max_tokens: aiModel === 'opus' ? 2048 : 1024,
         system: systemPrompt,
         messages: aiHistory.slice(-8) // keep last 8 turns for context
       })
