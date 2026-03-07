@@ -70,7 +70,7 @@ async function fetchFundamentals(ticker) {
   const yticker = TICKER_MAP[ticker] || ticker;
 
   const q = await yf.quoteSummary(yticker, {
-    modules: ['summaryDetail', 'defaultKeyStatistics', 'price', 'financialData', 'calendarEvents']
+    modules: ['summaryDetail', 'defaultKeyStatistics', 'price', 'financialData', 'calendarEvents', 'assetProfile']
   });
 
   const sd = q.summaryDetail        || {};
@@ -78,6 +78,7 @@ async function fetchFundamentals(ticker) {
   const pr = q.price                || {};
   const fd = q.financialData        || {};
   const ce = q.calendarEvents       || {};
+  const ap = q.assetProfile         || {};
   const n  = v => (v !== undefined && v !== null ? v : null);
 
   // Earnings date — calendarEvents.earnings.earningsDate is an array
@@ -111,6 +112,9 @@ async function fetchFundamentals(ticker) {
     nextEarningsDate:   nextEarnings instanceof Date
       ? nextEarnings.toISOString().slice(0, 10)
       : typeof nextEarnings === 'string' ? nextEarnings.slice(0, 10) : null,
+    // Sector & industry (from assetProfile)
+    sector:             ap.sector || null,
+    industry:           ap.industry || null,
   };
 }
 
