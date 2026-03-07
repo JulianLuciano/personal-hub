@@ -2477,6 +2477,7 @@ const TICKER_META = {
   'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',     logo: '📋', logoUrl: null,                cat: 'fiat',     showTicker: false },
   'USD_CASH':        { name: 'USD Cash',           logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',     showTicker: false },
   'RENT_DEPOSIT':    { name: 'Rent Deposit',       logo: '🏠', logoUrl: null,                cat: 'fiat',     showTicker: false },
+  'EMERGENCY_FUND':  { name: 'Emergency Fund',     logo: '🛡️', logoUrl: null,                cat: 'fiat',     showTicker: false },
 };
 
 function fmtVal(usd, rate, sym) {
@@ -2654,7 +2655,9 @@ async function loadPortfolio() {
         breakdown.fiat += valueUSD;
         // Track liquid vs locked (rent deposit + receivable = not liquid)
         const isLocked = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
+        const isEmergency = pos.ticker === 'EMERGENCY_FUND';
         if (isLocked) breakdown.fiat_locked += valueUSD;
+        else if (isEmergency) breakdown.fiat_liquid += valueUSD; // emergency counts as liquid
         else breakdown.fiat_liquid += valueUSD;
       } else {
         priceUSD = prices[pos.ticker];
@@ -3084,8 +3087,28 @@ function renderPortfolio() {
   const pieTotal = document.getElementById('pieTotal');
   if (pieTotal) pieTotal.textContent = fmtVal(totalUSD, rate, sym);
 
-  // Asset cards — sorted by value desc, hide zero values; RENT_DEPOSIT always last
-  const sorted = [...assets].filter(a => a.valueUSD > 0.5).sort((a, b) => {
+  // Asset cards — sorted by value desc, hide zero values; locked fiat always last
+  // Merge GBP_LIQUID + EMERGENCY_FUND into a single "Libras" card
+  const mergedAssets = [];
+  let librasValue = 0, librasQty = 0;
+  let librasFound = false;
+  assets.forEach(a => {
+    if (a.pos.ticker === 'GBP_LIQUID' || a.pos.ticker === 'EMERGENCY_FUND') {
+      librasValue += a.valueUSD;
+      librasQty += Number(a.pos.qty);
+      librasFound = true;
+    } else if (a.valueUSD > 0.5) {
+      mergedAssets.push(a);
+    }
+  });
+  if (librasFound && librasValue > 0.5) {
+    mergedAssets.push({
+      pos: { ticker: 'GBP_LIQUID', category: 'fiat', currency: 'GBP', qty: librasQty },
+      valueUSD: librasValue, priceUSD: null, pctUSD: null, pctGBP: null, dayPct: null,
+      _merged: true,
+    });
+  }
+  const sorted = mergedAssets.sort((a, b) => {
     const order = t => t === 'RENT_DEPOSIT' ? 2 : t === 'GBP_RECEIVABLE' ? 1 : 0;
     const oa = order(a.pos.ticker), ob = order(b.pos.ticker);
     if (oa !== ob) return oa - ob;
@@ -6023,8 +6046,9 @@ function computeHealthData() {
   const { totalUSD, assets } = liveData;
   const mm = window._marketMeta || {};
 
-  // Exclude RENT_DEPOSIT from health calculations — it's locked/non-investable
-  const healthAssets = assets.filter(a => a.pos.ticker !== 'RENT_DEPOSIT' && a.valueUSD > 0.5);
+  // Exclude RENT_DEPOSIT and EMERGENCY_FUND from health calculations — locked/non-investable
+  const EXCLUDED_FROM_HEALTH = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND']);
+  const healthAssets = assets.filter(a => !EXCLUDED_FROM_HEALTH.has(a.pos.ticker) && a.valueUSD > 0.5);
   const healthTotalUSD = healthAssets.reduce((s, a) => s + a.valueUSD, 0);
   if (healthTotalUSD < 1) return null;
 
@@ -6041,11 +6065,9 @@ function computeHealthData() {
     currency: a.pos.currency,
   }));
 
-  // ── HHI (over health portfolio: investments + liquid cash, excludes RENT_DEPOSIT) ──
-  // Cash is an allocation decision and should count for concentration
-  const hhiAssets = healthAssets.filter(a => a.valueUSD > 0.5);
-  const hhiWeights = hhiAssets.map(a => a.valueUSD / healthTotalUSD);
-  const N = hhiAssets.filter(a => a.pos.category !== 'fiat' || a.valueUSD > 1).length; // count meaningful positions
+  // ── HHI (investable positions only — cash has no concentration risk) ──
+  const hhiWeights = positions.map(a => a.valueUSD / investableUSD);
+  const N = hhiWeights.length;
   const hhi = hhiWeights.reduce((s, w) => s + w * w, 0);
   const effectiveN = hhi > 0 ? 1 / hhi : 0;
   // Normalized HHI: 0 = perfectly equal, 1 = all in one position
@@ -6065,7 +6087,7 @@ function computeHealthData() {
   });
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
-  // ── Currency Exposure (includes RENT_DEPOSIT — it's real GBP reducing FX risk) ──
+  // ── Currency Exposure (includes RENT_DEPOSIT + EMERGENCY_FUND — real GBP reducing FX risk) ──
   const currencyAssets = assets.filter(a => a.valueUSD > 0.5); // ALL assets for FX calc
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
   let usdPct = 0;
@@ -6380,7 +6402,7 @@ function openHealthDetail(type) {
     { name: 'Diversificación', text: 'Usa el HHI Normalizado (Herfindahl-Hirschman). Mide qué tan concentrado está tu portfolio relativo a la distribución óptima (todas las posiciones iguales). HHI* = 0% = perfectamente diversificado, 100% = todo en una posición. Score = 100 × (1 - HHI*). Se auto-calibra al número de posiciones.' },
     { name: 'Alineación al riesgo', text: 'Basado en el beta ponderado del portfolio. Beta < 1 = amortigua caídas del mercado, Beta > 1 = amplifica. Escala: beta 0.8 = score 100 (defensivo), beta 1.6 = score 0 (muy agresivo). Se complementa con las estimaciones de corrección (SPY -14%) y bear market (SPY -34%).' },
     { name: 'Valuación', text: 'Forward P/E ponderado del portfolio vs benchmark S&P ~21x. Un P/E bajo significa que pagás menos por cada peso de ganancia futura — más "margin of safety". Escala: 16x = score 100, 35x = score 0. Datos de Yahoo Finance.' },
-    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT como GBP.' },
+    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT y EMERGENCY_FUND como GBP.' },
     { name: 'Concentración individual', text: 'La posición individual (no-ETF broad) más grande como % del portfolio. ETFs diversificados (SPY, VWRP) no penalizan; ETFs temáticos (NDIA, ARKK) sí. Escala: <10% = score 100, >30% = score 0.' },
     { name: 'Income momentum', text: 'Flujo anual de cash nuevo (ahorro + bono + RSUs) como % del portfolio. Mientras más alto, menos dependés del rendimiento del mercado para crecer. Score = ratio / 50% × 100, capped a 100.' },
   ];
