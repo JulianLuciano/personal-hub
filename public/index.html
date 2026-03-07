@@ -16,6 +16,9 @@
 <link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACJ0lEQVR4nMXW/UuTURQH8PO/nvNjRMQkgogIVKR3RB4kEcleHkRkVDLSymJMsZtLnVaMh7m5Fzf35hKbFfFtjxA829Oa9/5yD9zfHu7n3HPPuTx0gYGL/BuX+Bcu8w8McRtX+ARX+RjXuIXr3MQNruMmVzHMFYzyAca4hNtcwF3ex33OYpwzmGAPDqcxyV8xxZ8xzTuY4W3M8iaecBLPeANzrDDP61jgNUQ5gRccB9nEF+U9yCYekxWQTXxJ3oBs4q9lGWQTfyuvQKb4qltBRrU66wh7naXcgjb+TmIg05P7eDByqqGNx2URZFp2/+S9CejiCXkJMr3zvZ4E9lVdG1+T5yDThsuqZlcC+U4CuvgHiYJMu90veTAKqqaNf5QFkOmohROoauNJmQeZzrl/58EodhLQxbdkDmT6yOR7EiipQ208JS7I9IXz7zwYB6qije/KU5Dp8+rfeTDKnQR08S/yGGT6thdDCZSRcja18LQ8AvXDY8Pps073l99wvXOeGEmelb03dHBPZkD9Th53MqHNU26ma9Sa3lHoGx08I9OgfmWPRrZDm/ux63r45Oz8E6+qkhaekymQzqgNitRIXAvPy0PQ/xouFtnA9/rpufCaKmrjRZkEDer25cj6wCRM8bI4oPP8Rq0MrSK7lEO73u6Cv3kNo7L/xQ9lAmTyG6U7av3wmoyDbOINeQCyibfkHsgmfix3QDbxE7kFsomfyhjIJv5TRvEHfDDlhR74QXoAAAAASUVORK5CYII=">
 <title>Personal Hub — Julián</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&family=Outfit:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
 <style>
   :root {
     --bg: #0a0a0f;
@@ -929,6 +932,94 @@
 .mc-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .mc-empty { padding:36px 16px; text-align:center; color:var(--muted); font-size:12px; display:flex; flex-direction:column; align-items:center; gap:10px; }
 .mc-section-pad { padding:0 24px 100px; display:flex; flex-direction:column; }
+
+/* ── New MC Analytics styles ─────────────────────────── */
+.mc-scen-btn {
+  padding:9px 6px; border-radius:9px; border:1px solid var(--border);
+  background:var(--surface2); color:var(--muted);
+  font-family:'DM Sans',sans-serif; font-size:12px;
+  cursor:pointer; transition:all .15s; text-align:center;
+  -webkit-tap-highlight-color:transparent;
+}
+.mc-scen-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+.mc-adv-btn {
+  background:none; border:none; color:var(--muted);
+  font-size:11px; font-family:'DM Sans',sans-serif;
+  cursor:pointer; white-space:nowrap; padding:4px 0;
+  -webkit-tap-highlight-color:transparent; transition:color .15s;
+}
+.mc-adv-btn:hover { color:var(--text); }
+.mc-adv-btn.open { color:var(--accent); }
+.mc-adv-panel {
+  max-height:0; overflow:hidden;
+  transition:max-height .25s ease, margin .25s ease, padding .25s ease;
+  padding-top:0;
+}
+.mc-adv-panel.open { max-height:120px; margin-top:10px; padding-top:4px; }
+.mc-p-item { display:flex; flex-direction:column; gap:3px; }
+.mc-p-lbl  { font-size:9px; color:var(--muted); line-height:1.3; }
+.mc-p-unit { font-size:8px; color:var(--muted); }
+.mc-p-inp {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; padding:8px 7px;
+  color:var(--text); font-family:var(--font-num);
+  font-size:14px; font-weight:700; outline:none; width:100%;
+  -webkit-appearance:none; transition:border-color .15s;
+}
+.mc-p-inp:focus { border-color:var(--accent); }
+.mc-tog {
+  flex:1; min-width:0; display:flex; align-items:center; justify-content:center; gap:5px;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:9px; padding:8px 4px; cursor:pointer;
+  transition:all .15s; user-select:none; -webkit-tap-highlight-color:transparent;
+}
+.mc-tog.on { border-color:var(--accent3); background:rgba(67,233,123,0.09); }
+.mc-tog-dot { width:6px; height:6px; border-radius:50%; background:var(--muted); flex-shrink:0; transition:background .15s; }
+.mc-tog.on .mc-tog-dot { background:var(--accent3); }
+.mc-tog span { font-size:11px; color:var(--muted); white-space:nowrap; }
+.mc-tog.on span { color:var(--text); }
+.mc-prob-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:11px 7px; text-align:center;
+}
+.mc-prob-yr  { font-size:9px; color:var(--muted); letter-spacing:.05em; text-transform:uppercase; margin-bottom:3px; }
+.mc-prob-val { font-family:var(--font-num); font-size:21px; font-weight:800; line-height:1.1; }
+.mc-prob-tgt { font-size:9px; color:var(--muted); margin-top:3px; }
+.mc-chart-empty {
+  display:flex; align-items:center; justify-content:center;
+  height:230px; color:var(--muted); font-size:12px;
+  border:1px dashed var(--border); border-radius:10px; text-align:center; padding:16px;
+}
+.mc-hist-tab {
+  padding:5px 12px; border-radius:8px; border:1px solid var(--border);
+  background:var(--surface2); color:var(--muted);
+  font-size:11px; cursor:pointer; transition:all .15s;
+  font-family:'DM Sans',sans-serif;
+  -webkit-tap-highlight-color:transparent;
+}
+.mc-hist-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+.mc-pct-table { width:100%; border-collapse:collapse; min-width:290px; }
+.mc-pct-table th {
+  font-size:9px; color:var(--muted); text-align:right;
+  padding:4px 6px; border-bottom:1px solid var(--border);
+  font-weight:600; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap;
+}
+.mc-pct-table th:first-child { text-align:left; }
+.mc-pct-table td {
+  font-family:var(--font-num); font-size:11px; font-weight:700;
+  text-align:right; padding:6px 6px; border-bottom:1px solid var(--border); white-space:nowrap;
+}
+.mc-pct-table td:first-child {
+  text-align:left; font-family:'DM Sans',sans-serif;
+  font-weight:400; color:var(--muted); font-size:10px;
+}
+.mc-pct-table tr:last-child td { border-bottom:none; }
+.mc-spin {
+  display:inline-block; width:13px; height:13px;
+  border:2px solid rgba(255,255,255,0.3); border-top-color:#fff;
+  border-radius:50%; animation:spin .55s linear infinite;
+  vertical-align:middle; margin-right:6px;
+}
 </style>
 </head>
 <body>
@@ -985,7 +1076,7 @@
   <!-- TABS -->
   <div class="tabs">
     <button class="tab active" onclick="switchTab('today', this)">Today</button>
-    <button class="tab" onclick="switchTab('analytics', this)">Analytics</button>
+    <button class="tab" onclick="switchTab('habitsanalytics', this)">Analytics</button>
     <button class="tab" onclick="switchTab('all', this)">All Habits</button>
   </div>
 
@@ -1067,8 +1158,8 @@
     </div>
   </div>
 
-  <!-- ANALYTICS PANEL -->
-  <div class="panel" id="panel-analytics">
+  <!-- HABITS ANALYTICS PANEL -->
+  <div class="panel" id="panel-habitsanalytics">
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-val" style="color:var(--accent)">87%</div>
@@ -1581,113 +1672,158 @@
     </div>
   </div>
 
-  <!-- SETTINGS PANEL -->
+  <!-- ANALYTICS / MONTE CARLO PANEL -->
   <div class="panel" id="panel-analytics">
     <div class="analytics-hero">
       <div class="analytics-hero-title">Analytics</div>
-      <div class="analytics-hero-sub">Simulaciones y análisis de tu portfolio</div>
+      <div class="analytics-hero-sub">Simulaciones Monte Carlo de tu portfolio</div>
     </div>
     <div class="mc-section-pad">
 
-      <!-- Simulación Monte Carlo -->
-      <div style="margin-top:16px">
-        <div class="mc-card">
-          <div class="mc-card-header">
-            <div class="mc-card-icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <!-- Params + Scenarios -->
+      <div class="mc-card" style="overflow:visible">
+        <!-- Scenario row + advanced toggle -->
+        <div style="padding:14px 16px 0">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1">
+              <button class="mc-scen-btn active" data-scen="bear">🐻 Bajista</button>
+              <button class="mc-scen-btn" data-scen="neutral">📊 Neutral</button>
+              <button class="mc-scen-btn" data-scen="bull">🚀 Alcista</button>
             </div>
-            <div>
-              <div class="mc-card-title">Simulación Monte Carlo</div>
-              <div class="mc-card-sub">10,000 escenarios de evolución del portfolio</div>
-            </div>
-          </div>
-
-          <!-- Escenarios de mercado -->
-          <div style="padding:12px 16px 0">
-            <div class="mc-toggle-label" style="margin-bottom:8px">Escenario de mercado</div>
-            <div class="mc-chip-row" style="padding:0 0 4px">
-              <div class="mc-chip active" data-scenario="base" onclick="mcSelectScenario(this)">Base</div>
-              <div class="mc-chip" data-scenario="bull" onclick="mcSelectScenario(this)">Bull market</div>
-              <div class="mc-chip" data-scenario="bear" onclick="mcSelectScenario(this)">Bear market</div>
-              <div class="mc-chip" data-scenario="crash" onclick="mcSelectScenario(this)">Crash −40%</div>
-              <div class="mc-chip" data-scenario="custom" onclick="mcSelectScenario(this)">Custom</div>
-            </div>
-          </div>
-
-          <!-- Controles -->
-          <div class="mc-controls" id="mcCustomControls">
-            <div class="mc-control-row">
-              <span class="mc-control-label">Retorno anual esperado</span>
-              <input type="range" class="mc-slider" id="slRetorno" min="-20" max="40" value="8" step="0.5" oninput="mcUpdateLabel('slRetorno','lblRetorno','%')">
-              <span class="mc-control-value" id="lblRetorno">8%</span>
-            </div>
-            <div class="mc-control-row">
-              <span class="mc-control-label">Volatilidad anual</span>
-              <input type="range" class="mc-slider" id="slVol" min="5" max="60" value="18" step="0.5" oninput="mcUpdateLabel('slVol','lblVol','%')">
-              <span class="mc-control-value" id="lblVol">18%</span>
-            </div>
-            <div class="mc-control-row">
-              <span class="mc-control-label">Horizonte (años)</span>
-              <input type="range" class="mc-slider" id="slAnios" min="1" max="10" value="5" step="1" oninput="mcUpdateLabel('slAnios','lblAnios',' años')">
-              <span class="mc-control-value" id="lblAnios">5 años</span>
-            </div>
-          </div>
-
-          <!-- Flujo de caja toggle -->
-          <div class="mc-toggle-row">
-            <span class="mc-toggle-label">Incluir flujo de caja (ahorro + bonos + RSUs)</span>
-            <div class="mc-toggle-group">
-              <button class="mc-toggle-btn active" id="cashflowOn" onclick="mcToggleCashflow(true)">Sí</button>
-              <button class="mc-toggle-btn" id="cashflowOff" onclick="mcToggleCashflow(false)">No</button>
-            </div>
-          </div>
-
-          <!-- Botón correr -->
-          <div style="padding:12px 16px 16px">
-            <button class="mc-run-btn" id="mcRunBtn" onclick="runMonteCarlo()">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Correr simulación
-            </button>
+            <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
           </div>
         </div>
 
-        <!-- Resultados -->
-        <div class="mc-card" id="mcResultsCard" style="display:none">
-          <div class="mc-card-header">
-            <div class="mc-card-icon" style="background:rgba(67,233,123,0.12)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <!-- Advanced: retorno + vol, hidden by default -->
+        <div class="mc-adv-panel" id="mcAdvPanel">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px">
+            <div class="mc-p-item">
+              <span class="mc-p-lbl">Retorno anual</span>
+              <input class="mc-p-inp" id="mc-p-return" type="number" inputmode="decimal" step="0.5" value="3">
+              <span class="mc-p-unit">% anual</span>
             </div>
-            <div>
-              <div class="mc-card-title">Resultados</div>
-              <div class="mc-card-sub" id="mcResultSub">—</div>
+            <div class="mc-p-item">
+              <span class="mc-p-lbl">Volatilidad</span>
+              <input class="mc-p-inp" id="mc-p-vol" type="number" inputmode="decimal" step="0.5" value="25">
+              <span class="mc-p-unit">% anual</span>
             </div>
           </div>
+        </div>
 
-          <!-- Fan chart -->
-          <div class="mc-canvas-wrap" style="padding-top:14px">
-            <canvas id="mcCanvas" height="200"></canvas>
+        <!-- Cash flow params -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px">
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Valor actual</span>
+            <input class="mc-p-inp" id="mc-p-start" type="number" inputmode="numeric" step="500" value="12000">
+            <span class="mc-p-unit">£ portfolio</span>
           </div>
-          <div class="mc-legend" id="mcLegend">
-            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(67,233,123,0.9)"></div>P90 (optimista)</div>
-            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:#6c63ff"></div>P50 (mediana)</div>
-            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(255,101,132,0.9)"></div>P10 (pesimista)</div>
-            <div class="mc-legend-item"><div class="mc-legend-dot" style="background:rgba(247,183,49,0.9)"></div>Objetivos</div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Ahorro mensual</span>
+            <input class="mc-p-inp" id="mc-p-monthly" type="number" inputmode="numeric" step="50" value="950">
+            <span class="mc-p-unit">£ / mes</span>
           </div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Bono anual</span>
+            <input class="mc-p-inp" id="mc-p-bonus" type="number" inputmode="numeric" step="500" value="9500">
+            <span class="mc-p-unit">£ neto total</span>
+          </div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">RSUs por vest</span>
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
+            <span class="mc-p-unit">£ / trimestre</span>
+          </div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Horizonte</span>
+            <input class="mc-p-inp" id="mc-p-years" type="number" inputmode="numeric" step="1" value="5">
+            <span class="mc-p-unit">años</span>
+          </div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Simulaciones</span>
+            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="3000">
+            <span class="mc-p-unit">iteraciones</span>
+          </div>
+        </div>
 
-          <!-- Stats grid -->
-          <div class="mc-stats-grid" id="mcStatsGrid"></div>
-
-          <!-- Probabilidad de objetivos -->
-          <div class="mc-prob-wrap" id="mcProbWrap"></div>
-
-          <!-- Histograma -->
-          <div style="padding:0 16px 6px">
-            <div class="mc-prob-title">Distribución de resultados finales</div>
+        <!-- Toggles -->
+        <div style="padding:0 16px">
+          <div style="font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:8px">Incluir</div>
+          <div style="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap">
+            <div class="mc-tog on" data-toggle="monthly"><div class="mc-tog-dot"></div><span>Ahorro</span></div>
+            <div class="mc-tog on" data-toggle="bonus"><div class="mc-tog-dot"></div><span>Bono</span></div>
+            <div class="mc-tog on" data-toggle="rsu"><div class="mc-tog-dot"></div><span>RSUs</span></div>
+            <div class="mc-tog on" data-toggle="eom"><div class="mc-tog-dot"></div><span>Fin de mes</span></div>
           </div>
-          <div class="mc-canvas-wrap">
-            <canvas id="mcHistogram" height="120"></canvas>
-          </div>
-          <div style="padding:6px 16px 16px;font-size:10px;color:var(--muted);text-align:center" id="mcFootnote"></div>
+        </div>
+
+        <div style="padding:0 16px 16px">
+          <button class="mc-run-btn" id="mcRunBtn">Simular</button>
+        </div>
+      </div>
+
+      <!-- Probabilities -->
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:2px 0 8px">Probabilidad de alcanzar objetivos</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:16px">
+        <div class="mc-prob-card">
+          <div class="mc-prob-yr">+12m</div>
+          <div class="mc-prob-val" id="mcProb30k" style="color:var(--accent3)">—</div>
+          <div class="mc-prob-tgt" id="mcProb30k-tgt">£30k</div>
+        </div>
+        <div class="mc-prob-card">
+          <div class="mc-prob-yr">+36m</div>
+          <div class="mc-prob-val" id="mcProb100k" style="color:var(--accent4)">—</div>
+          <div class="mc-prob-tgt" id="mcProb100k-tgt">£100k</div>
+        </div>
+        <div class="mc-prob-card">
+          <div class="mc-prob-yr">+60m</div>
+          <div class="mc-prob-val" id="mcProb200k" style="color:var(--accent5)">—</div>
+          <div class="mc-prob-tgt" id="mcProb200k-tgt">£200k</div>
+        </div>
+      </div>
+
+      <!-- Fan chart -->
+      <div class="mc-card">
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;padding:14px 16px 0">Evolución de cartera · abanico de percentiles</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;padding:0 16px 8px">
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent5)"></div><span style="font-size:10px;color:var(--muted)">p90</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent3)"></div><span style="font-size:10px;color:var(--muted)">p75</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></div><span style="font-size:10px;color:var(--muted)">p50</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent4)"></div><span style="font-size:10px;color:var(--muted)">p25</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#ff4d6d"></div><span style="font-size:10px;color:var(--muted)">p10</span></div>
+        </div>
+        <div style="position:relative;width:100%;height:230px;touch-action:none;padding:0 16px">
+          <div class="mc-chart-empty" id="mcFanEmpty">Corré la simulación para ver resultados</div>
+          <canvas id="mcFanChart" style="display:none"></canvas>
+        </div>
+        <div style="font-size:9px;color:var(--muted);text-align:right;padding:5px 16px 14px">
+          Pinch para zoom · <button style="font-size:10px;color:var(--accent);cursor:pointer;background:none;border:none;font-family:'DM Sans',sans-serif;padding:0" id="mcZoomReset">Resetear zoom</button>
+        </div>
+      </div>
+
+      <!-- Histogram -->
+      <div class="mc-card">
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:14px 16px 0">Distribución de resultados</div>
+        <div style="display:flex;gap:6px;padding:10px 16px">
+          <button class="mc-hist-tab" data-yr="1">Año 1</button>
+          <button class="mc-hist-tab active" data-yr="3">Año 3</button>
+          <button class="mc-hist-tab" data-yr="5">Año 5</button>
+        </div>
+        <div style="position:relative;width:100%;height:230px;touch-action:none;padding:0 16px">
+          <div class="mc-chart-empty" id="mcHistEmpty">—</div>
+          <canvas id="mcHistChart" style="display:none"></canvas>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;padding:10px 16px 14px">
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(255,77,109,.7)"></div><span style="font-size:10px;color:var(--muted)">&lt; £30k</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(108,99,255,.8)"></div><span style="font-size:10px;color:var(--muted)">£30k–£100k</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(67,233,123,.8)"></div><span style="font-size:10px;color:var(--muted)">£100k–£200k</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(79,195,247,.8)"></div><span style="font-size:10px;color:var(--muted)">&gt; £200k</span></div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="mc-card">
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:14px 16px 10px">Tabla de percentiles</div>
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0 16px 14px">
+          <div id="mcTblWrap" style="color:var(--muted);font-size:12px;padding:4px 0">Sin datos</div>
         </div>
       </div>
 
@@ -1897,7 +2033,7 @@
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span>
       <span class="nav-label">Portfolio</span>
     </div>
-    <div class="nav-item" onclick="window.location.href='/analytics.html'">
+    <div class="nav-item" onclick="switchNav(this, 'analytics')">
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 7.07 17.07"/><path d="M12 12 L12 6"/><path d="M12 12 L16 14"/></svg></span>
       <span class="nav-label">Analytics</span>
     </div>
@@ -1955,6 +2091,13 @@ function switchNav(el, name) {
       if (document.getElementById('panel-portfolio').classList.contains('active')) updateLastUpdatedLabel();
       else { clearInterval(_lastUpdatedTimer); _lastUpdatedTimer = null; }
     }, 30000);
+  }
+  if (name === 'analytics') {
+    // Seed portfolio value from liveData if available
+    const startInput = document.getElementById('mc-p-start');
+    if (startInput && typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
+      startInput.value = Math.round(liveData.totalUSD / (liveData.gbpUsd || 1.27));
+    }
   }
 }
 
@@ -5530,414 +5673,344 @@ function updatePinDots() {
   }
 }
 
-// ── MONTE CARLO ENGINE ────────────────────────────────────────────────────────
 
-const MC_SCENARIOS = {
-  base:   { retorno: 8,   vol: 18,  label: 'Base (S&P histórico)' },
-  bull:   { retorno: 18,  vol: 20,  label: 'Bull market' },
-  bear:   { retorno: -2,  vol: 28,  label: 'Bear market' },
-  crash:  { retorno: -40, vol: 45,  label: 'Crash −40%' },
-  custom: { retorno: null, vol: null, label: 'Custom' },
-};
+// ── MONTE CARLO ENGINE (Chart.js version) ──────────────────────────────────
 
-let mcScenario   = 'base';
-let mcCashflow   = true;
-let mcRunning    = false;
+const MC_NOW       = new Date();
+const MC_NOW_YEAR  = MC_NOW.getFullYear();
+const MC_NOW_MONTH = MC_NOW.getMonth();
+const MC_BONUS_MONTHS = new Set([3, 9]);
+const MC_RSU_MONTHS   = new Set([1, 4, 7, 10]);
 
-function mcSelectScenario(el) {
-  document.querySelectorAll('.mc-chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  mcScenario = el.dataset.scenario;
-  const s = MC_SCENARIOS[mcScenario];
-  const isCustom = mcScenario === 'custom';
-  if (!isCustom) {
-    document.getElementById('slRetorno').value = s.retorno;
-    document.getElementById('lblRetorno').textContent = s.retorno + '%';
-    document.getElementById('slVol').value = s.vol;
-    document.getElementById('lblVol').textContent = s.vol + '%';
+let mcChartFan = null, mcChartHist = null;
+let mcSimsCache = null, mcSimMonths = 0;
+const mcTogState = { monthly:true, bonus:true, rsu:true, eom:true };
+const MC_SCEN = { bear:{ret:3,vol:25}, neutral:{ret:9,vol:18}, bull:{ret:16,vol:22} };
+let mcHistYr = 3;
+
+// Seed portfolio value from already-loaded liveData
+function mcGetPortfolioGBP() {
+  if (typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
+    return Math.round(liveData.totalUSD / (liveData.gbpUsd || 1.27));
   }
-  // Make sliders read-only for preset scenarios
-  ['slRetorno','slVol'].forEach(id => {
-    document.getElementById(id).disabled = !isCustom;
-    document.getElementById(id).style.opacity = isCustom ? '1' : '0.45';
-  });
+  return 12000;
 }
 
-function mcUpdateLabel(sliderId, labelId, suffix) {
-  const v = document.getElementById(sliderId).value;
-  document.getElementById(labelId).textContent = v + suffix;
-}
-
-function mcToggleCashflow(on) {
-  mcCashflow = on;
-  document.getElementById('cashflowOn').classList.toggle('active', on);
-  document.getElementById('cashflowOff').classList.toggle('active', !on);
-}
-
-// Box-Muller normal random
-function randNorm() {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
+// Box-Muller
+function mcRandn() {
+  let u, v;
+  do { u = Math.random(); v = Math.random(); } while (!u);
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-function runMonteCarlo() {
-  if (mcRunning) return;
+function mcCalMonth(m) { return (MC_NOW_MONTH + m) % 12; }
 
-  // Get starting portfolio value
-  const startGBP = liveData ? (liveData.totalUSD / (liveData.gbpUsd || 1.27)) : 12000;
-  const annualReturn = parseFloat(document.getElementById('slRetorno').value) / 100;
-  const annualVol    = parseFloat(document.getElementById('slVol').value)    / 100;
-  const years        = parseInt(document.getElementById('slAnios').value);
-  const N_SIM        = 10000;
-  const STEPS        = years * 12; // monthly steps
-  const dt           = 1 / 12;
+function mcSimulate({ start, annRet, annVol, years, n, monthly, bonus, rsu,
+                      useMo, useBo, useRSU, isEOM }) {
+  const mr = annRet / 100 / 12;
+  const mv = annVol / 100 / Math.sqrt(12);
+  const M  = years * 12;
+  const snaps = Array.from({ length: n }, () => new Float32Array(M + 1));
+  for (let s = 0; s < n; s++) {
+    let v = start;
+    snaps[s][0] = v;
+    for (let m = 1; m <= M; m++) {
+      const applyMarket = !(isEOM && m === 1);
+      if (applyMarket) v *= 1 + mr + mv * mcRandn();
+      const cm = mcCalMonth(m);
+      if (useMo)             v += monthly;
+      if (useBo && MC_BONUS_MONTHS.has(cm)) v += bonus / 2;
+      if (useRSU && MC_RSU_MONTHS.has(cm))   v += rsu;
+      snaps[s][m] = v < 0 ? 0 : v;
+    }
+  }
+  return snaps;
+}
 
-  // Monthly cashflow in GBP (if enabled)
-  // Salary saving + pro-rated bonus + pro-rated RSUs
-  const monthlyExtra = mcCashflow ? (() => {
-    const monthlySalary = 950;          // mid of £900–£1000
-    const monthlyBonus  = 9500 / 12;    // £9500/yr spread monthly
-    const monthlyRSU    = 11500 / 12;   // ~£11.5k/yr net RSUs
-    return monthlySalary + monthlyBonus + monthlyRSU;
-  })() : 0;
+function mcPct(arr, p) {
+  const sorted = Float32Array.from(arr).sort();
+  const i = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
 
-  // Objectives in GBP
-  const OBJECTIVES = [
-    { label: '£30k (2026)',  value: 30000,  year: Math.max(0.5, 2026 - new Date().getFullYear() + (new Date().getMonth() < 6 ? 0 : 1)) },
-    { label: '£100k (2028)', value: 100000, year: Math.max(0.5, 2028 - new Date().getFullYear() + 1) },
-    { label: '£200k (2030)', value: 200000, year: Math.max(0.5, 2030 - new Date().getFullYear() + 1) },
-  ].filter(o => o.year <= years + 0.5);
+function mcProbAbove(sims, mi, target) {
+  const above = sims.reduce((a, s) => a + (s[mi] >= target ? 1 : 0), 0);
+  return (above / sims.length * 100).toFixed(0) + '%';
+}
 
-  mcRunning = true;
+function mcFmtK(v) {
+  if (v == null) return '—';
+  return v >= 1000 ? '£' + Math.round(v / 1000) + 'k' : '£' + Math.round(v);
+}
+function mcFmtFull(v) {
+  if (v == null) return '—';
+  return '£' + Math.round(v).toLocaleString('es-AR');
+}
+
+function mcDateShort(m) {
+  const d = new Date(MC_NOW_YEAR, MC_NOW_MONTH + m, 1);
+  return d.toLocaleDateString('es-AR', { month:'short', year:'2-digit' });
+}
+
+function mcTheme() {
+  const dark = typeof isDark !== 'undefined' ? isDark : true;
+  return {
+    gc:   dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+    tc:   dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)',
+    ttBg: dark ? '#1c1c26' : '#fff',
+  };
+}
+
+// Render histogram for a given year
+function mcRenderHist(sims, M, yr) {
+  const mi = Math.min(yr * 12, M);
+  const finals = sims.map(s => s[mi]);
+  const total  = finals.length;
+  const hMin = Math.min(...finals), hMax = Math.max(...finals);
+  const B    = 30;
+  const bSz  = (hMax - hMin) / B || 1;
+  const counts = new Array(B).fill(0);
+  finals.forEach(v => { counts[Math.min(Math.floor((v - hMin) / bSz), B-1)]++; });
+  const freqs = counts.map(c => c / total * 100);
+  const cumul = [];
+  let acc = 0;
+  freqs.forEach(f => { acc += f; cumul.push(acc); });
+  const hLbls = Array.from({length:B}, (_,i) => mcFmtK(hMin + i * bSz));
+  const { gc, tc, ttBg } = mcTheme();
+
+  document.getElementById('mcHistEmpty').style.display = 'none';
+  const histCvs = document.getElementById('mcHistChart');
+  histCvs.style.display = 'block';
+  if (mcChartHist) mcChartHist.destroy();
+
+  mcChartHist = new Chart(histCvs, {
+    type:'bar',
+    data:{
+      labels: hLbls,
+      datasets:[{
+        data: freqs,
+        backgroundColor: freqs.map((_,i) => {
+          const v = hMin + i * bSz;
+          if (v >= 200000) return 'rgba(79,195,247,.8)';
+          if (v >= 100000) return 'rgba(67,233,123,.8)';
+          if (v >= 30000)  return 'rgba(108,99,255,.8)';
+          return 'rgba(255,77,109,.5)';
+        }),
+        borderWidth:0, borderRadius:2
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:ttBg, titleColor:tc, bodyColor:tc, borderColor:gc, borderWidth:1,
+          callbacks:{
+            title: ctx => '~' + ctx[0].label,
+            label: ctx => {
+              const i = ctx.dataIndex;
+              return ['Frecuencia: ' + freqs[i].toFixed(1) + '%', 'Acumulado: ' + cumul[i].toFixed(1) + '%'];
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ color:tc, font:{size:8}, maxTicksLimit:5 } },
+        y:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, callback: v => v.toFixed(0) + '%' } }
+      }
+    }
+  });
+}
+
+// Main run
+function mcRun() {
   const btn = document.getElementById('mcRunBtn');
   btn.disabled = true;
-  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"><animateTransform attributeName="transform" type="rotate" dur="0.8s" values="0 12 12;360 12 12" repeatCount="indefinite"/></circle></svg> Simulando...';
+  btn.innerHTML = '<span class="mc-spin"></span>Simulando…';
 
-  // Run in next tick so UI updates
   setTimeout(() => {
-    // Simulate paths
-    const paths = []; // each path: array of length STEPS+1 (monthly portfolio values)
-    const finalVals = [];
+    const _n = (id, fb) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? fb : v; };
+    const annRet  = _n('mc-p-return', 9);
+    const annVol  = _n('mc-p-vol',    18);
+    const monthly = _n('mc-p-monthly',950);
+    const bonus   = _n('mc-p-bonus',  9500);
+    const rsu     = _n('mc-p-rsu',    2650);
+    const years   = parseInt(document.getElementById('mc-p-years').value) || 5;
+    const n       = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 3000, 15000);
+    const start   = _n('mc-p-start', mcGetPortfolioGBP());
 
-    for (let sim = 0; sim < N_SIM; sim++) {
-      let val = startGBP;
-      const path = [val];
-      for (let t = 0; t < STEPS; t++) {
-        const shock = annualReturn * dt + annualVol * Math.sqrt(dt) * randNorm();
-        val = val * (1 + shock) + monthlyExtra;
-        if (val < 0) val = 0;
-        path.push(val);
-      }
-      paths.push(path);
-      finalVals.push(val);
-    }
+    const M = years * 12;
+    mcSimMonths = M;
 
-    // Sort final values for percentiles
-    finalVals.sort((a, b) => a - b);
+    const sims = mcSimulate({
+      start, annRet, annVol, years, n,
+      monthly, bonus, rsu,
+      useMo: mcTogState.monthly, useBo: mcTogState.bonus, useRSU: mcTogState.rsu,
+      isEOM: mcTogState.eom
+    });
+    mcSimsCache = sims;
 
-    // Percentile paths
-    function percentilePath(pct) {
-      const result = [];
-      for (let t = 0; t <= STEPS; t++) {
-        const vals = paths.map(p => p[t]).sort((a, b) => a - b);
-        const idx  = Math.floor(pct / 100 * (N_SIM - 1));
-        result.push(vals[idx]);
-      }
-      return result;
-    }
-
-    const p10 = percentilePath(10);
-    const p25 = percentilePath(25);
-    const p50 = percentilePath(50);
-    const p75 = percentilePath(75);
-    const p90 = percentilePath(90);
-
-    // Probability of reaching each objective
-    const objProbs = OBJECTIVES.map(obj => {
-      const stepIdx = Math.min(Math.round(obj.year * 12), STEPS);
-      let reached = 0;
-      paths.forEach(p => { if (p[stepIdx] >= obj.value) reached++; });
-      return { ...obj, prob: reached / N_SIM };
+    // Probability targets
+    const targets = [
+      { id:'mcProb30k',  mi:12,  target:30000,  label:'£30k'  },
+      { id:'mcProb100k', mi:36,  target:100000, label:'£100k' },
+      { id:'mcProb200k', mi:60,  target:200000, label:'£200k' },
+    ];
+    targets.forEach(({ id, mi, target, label }) => {
+      const capped = Math.min(mi, M);
+      const dateStr = mcDateShort(capped);
+      document.getElementById(id).textContent = capped <= M ? mcProbAbove(sims, capped, target) : '—';
+      document.getElementById(id + '-tgt').textContent = label + ' · ' + dateStr;
+      document.querySelector('#' + id).closest('.mc-prob-card').querySelector('.mc-prob-yr').textContent = dateStr;
     });
 
-    // Stats
-    const mean   = finalVals.reduce((s, v) => s + v, 0) / N_SIM;
-    const median = finalVals[Math.floor(N_SIM * 0.5)];
-    const p10f   = finalVals[Math.floor(N_SIM * 0.10)];
-    const p90f   = finalVals[Math.floor(N_SIM * 0.90)];
-    const pLoss  = finalVals.filter(v => v < startGBP).length / N_SIM;
+    // Percentile bands
+    const { gc, tc, ttBg } = mcTheme();
+    const labels = [], fullLabels = [], p10=[], p25=[], p50=[], p75=[], p90=[];
+    for (let m = 0; m <= M; m++) {
+      const d = new Date(MC_NOW_YEAR, MC_NOW_MONTH + m, 1);
+      labels.push(m % 3 === 0 ? d.toLocaleDateString('es-AR', { month:'short', year:'2-digit' }) : '');
+      fullLabels.push(d.toLocaleDateString('es-AR', { month:'long', year:'numeric' }));
+      const col = sims.map(s => s[m]);
+      p10.push(mcPct(col,10)); p25.push(mcPct(col,25)); p50.push(mcPct(col,50));
+      p75.push(mcPct(col,75)); p90.push(mcPct(col,90));
+    }
 
-    // Draw everything
-    drawMCFanChart(p10, p25, p50, p75, p90, years, STEPS, OBJECTIVES, startGBP);
-    drawMCHistogram(finalVals, startGBP, OBJECTIVES);
-    renderMCStats(mean, median, p10f, p90f, pLoss, startGBP, years);
-    renderMCProbs(objProbs);
+    // Fan chart
+    document.getElementById('mcFanEmpty').style.display = 'none';
+    const fanCvs = document.getElementById('mcFanChart');
+    fanCvs.style.display = 'block';
+    if (mcChartFan) mcChartFan.destroy();
 
-    const scenLabel = MC_SCENARIOS[mcScenario].label;
-    document.getElementById('mcResultSub').textContent =
-      `${scenLabel} · ${years} año${years>1?'s':''} · ${mcCashflow ? 'con flujo de caja' : 'solo inversión'}`;
+    mcChartFan = new Chart(fanCvs, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label:'p90', data:p90, borderColor:'rgba(79,195,247,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  stepped:true },
+          { label:'p75', data:p75, borderColor:'rgba(67,233,123,.85)',  borderWidth:1.5, pointRadius:0, fill:'-1',   backgroundColor:'rgba(67,233,123,.06)', stepped:true },
+          { label:'p50', data:p50, borderColor:'rgba(108,99,255,1)',    borderWidth:2.5, pointRadius:0, fill:false,  stepped:true },
+          { label:'p25', data:p25, borderColor:'rgba(247,183,49,.85)',  borderWidth:1.5, pointRadius:0, fill:'+1',   backgroundColor:'rgba(247,183,49,.06)', stepped:true },
+          { label:'p10', data:p10, borderColor:'rgba(255,77,109,.85)',  borderWidth:1.5, pointRadius:0, fill:false,  stepped:true },
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            backgroundColor:ttBg, titleColor:tc, bodyColor:tc, borderColor:gc, borderWidth:1,
+            callbacks:{
+              title: ctx => fullLabels[ctx[0].dataIndex],
+              label: c => c.dataset.label + ': ' + mcFmtFull(c.raw)
+            }
+          },
+          zoom:{
+            limits:{ x:{ min:'original', max:'original' } },
+            zoom:{
+              pinch:{ enabled:true, speed:0.03 },
+              wheel:{ enabled:true, speed:0.03 },
+              mode:'x',
+            },
+            pan:{ enabled:true, mode:'xy', speed:5 }
+          }
+        },
+        scales:{
+          x:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, maxRotation:0, maxTicksLimit:14 } },
+          y:{ grid:{color:gc}, ticks:{ color:tc, font:{size:9}, callback:mcFmtK } }
+        }
+      }
+    });
 
-    document.getElementById('mcResultsCard').style.display = '';
-    mcRunning = false;
+    fanCvs.addEventListener('touchmove', e => e.preventDefault(), { passive:false });
+    fanCvs.addEventListener('touchstart', e => e.stopPropagation(), { passive:true });
+
+    // Histogram
+    mcRenderHist(sims, M, mcHistYr);
+
+    // Percentile table
+    const milestones = [3,6,12,18,24,36,48,60].filter(m => m <= M);
+    let html = '<table class="mc-pct-table"><thead><tr><th></th><th>p10</th><th>p25</th><th>p50</th><th>p75</th><th>p90</th></tr></thead><tbody>';
+    milestones.forEach(m => {
+      const lbl = mcDateShort(m);
+      const col = sims.map(s => s[m]);
+      html += '<tr><td>' + lbl + '</td>' + [10,25,50,75,90].map(p => '<td>' + mcFmtK(mcPct(col,p)) + '</td>').join('') + '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('mcTblWrap').innerHTML = html;
+
     btn.disabled = false;
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Volver a simular';
+    btn.textContent = 'Simular';
 
-    // Scroll to results
     setTimeout(() => {
-      document.getElementById('mcResultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const probCards = document.querySelector('.mc-prob-card');
+      if (probCards) probCards.scrollIntoView({ behavior:'smooth', block:'start' });
     }, 100);
-  }, 30);
+  }, 20);
 }
 
-function drawMCFanChart(p10, p25, p50, p75, p90, years, steps, objectives, startGBP) {
-  const canvas = document.getElementById('mcCanvas');
-  const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.offsetWidth * dpr;
-  const H   = 200 * dpr;
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  const w = canvas.offsetWidth;
-  const h = 200;
-
-  const PAD = { top: 12, right: 16, bottom: 28, left: 52 };
-  const plotW = w - PAD.left - PAD.right;
-  const plotH = h - PAD.top  - PAD.bottom;
-
-  // Max value for scale
-  const maxVal = Math.max(...p90) * 1.05;
-  const minVal = 0;
-
-  function xOf(t) { return PAD.left + (t / steps) * plotW; }
-  function yOf(v) { return PAD.top + plotH - ((v - minVal) / (maxVal - minVal)) * plotH; }
-
-  // Background grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth   = 1;
-  const nGridY = 4;
-  for (let i = 0; i <= nGridY; i++) {
-    const y = PAD.top + (i / nGridY) * plotH;
-    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
-    const val = maxVal - (i / nGridY) * (maxVal - minVal);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = `${9 * dpr / dpr}px DM Sans`;
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtGBP(val), PAD.left - 4, y + 3);
-  }
-
-  // Year labels on X
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.textAlign = 'center';
-  ctx.font = '9px DM Sans';
-  const yr0 = new Date().getFullYear();
-  for (let y = 1; y <= years; y++) {
-    const t = y * 12;
-    const x = xOf(t);
-    ctx.fillText(yr0 + y, x, h - 8);
-  }
-
-  // Fan bands
-  function fillBand(upper, lower, color) {
-    ctx.beginPath();
-    ctx.moveTo(xOf(0), yOf(upper[0]));
-    for (let t = 1; t <= steps; t++) ctx.lineTo(xOf(t), yOf(upper[t]));
-    for (let t = steps; t >= 0; t--) ctx.lineTo(xOf(t), yOf(lower[t]));
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.fill();
-  }
-
-  fillBand(p90, p75, 'rgba(67,233,123,0.10)');
-  fillBand(p75, p25, 'rgba(108,99,255,0.14)');
-  fillBand(p25, p10, 'rgba(255,101,132,0.10)');
-
-  // Percentile lines
-  function drawLine(path, color, dash=[]) {
-    ctx.beginPath();
-    ctx.setLineDash(dash);
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 1.5;
-    ctx.moveTo(xOf(0), yOf(path[0]));
-    for (let t = 1; t <= steps; t++) ctx.lineTo(xOf(t), yOf(path[t]));
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  drawLine(p90, 'rgba(67,233,123,0.85)');
-  drawLine(p50, 'rgba(108,99,255,1)', []);
-  drawLine(p10, 'rgba(255,101,132,0.85)');
-
-  // Start value dot
-  ctx.beginPath();
-  ctx.arc(xOf(0), yOf(startGBP), 3, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fill();
-
-  // Objective horizontal lines
-  const objColors = ['rgba(247,183,49,0.7)', 'rgba(247,183,49,0.55)', 'rgba(247,183,49,0.4)'];
-  objectives.forEach((obj, i) => {
-    if (obj.value > maxVal) return;
-    const y = yOf(obj.value);
-    ctx.beginPath();
-    ctx.setLineDash([3, 4]);
-    ctx.strokeStyle = objColors[i] || 'rgba(247,183,49,0.5)';
-    ctx.lineWidth = 1;
-    ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = objColors[i] || 'rgba(247,183,49,0.5)';
-    ctx.textAlign = 'left';
-    ctx.font = '8px DM Sans';
-    ctx.fillText(obj.label, PAD.left + 2, y - 2);
-  });
-}
-
-function drawMCHistogram(finalVals, startGBP, objectives) {
-  const canvas = document.getElementById('mcHistogram');
-  const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.offsetWidth * dpr;
-  const H   = 120 * dpr;
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  const w = canvas.offsetWidth;
-  const h = 120;
-
-  const PAD = { top: 8, right: 12, bottom: 22, left: 8 };
-  const plotW = w - PAD.left - PAD.right;
-  const plotH = h - PAD.top  - PAD.bottom;
-
-  const N_BINS = 40;
-  const minV = finalVals[0];
-  const maxV = finalVals[finalVals.length - 1];
-  const binW = (maxV - minV) / N_BINS;
-  const bins = new Array(N_BINS).fill(0);
-  finalVals.forEach(v => {
-    const b = Math.min(N_BINS - 1, Math.floor((v - minV) / binW));
-    bins[b]++;
-  });
-  const maxBin = Math.max(...bins);
-
-  const barW = plotW / N_BINS;
-
-  bins.forEach((count, i) => {
-    const barH = (count / maxBin) * plotH;
-    const x = PAD.left + i * barW;
-    const y = PAD.top  + plotH - barH;
-    const binMid = minV + (i + 0.5) * binW;
-    const isLoss = binMid < startGBP;
-
-    ctx.fillStyle = isLoss ? 'rgba(255,101,132,0.55)' : 'rgba(108,99,255,0.55)';
-    ctx.fillRect(x + 0.5, y, barW - 1, barH);
-  });
-
-  // Objective vertical lines
-  objectives.forEach(obj => {
-    if (obj.value < minV || obj.value > maxV) return;
-    const x = PAD.left + ((obj.value - minV) / (maxV - minV)) * plotW;
-    ctx.beginPath();
-    ctx.setLineDash([2, 3]);
-    ctx.strokeStyle = 'rgba(247,183,49,0.8)';
-    ctx.lineWidth   = 1.5;
-    ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + plotH);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  });
-
-  // Start line
-  const xStart = PAD.left + ((startGBP - minV) / (maxV - minV)) * plotW;
-  ctx.beginPath();
-  ctx.setLineDash([2, 3]);
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth   = 1;
-  ctx.moveTo(xStart, PAD.top); ctx.lineTo(xStart, PAD.top + plotH);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // X axis labels
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font      = '8px DM Sans';
-  ctx.textAlign = 'center';
-  [minV, (minV + maxV) / 2, maxV].forEach(v => {
-    const x = PAD.left + ((v - minV) / (maxV - minV)) * plotW;
-    ctx.fillText(fmtGBP(v), x, h - 5);
-  });
-}
-
-function fmtGBP(v) {
-  if (v >= 1000000) return '£' + (v / 1000000).toFixed(1) + 'M';
-  if (v >= 1000)    return '£' + (v / 1000).toFixed(0) + 'k';
-  return '£' + Math.round(v);
-}
-
-function renderMCStats(mean, median, p10, p90, pLoss, startGBP, years) {
-  const grid = document.getElementById('mcStatsGrid');
-  const cagr = (v) => ((v / startGBP) ** (1 / years) - 1) * 100;
-
-  grid.innerHTML = [
-    { label: 'Mediana final',   val: fmtGBP(median), cls: 'neutral' },
-    { label: 'Media final',     val: fmtGBP(mean),   cls: 'neutral' },
-    { label: 'P10 (pesimista)', val: fmtGBP(p10),    cls: p10 < startGBP ? 'down' : 'up' },
-    { label: 'P90 (optimista)', val: fmtGBP(p90),    cls: 'up' },
-    { label: 'CAGR mediano',    val: cagr(median).toFixed(1) + '%', cls: cagr(median) >= 0 ? 'up' : 'down' },
-    { label: 'Prob. pérdida',   val: (pLoss * 100).toFixed(1) + '%', cls: pLoss > 0.3 ? 'down' : pLoss > 0.1 ? 'neutral' : 'up' },
-  ].map(s => `
-    <div class="mc-stat-cell">
-      <div class="mc-stat-label">${s.label}</div>
-      <div class="mc-stat-val ${s.cls}">${s.val}</div>
-    </div>
-  `).join('');
-}
-
-function renderMCProbs(objProbs) {
-  if (!objProbs.length) { document.getElementById('mcProbWrap').innerHTML = ''; return; }
-
-  const colors = ['#43e97b', '#6c63ff', '#f7b731'];
-  let html = '<div class="mc-prob-title">Probabilidad de alcanzar objetivos</div>';
-
-  objProbs.forEach((obj, i) => {
-    const pct  = Math.round(obj.prob * 100);
-    const color = colors[i] || '#6c63ff';
-    html += `
-      <div class="mc-prob-row">
-        <span class="mc-prob-name">${obj.label}</span>
-        <div class="mc-prob-track">
-          <div class="mc-prob-fill" style="width:${pct}%;background:${color}"></div>
-        </div>
-        <span class="mc-prob-pct" style="color:${color}">${pct}%</span>
-      </div>`;
-  });
-
-  document.getElementById('mcProbWrap').innerHTML = html;
-
-  // Animate bars after render
-  requestAnimationFrame(() => {
-    document.querySelectorAll('.mc-prob-fill').forEach(el => {
-      const w = el.style.width;
-      el.style.width = '0%';
-      requestAnimationFrame(() => { el.style.width = w; });
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+  // Scenario buttons
+  document.querySelectorAll('.mc-scen-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mc-scen-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (MC_SCEN[btn.dataset.scen]) {
+        document.getElementById('mc-p-return').value = MC_SCEN[btn.dataset.scen].ret;
+        document.getElementById('mc-p-vol').value    = MC_SCEN[btn.dataset.scen].vol;
+      }
     });
   });
-}
 
-// Init slider labels and scenario lock
-document.addEventListener('DOMContentLoaded', () => {
-  ['slRetorno','slVol'].forEach(id => {
-    document.getElementById(id).disabled = true;
-    document.getElementById(id).style.opacity = '0.45';
+  // Deselect scenario on manual edit
+  ['mc-p-return','mc-p-vol'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      document.querySelectorAll('.mc-scen-btn').forEach(b => b.classList.remove('active'));
+    });
   });
 
-  document.getElementById('mcResultsCard').style.display = 'none';
+  // Advanced panel toggle
+  document.getElementById('mcAdvBtn').addEventListener('click', () => {
+    const panel = document.getElementById('mcAdvPanel');
+    const btn   = document.getElementById('mcAdvBtn');
+    const open  = panel.classList.toggle('open');
+    btn.classList.toggle('open', open);
+    btn.textContent = open ? '⚙ cerrar' : '⚙ ajustar';
+  });
 
-  // Footnote
-  document.getElementById('mcFootnote').textContent =
-    '10,000 simulaciones · retornos log-normales mensuales · flujo de caja constante en GBP';
+  // Toggles
+  document.querySelectorAll('.mc-tog').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.toggle;
+      mcTogState[k] = !mcTogState[k];
+      el.classList.toggle('on', mcTogState[k]);
+    });
+  });
+
+  // Histogram year tabs
+  document.querySelectorAll('.mc-hist-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.mc-hist-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      mcHistYr = parseInt(tab.dataset.yr);
+      if (mcSimsCache) mcRenderHist(mcSimsCache, mcSimMonths, mcHistYr);
+    });
+  });
+
+  // Run button
+  document.getElementById('mcRunBtn').addEventListener('click', mcRun);
+
+  // Zoom reset
+  document.getElementById('mcZoomReset').addEventListener('click', () => {
+    if (mcChartFan) mcChartFan.resetZoom();
+  });
+
+  // Seed portfolio value when navigating to analytics
+  // The value is pulled from liveData on each run via mcGetPortfolioGBP()
 });
-
 </script>
 </body>
 </html>
