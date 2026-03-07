@@ -5949,8 +5949,12 @@ function computeHealthData() {
 
   // ── HHI (over health portfolio excluding RENT_DEPOSIT) ──
   const allWeights = healthAssets.map(a => a.valueUSD / healthTotalUSD);
+  const N = allWeights.length;
   const hhi = allWeights.reduce((s, w) => s + w * w, 0);
   const effectiveN = hhi > 0 ? 1 / hhi : 0;
+  // Normalized HHI: 0 = perfectly equal, 1 = all in one position
+  // Auto-calibrates to number of positions: HHI* = (HHI - 1/N) / (1 - 1/N)
+  const hhiNorm = N > 1 ? (hhi - 1/N) / (1 - 1/N) : 1;
 
   // ── Single Stock Risk (only broad ETFs are exempt) ──
   const sorted = [...weights].sort((a, b) => b.w - a.w);
@@ -6014,7 +6018,7 @@ function computeHealthData() {
   // ── Sub-scores (0-100) ──
   function clamp(v) { return Math.max(0, Math.min(100, Math.round(v))); }
 
-  const diversificationScore = clamp(100 - (hhi - 0.06) / (0.35 - 0.06) * 100);
+  const diversificationScore = clamp(100 * (1 - hhiNorm));
   // Risk alignment: use DRAWDOWN_TOLERANCE (20%) as reference
   const riskAlignScore = clamp(100 - (ddEstimate - 14) / (30 - 14) * 100);
   // Valuation: adjusted thresholds
@@ -6045,7 +6049,7 @@ function computeHealthData() {
     ddEstimate,
     subscores: [
       { name: 'Diversificación', score: diversificationScore, icon: '◆',
-        detail: `HHI ${hhi.toFixed(3)} · ${effectiveN.toFixed(1)} posiciones efectivas`,
+        detail: `HHI* ${(hhiNorm*100).toFixed(1)}% · ${effectiveN.toFixed(1)} pos. efectivas de ${N}`,
         color: diversificationScore > 66 ? 'var(--accent3)' : diversificationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Alineación al riesgo', score: riskAlignScore, icon: '◎',
         detail: `Drawdown est. ${ddEstimate.toFixed(1)}% vs tolerancia ${DRAWDOWN_TOLERANCE}%`,
