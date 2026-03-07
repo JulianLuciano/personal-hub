@@ -5912,8 +5912,9 @@ const TICKER_SECTOR = {
   'RSU_META': 'Tech',
 };
 
-const TICKER_IS_ETF = {
-  'SPY': true, 'VWRP.L': true, 'ARKK.L': true, 'NDIA.L': true,
+const TICKER_IS_BROAD_ETF = {
+  'SPY': true, 'VWRP.L': true,  // truly diversified broad market
+  // ARKK.L and NDIA.L are thematic/country-specific — NOT broad
 };
 
 const TICKER_BETA_FALLBACK = {
@@ -5951,11 +5952,10 @@ function computeHealthData() {
   const hhi = allWeights.reduce((s, w) => s + w * w, 0);
   const effectiveN = hhi > 0 ? 1 / hhi : 0;
 
-  // ── Single Stock Risk (ETF-aware) ──
-  // For single stock risk scoring, only penalize non-ETF concentrated positions
+  // ── Single Stock Risk (only broad ETFs are exempt) ──
   const sorted = [...weights].sort((a, b) => b.w - a.w);
   const topPosition = sorted[0] || { ticker: '—', w: 0 };
-  const topNonETF = sorted.find(p => !TICKER_IS_ETF[p.ticker]) || topPosition;
+  const topNonBroadETF = sorted.find(p => !TICKER_IS_BROAD_ETF[p.ticker]) || topPosition;
 
   // ── Sector Exposure ──
   const sectorMap = {};
@@ -6014,14 +6014,14 @@ function computeHealthData() {
   // ── Sub-scores (0-100) ──
   function clamp(v) { return Math.max(0, Math.min(100, Math.round(v))); }
 
-  const diversificationScore = clamp(100 - (hhi - 0.06) / (0.25 - 0.06) * 100);
+  const diversificationScore = clamp(100 - (hhi - 0.06) / (0.35 - 0.06) * 100);
   // Risk alignment: use DRAWDOWN_TOLERANCE (20%) as reference
   const riskAlignScore = clamp(100 - (ddEstimate - 14) / (30 - 14) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
   const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
-  // Single stock: only penalize non-ETF positions heavily
-  const singleStockW = topNonETF.w * 100;
+  // Single stock: only broad ETFs (SPY, VWRP) exempt; thematic ETFs (NDIA, ARKK) penalize
+  const singleStockW = topNonBroadETF.w * 100;
   const singleStockScore = clamp(100 - (singleStockW - 10) / (30 - 10) * 100);
   const incomeScore = clamp(incomeRatio / 0.5 * 100);
 
@@ -6034,11 +6034,11 @@ function computeHealthData() {
     incomeScore * 0.15
   );
 
-  const topNonETFTicker = topNonETF.ticker === 'RSU_META' ? 'META' : topNonETF.ticker;
+  const topNonBroadETFTicker = topNonBroadETF.ticker === 'RSU_META' ? 'META' : topNonBroadETF.ticker;
 
   return {
     healthScore, hhi, effectiveN, healthTotalUSD,
-    topPosition, topNonETF, topSector, sectorMap,
+    topPosition, topNonBroadETF, topSector, sectorMap,
     usdPct, gbpPct,
     portfolioBeta, portfolioVol, portfolioPE,
     incomeRatio, annualFlow, portfolioGBP,
@@ -6057,7 +6057,7 @@ function computeHealthData() {
         detail: `USD ${(usdPct*100).toFixed(0)}% · GBP ${(gbpPct*100).toFixed(0)}%`,
         color: currencyScore > 66 ? 'var(--accent3)' : currencyScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Concentración individual', score: singleStockScore, icon: '◉',
-        detail: `Top stock: ${topNonETFTicker} (${(topNonETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
+        detail: `Top stock: ${topNonBroadETFTicker} (${(topNonBroadETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonBroadETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
         color: singleStockScore > 66 ? 'var(--accent3)' : singleStockScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Income momentum', score: incomeScore, icon: '◈',
         detail: `Flujo anual £${Math.round(annualFlow).toLocaleString('es-AR')} = ${(incomeRatio*100).toFixed(0)}% del portfolio`,
@@ -6134,9 +6134,9 @@ function renderHealthScore() {
 
   // ── Key Metrics ──
   const metricsEl = document.getElementById('healthMetrics');
-  const topTicker = data.topNonETF.ticker === 'RSU_META' ? 'META' : data.topNonETF.ticker;
+  const topTicker = data.topNonBroadETF.ticker === 'RSU_META' ? 'META' : data.topNonBroadETF.ticker;
   // Impact if top non-ETF stock drops 20%: weight × drop = portfolio impact
-  const impactIf20 = (data.topNonETF.w * 20).toFixed(1);
+  const impactIf20 = (data.topNonBroadETF.w * 20).toFixed(1);
 
   const metrics = [
     { label: 'Beta del portfolio', val: data.portfolioBeta.toFixed(2), color: data.portfolioBeta > 1.3 ? 'var(--accent2)' : data.portfolioBeta > 1.0 ? 'var(--accent4)' : 'var(--accent3)' },
