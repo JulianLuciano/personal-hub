@@ -1674,7 +1674,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePnlCollapse()">
         <div style="display:flex;align-items:center;gap:5px">
           <svg id="pnlChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
-          <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;white-space:nowrap">P&L</span>
+          <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;white-space:nowrap">P&L Attribution</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <div onclick="event.stopPropagation()" style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
@@ -6100,15 +6100,16 @@ function computeHealthData() {
   });
   const gbpPct = 1 - usdPct;
 
-  // ── Portfolio Beta (weighted average of investable) ──
-  let betaSum = 0, betaWeightSum = 0;
-  weights.forEach(({ ticker, wInv }) => {
+  // ── Portfolio Beta (weighted over FULL health portfolio — cash has beta 0) ──
+  // This correctly reflects that cash dampens portfolio volatility
+  let betaSum = 0;
+  weights.forEach(({ ticker, valueUSD }) => {
     const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
     const beta = mm[yahooTicker]?.beta ?? TICKER_BETA_FALLBACK[ticker] ?? 1.0;
-    betaSum += beta * wInv;
-    betaWeightSum += wInv;
+    betaSum += beta * (valueUSD / healthTotalUSD); // weight over full health total (incl cash)
   });
-  const portfolioBeta = betaWeightSum > 0 ? betaSum / betaWeightSum : 1.0;
+  // Cash portion (fiat in healthAssets) contributes beta 0 — already implicit since we only sum investments
+  const portfolioBeta = betaSum; // sum of (beta_i × weight_i) where cash weight has beta=0
 
   // ── Volatility Estimate ── (beta × SPY historical vol ~15.5%)
   const spyVol = 15.5;
@@ -6128,8 +6129,11 @@ function computeHealthData() {
   const portfolioPE = peWeightSum > 0 ? peSum / peWeightSum : null;
 
   // ── Income Momentum ──
+  // Denominator includes emergency fund — it's part of total patrimony
+  const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
+  const incomeBaseUSD = healthTotalUSD + emergencyUSD;
   const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
-  const portfolioGBP = healthTotalUSD * FX_RATE;
+  const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
   // ── Drawdown estimates (informational, used in subscores) ──
@@ -6161,7 +6165,7 @@ function computeHealthData() {
 
   const topNonBroadETFTicker = topNonBroadETF.ticker === 'RSU_META' ? 'META' : topNonBroadETF.ticker;
 
-  // Per-position detail data for modals
+  // Per-position detail data for modals (investments + cash)
   const positionDetails = weights.map(({ ticker, w, wInv, valueUSD, currency }) => {
     const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
     const d = mm[yahooTicker] || {};
@@ -6172,10 +6176,26 @@ function computeHealthData() {
       pe: d.forwardPE ?? d.trailingPE ?? null,
       sector: getTickerSector(ticker, mm),
       currency,
-      weight: wInv,
+      weight: valueUSD / healthTotalUSD, // weight over full health total
+      weightInv: wInv,
       valueUSD,
       valueGBP: valueUSD * FX_RATE,
     };
+  });
+  // Add cash positions for beta/currency modals
+  const cashInHealth = healthAssets.filter(a => a.pos.category === 'fiat' && a.valueUSD > 0.5);
+  cashInHealth.forEach(a => {
+    positionDetails.push({
+      ticker: a.pos.ticker === 'GBP_LIQUID' ? 'Cash GBP' : a.pos.ticker,
+      beta: 0,
+      pe: null,
+      sector: 'Cash',
+      currency: a.pos.currency,
+      weight: a.valueUSD / healthTotalUSD,
+      weightInv: 0,
+      valueUSD: a.valueUSD,
+      valueGBP: a.valueUSD * FX_RATE,
+    });
   });
 
   return {
