@@ -1834,25 +1834,33 @@
 
       <!-- MC Params + Scenarios -->
       <div class="mc-card" style="overflow:visible">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer" onclick="toggleMcParams()">
+        <!-- Header row: always visible -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 0;cursor:pointer" onclick="toggleMcParams()">
           <div style="display:flex;align-items:center;gap:5px">
             <svg id="mcParamsChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
             <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;white-space:nowrap">Parámetros</span>
           </div>
+          <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:12px" onclick="event.stopPropagation()">
+            <button class="mc-scen-btn" data-scen="bear" style="padding:4px 8px;font-size:10px">▼ Bajista</button>
+            <button class="mc-scen-btn active" data-scen="neutral" style="padding:4px 8px;font-size:10px">◆ Neutral</button>
+            <button class="mc-scen-btn" data-scen="bull" style="padding:4px 8px;font-size:10px">▲ Alcista</button>
+          </div>
+        </div>
+
+        <!-- Ajustar + Simular row: always visible -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px 14px">
+          <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
           <div style="display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
-            <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
-              <button class="mc-scen-btn" data-scen="bear" style="padding:4px 8px;font-size:10px">▼ Bajista</button>
-              <button class="mc-scen-btn active" data-scen="neutral" style="padding:4px 8px;font-size:10px">◆ Neutral</button>
-              <button class="mc-scen-btn" data-scen="bull" style="padding:4px 8px;font-size:10px">▲ Alcista</button>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex-shrink:0">
+              <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000" style="width:52px;padding:5px 4px;font-size:10px;text-align:center">
+              <span class="mc-p-unit">sims</span>
             </div>
+            <button class="mc-run-btn" id="mcRunBtn" style="margin-top:0;padding:10px 20px;font-size:13px">Simular</button>
           </div>
         </div>
+
+        <!-- Collapsible body -->
         <div id="mcParamsBody" style="display:none">
-        <div style="padding:0 16px">
-          <div style="display:flex;align-items:center;justify-content:flex-end">
-            <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
-          </div>
-        </div>
 
         <!-- Advanced: retorno + vol for investments AND cash -->
         <div class="mc-adv-panel" id="mcAdvPanel">
@@ -1915,15 +1923,15 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Horizonte</span>
-            <input class="mc-p-inp" id="mc-p-years" type="number" inputmode="numeric" step="1" value="5">
+            <input class="mc-p-inp" id="mc-p-years" type="number" inputmode="numeric" step="1" value="3">
             <span class="mc-p-unit">años</span>
           </div>
         </div>
 
         <!-- Toggles -->
-        <div style="padding:0 16px">
+        <div style="padding:0 16px 16px">
           <div style="font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:8px">Incluir</div>
-          <div style="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
             <div class="mc-tog on" data-toggle="monthly"><div class="mc-tog-dot"></div><span>Ahorro</span></div>
             <div class="mc-tog on" data-toggle="bonus"><div class="mc-tog-dot"></div><span>Bono</span></div>
             <div class="mc-tog on" data-toggle="rsu"><div class="mc-tog-dot"></div><span>RSUs</span></div>
@@ -1931,13 +1939,6 @@
           </div>
         </div>
 
-        <div style="padding:0 16px 16px;display:flex;gap:8px;align-items:center">
-          <button class="mc-run-btn" id="mcRunBtn" style="flex:1;margin-top:0">Simular</button>
-          <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex-shrink:0">
-            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000" style="width:58px;padding:6px 4px;font-size:11px;text-align:center">
-            <span class="mc-p-unit">sims</span>
-          </div>
-        </div>
         </div><!-- end mcParamsBody -->
       </div>
 
@@ -6076,12 +6077,20 @@ function toggleMcParams() {
   if (chevron) chevron.style.transform = mcParamsCollapsed ? 'rotate(-90deg)' : '';
 }
 
+let mcAutoRan = false;
 function switchAnalyticsTab(tab, btn) {
   document.querySelectorAll('.analytics-pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.analytics-subtab').forEach(s => s.classList.remove('active'));
   document.getElementById(tab === 'health' ? 'analyticsHealth' : 'analyticsSims').classList.add('active');
   if (tab === 'health' && typeof renderHealthScore === 'function') renderHealthScore();
+  if (tab === 'sims' && !mcAutoRan && typeof mcRun === 'function') {
+    mcAutoRan = true;
+    setTimeout(() => {
+      const btn = document.getElementById('mcRunBtn');
+      if (btn) btn.click();
+    }, 100);
+  }
 }
 
 // Sector comes from Yahoo assetProfile via /api/market-data — no hardcoding
