@@ -984,6 +984,19 @@
 .mc-section-pad { padding:0 24px 100px; display:flex; flex-direction:column; }
 .mc-section-inner { display:flex; flex-direction:column; gap:16px; }
 
+/* Analytics sub-tabs */
+.analytics-pill {
+  flex:1; padding:9px 0; border-radius:100px;
+  font-size:13px; font-weight:600; cursor:pointer;
+  background:var(--surface); border:1px solid var(--border);
+  color:var(--muted); transition:all 0.2s; text-align:center;
+  font-family:'DM Sans',sans-serif;
+  -webkit-tap-highlight-color:transparent;
+}
+.analytics-pill.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.analytics-subtab { display:none; flex-direction:column; gap:16px; padding-bottom:100px; }
+.analytics-subtab.active { display:flex; }
+
 /* ── New MC Analytics styles ─────────────────────────── */
 .mc-scen-btn {
   padding:9px 6px; border-radius:9px; border:1px solid var(--border);
@@ -1771,11 +1784,47 @@
     </div>
   </div>
 
-  <!-- ANALYTICS / MONTE CARLO PANEL -->
+  <!-- ANALYTICS PANEL -->
   <div class="panel" id="panel-analytics">
-    <div class="mc-section-inner">
 
-      <!-- Params + Scenarios -->
+    <!-- Sub-tab pills -->
+    <div style="display:flex;gap:6px;margin-bottom:20px">
+      <button class="analytics-pill active" onclick="switchAnalyticsTab('health', this)">Health</button>
+      <button class="analytics-pill" onclick="switchAnalyticsTab('sims', this)">Simulaciones</button>
+    </div>
+
+    <!-- ═══ HEALTH SUB-TAB ═══ -->
+    <div class="analytics-subtab active" id="analyticsHealth">
+
+      <!-- Health Score Gauge -->
+      <div class="mc-card" style="text-align:center;padding:24px 16px">
+        <div id="healthGauge" style="position:relative;width:140px;height:80px;margin:0 auto 12px">
+          <canvas id="healthGaugeCanvas" width="280" height="160" style="width:140px;height:80px"></canvas>
+          <div style="position:absolute;bottom:0;left:0;right:0;text-align:center">
+            <div id="healthScoreVal" style="font-family:var(--font-num);font-size:32px;font-weight:800;line-height:1">—</div>
+            <div style="font-size:10px;color:var(--muted)">/ 100</div>
+          </div>
+        </div>
+        <div id="healthLabel" style="font-size:13px;font-weight:600;color:var(--muted)">Cargando datos...</div>
+      </div>
+
+      <!-- Sub-scores -->
+      <div class="mc-card" style="padding:0;overflow:hidden">
+        <div id="healthSubscores"></div>
+      </div>
+
+      <!-- Key Metrics -->
+      <div class="mc-card" style="padding:16px">
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:12px">Métricas clave</div>
+        <div id="healthMetrics"></div>
+      </div>
+
+    </div>
+
+    <!-- ═══ SIMULACIONES SUB-TAB ═══ -->
+    <div class="analytics-subtab" id="analyticsSims">
+
+      <!-- MC Params + Scenarios -->
       <div class="mc-card" style="overflow:visible">
         <!-- Scenario row + advanced toggle -->
         <div style="padding:14px 16px 0">
@@ -1922,54 +1971,26 @@
         </div>
       </div>
 
-      <!-- ═══════════════ PORTFOLIO HEALTH ═══════════════ -->
-      <div style="margin-top:28px">
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px">Portfolio Health</div>
-
-        <!-- Health Score Gauge -->
-        <div class="mc-card" style="text-align:center;padding:24px 16px">
-          <div id="healthGauge" style="position:relative;width:140px;height:80px;margin:0 auto 12px">
-            <canvas id="healthGaugeCanvas" width="280" height="160" style="width:140px;height:80px"></canvas>
-            <div style="position:absolute;bottom:0;left:0;right:0;text-align:center">
-              <div id="healthScoreVal" style="font-family:var(--font-num);font-size:32px;font-weight:800;line-height:1">—</div>
-              <div style="font-size:10px;color:var(--muted)">/ 100</div>
-            </div>
+      <!-- Drawdown Simulator -->
+      <div class="mc-card" style="padding:16px">
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px">Simulador de drawdown</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Si SPY cae...</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <input type="range" id="ddSlider" min="5" max="50" value="20" step="1" style="flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:var(--border);outline:none;cursor:pointer" oninput="updateDrawdown()">
+          <span id="ddSpyVal" style="font-family:var(--font-num);font-size:16px;font-weight:800;color:var(--accent2);width:50px;text-align:right">-20%</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Tu portfolio caería</div>
+            <div id="ddPortfolio" style="font-family:var(--font-num);font-size:20px;font-weight:800;color:var(--accent2)">—</div>
           </div>
-          <div id="healthLabel" style="font-size:13px;font-weight:600;color:var(--muted)">Cargando datos...</div>
-        </div>
-
-        <!-- Sub-scores -->
-        <div class="mc-card" style="padding:0;overflow:hidden">
-          <div id="healthSubscores"></div>
-        </div>
-
-        <!-- Key Metrics -->
-        <div class="mc-card" style="padding:16px">
-          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:12px">Métricas clave</div>
-          <div id="healthMetrics"></div>
-        </div>
-
-        <!-- Drawdown Simulator -->
-        <div class="mc-card" style="padding:16px">
-          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px">Simulador de drawdown</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Si SPY cae...</div>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-            <input type="range" id="ddSlider" min="5" max="50" value="20" step="1" style="flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:var(--border);outline:none;cursor:pointer" oninput="updateDrawdown()">
-            <span id="ddSpyVal" style="font-family:var(--font-num);font-size:16px;font-weight:800;color:var(--accent2);width:50px;text-align:right">-20%</span>
+          <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Pérdida estimada</div>
+            <div id="ddLoss" style="font-family:var(--font-num);font-size:20px;font-weight:800;color:var(--accent2)">—</div>
           </div>
-          <div style="display:flex;gap:8px">
-            <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
-              <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Tu portfolio caería</div>
-              <div id="ddPortfolio" style="font-family:var(--font-num);font-size:20px;font-weight:800;color:var(--accent2)">—</div>
-            </div>
-            <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
-              <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Pérdida estimada</div>
-              <div id="ddLoss" style="font-family:var(--font-num);font-size:20px;font-weight:800;color:var(--accent2)">—</div>
-            </div>
-            <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
-              <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Vs tolerancia</div>
-              <div id="ddTolerance" style="font-family:var(--font-num);font-size:20px;font-weight:800">—</div>
-            </div>
+          <div style="flex:1;background:var(--surface2);border-radius:12px;padding:12px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Vs tolerancia</div>
+            <div id="ddTolerance" style="font-family:var(--font-num);font-size:20px;font-weight:800">—</div>
           </div>
         </div>
       </div>
@@ -5904,6 +5925,14 @@ function updatePinDots() {
 
 
 // ── PORTFOLIO HEALTH ENGINE ──────────────────────────────────────────────────
+
+function switchAnalyticsTab(tab, btn) {
+  document.querySelectorAll('.analytics-pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.analytics-subtab').forEach(s => s.classList.remove('active'));
+  document.getElementById(tab === 'health' ? 'analyticsHealth' : 'analyticsSims').classList.add('active');
+  if (tab === 'health' && typeof renderHealthScore === 'function') renderHealthScore();
+}
 
 const TICKER_SECTOR = {
   'SPY': 'Broad Market', 'BRK.B': 'Finanzas', 'MELI': 'Tech',
