@@ -2546,12 +2546,15 @@ async function loadPortfolio() {
     let costBasisGBP = 0;
     for (const pos of posData) {
       if (pos.category === 'fiat') {
+        // Fiat: use initial_investment if recorded (locks in historic FX), else face value
+        const invUSD = Number(pos.initial_investment_usd);
+        const invGBP = Number(pos.initial_investment_gbp);
         if (pos.currency === 'GBP') {
-          costBasisGBP += Number(pos.qty);
-          costBasisUSD += Number(pos.qty) / FX_RATE;
+          costBasisGBP += invGBP || Number(pos.qty);
+          costBasisUSD += invUSD || (Number(pos.qty) / FX_RATE);
         } else {
-          costBasisUSD += Number(pos.qty);
-          costBasisGBP += Number(pos.qty) * FX_RATE;
+          costBasisUSD += invUSD || Number(pos.qty);
+          costBasisGBP += invGBP || (Number(pos.qty) * FX_RATE);
         }
       } else {
         // Non-fiat: use initial_investment in native currency, fallback to avg_cost × qty
