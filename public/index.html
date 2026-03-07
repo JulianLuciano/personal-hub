@@ -1671,20 +1671,22 @@
 
     <!-- P&L Attribution -->
     <div class="chart-card" id="pnlAttributionCard" style="display:none;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center" onclick="togglePnlCollapse()" style="cursor:pointer">
-        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="togglePnlCollapse()">
-          <h3 style="margin-bottom:0">Contribución al P&L</h3>
-          <svg id="pnlChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s"><polyline points="6 9 12 15 18 9"/></svg>
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePnlCollapse()">
+        <div style="display:flex;align-items:center;gap:6px">
+          <h3 style="margin-bottom:0;white-space:nowrap">P&L Attribution</h3>
+          <svg id="pnlChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div id="pnlHeaderRight" style="display:flex;align-items:center;gap:8px">
-          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
-            <div id="pnlModeHist" onclick="event.stopPropagation();setPnlAttrMode('hist')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
-            <div id="pnlModeDay" onclick="event.stopPropagation();setPnlAttrMode('day')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
-          </div>
-          <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal" class="pnl-attr-hideable">—</div>
-        </div>
+        <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal" class="pnl-attr-hideable">—</div>
       </div>
-      <div id="pnlAttrBars" style="margin-top:12px"></div>
+      <div id="pnlAttrBody" style="margin-top:12px">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
+            <div id="pnlModeHist" onclick="setPnlAttrMode('hist')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
+            <div id="pnlModeDay" onclick="setPnlAttrMode('day')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
+          </div>
+        </div>
+        <div id="pnlAttrBars"></div>
+      </div>
     </div>
 
     <!-- Positions with category subtabs -->
@@ -3156,11 +3158,9 @@ let pnlAttrMode = 'hist'; // 'hist' = total P&L, 'day' = daily
 let pnlCollapsed = false;
 function togglePnlCollapse() {
   pnlCollapsed = !pnlCollapsed;
-  const bars = document.getElementById('pnlAttrBars');
-  const right = document.getElementById('pnlHeaderRight');
+  const body = document.getElementById('pnlAttrBody');
   const chevron = document.getElementById('pnlChevron');
-  if (bars) bars.style.display = pnlCollapsed ? 'none' : '';
-  if (right) right.style.display = pnlCollapsed ? 'none' : 'flex';
+  if (body) body.style.display = pnlCollapsed ? 'none' : '';
   if (chevron) chevron.style.transform = pnlCollapsed ? 'rotate(-90deg)' : '';
 }
 
