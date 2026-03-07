@@ -82,7 +82,7 @@
     letter-spacing: -0.5px;
   }
   .topbar-left p {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--muted);
     margin-top: 2px;
   }
@@ -662,15 +662,15 @@
     padding: 20px;
     margin-bottom: 16px;
   }
-  .portfolio-total-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .portfolio-total-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
   .portfolio-total {
     font-family: var(--font-num);
-    font-size: 38px;
+    font-size: 36px;
     font-weight: 800;
     margin: 6px 0 4px;
     letter-spacing: -1px;
   }
-  .portfolio-change { font-size: 14px; }
+  .portfolio-change { font-size: 13px; }
   .portfolio-change.up { color: var(--accent3); }
   .portfolio-change.down { color: var(--accent2); }
 
@@ -1008,8 +1008,8 @@
 }
 .mc-adv-panel.open { max-height:120px; margin-top:10px; padding-top:4px; }
 .mc-p-item { display:flex; flex-direction:column; gap:3px; }
-.mc-p-lbl  { font-size:9px; color:var(--muted); line-height:1.3; }
-.mc-p-unit { font-size:8px; color:var(--muted); }
+.mc-p-lbl  { font-size: 10px; color:var(--muted); line-height:1.3; }
+.mc-p-unit { font-size: 9px; color:var(--muted); }
 .mc-p-inp {
   background:var(--surface2); border:1px solid var(--border);
   border-radius:8px; padding:8px 7px;
@@ -1451,7 +1451,7 @@
           <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
         </div>
         <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
-        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Base de costo: <span id="cbValue"></span></div>
         <div class="alloc-chart" style="margin-top:14px">
           <div class="alloc-bar" id="allocBar">
             <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
@@ -1623,8 +1623,14 @@
     <!-- P&L Attribution -->
     <div class="chart-card" id="pnlAttributionCard" style="display:none;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 style="margin-bottom:0">Contribución al P&L del día</h3>
-        <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal">—</div>
+        <h3 style="margin-bottom:0">Contribución al P&L</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
+            <div id="pnlModeHist" onclick="setPnlAttrMode('hist')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
+            <div id="pnlModeDay" onclick="setPnlAttrMode('day')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
+          </div>
+          <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal" class="pnl-attr-hideable">—</div>
+        </div>
       </div>
       <div id="pnlAttrBars"></div>
     </div>
@@ -1795,7 +1801,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Simulaciones</span>
-            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="100000">
+            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000">
             <span class="mc-p-unit">iteraciones</span>
           </div>
         </div>
@@ -2828,10 +2834,10 @@ function renderPortfolio() {
 
   // Cost basis line
   const cbEl = document.getElementById('portfolioCostBasis');
-  if (cbEl && costBasisUSD) {
-    const cbDisplay = fmtVal(costBasisUSD, rate, sym);
-    cbEl.textContent = 'Base de costo: ' + cbDisplay;
-    if (valuesHidden) maskElement(cbEl);
+  const cbValEl = document.getElementById('cbValue');
+  if (cbEl && cbValEl && costBasisUSD) {
+    cbValEl.textContent = fmtVal(costBasisUSD, rate, sym);
+    if (valuesHidden) maskElement(cbValEl);
   }
 
   // Alloc bar (4 cats)
@@ -2961,31 +2967,50 @@ function renderPortfolio() {
 }
 
 // ── P&L ATTRIBUTION CHART ──────────────────────────────────────────────
+let pnlAttrMode = 'hist'; // 'hist' = total P&L, 'day' = daily
+
+function setPnlAttrMode(mode) {
+  pnlAttrMode = mode;
+  const hEl = document.getElementById('pnlModeHist');
+  const dEl = document.getElementById('pnlModeDay');
+  if (mode === 'hist') {
+    hEl.style.background = 'var(--accent)'; hEl.style.color = '#fff';
+    dEl.style.background = 'transparent'; dEl.style.color = 'var(--muted)';
+  } else {
+    dEl.style.background = 'var(--accent)'; dEl.style.color = '#fff';
+    hEl.style.background = 'transparent'; hEl.style.color = 'var(--muted)';
+  }
+  renderPnlAttribution();
+}
+
 function renderPnlAttribution() {
   if (!liveData) return;
   const card = document.getElementById('pnlAttributionCard');
   const barsEl = document.getElementById('pnlAttrBars');
   const totalEl = document.getElementById('pnlAttrTotal');
-  const { assets, changeUSD } = liveData;
+  const { assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
 
-  // Compute each position's dollar contribution to daily P&L
   const contribs = [];
-  assets.forEach(({ pos, valueUSD, dayPct }) => {
-    if (pos.category === 'fiat' || !dayPct || valueUSD < 1) return;
-    // Contribution = value * dayPct / (100 + dayPct) gives yesterday's value * dayPct/100
-    const prevValue = valueUSD / (1 + dayPct / 100);
-    const contribUSD = prevValue * (dayPct / 100);
-    const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
-    contribs.push({
-      ticker: pos.ticker,
-      name: meta.name || pos.ticker,
-      contribUSD,
-      contribDisplay: contribUSD * rate,
-      dayPct
-    });
+  assets.forEach(({ pos, valueUSD, dayPct, pctUSD }) => {
+    if (pos.category === 'fiat' || valueUSD < 1) return;
+
+    if (pnlAttrMode === 'day') {
+      // Daily contribution
+      if (!dayPct) return;
+      const prevValue = valueUSD / (1 + dayPct / 100);
+      const contribUSD = prevValue * (dayPct / 100);
+      const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
+      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
+    } else {
+      // Historic P&L contribution
+      const inv = Number(pos.initial_investment_usd);
+      if (!inv) return;
+      const contribUSD = valueUSD - inv;
+      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
+    }
   });
 
   if (!contribs.length || contribs.every(c => Math.abs(c.contribUSD) < 0.01)) {
@@ -2993,21 +3018,19 @@ function renderPnlAttribution() {
     return;
   }
 
-  // Sort by absolute contribution (biggest movers first)
   contribs.sort((a, b) => Math.abs(b.contribUSD) - Math.abs(a.contribUSD));
 
-  // Total
   const totalContrib = contribs.reduce((s, c) => s + c.contribDisplay, 0);
   const totalColor = totalContrib >= 0 ? 'var(--accent3)' : 'var(--accent2)';
   totalEl.style.color = totalColor;
   totalEl.textContent = (totalContrib >= 0 ? '+' : '') + sym + Math.abs(totalContrib).toFixed(2);
+  if (valuesHidden) maskElement(totalEl);
 
-  // Max absolute for scaling bars
   const maxAbs = Math.max(...contribs.map(c => Math.abs(c.contribDisplay)), 0.01);
 
   let html = '';
   contribs.forEach(c => {
-    const pct = (Math.abs(c.contribDisplay) / maxAbs) * 45; // max 45% of track width
+    const pct = (Math.abs(c.contribDisplay) / maxAbs) * 45;
     const isUp = c.contribDisplay >= 0;
     const barColor = isUp ? 'var(--accent3)' : 'var(--accent2)';
     const barStyle = isUp
@@ -3022,12 +3045,17 @@ function renderPnlAttribution() {
         <div class="pnl-attr-center"></div>
         <div class="pnl-attr-bar" style="${barStyle}"></div>
       </div>
-      <div class="pnl-attr-val ${valCls}">${valStr}</div>
+      <div class="pnl-attr-val ${valCls} pnl-attr-hideable">${valStr}</div>
     </div>`;
   });
 
   barsEl.innerHTML = html;
   card.style.display = '';
+
+  // Apply mask if values are hidden
+  if (valuesHidden) {
+    document.querySelectorAll('.pnl-attr-hideable').forEach(el => maskElement(el));
+  }
 }
 
 // ── EQUITY PIE (ticker-level) ──────────────────────────────────────────
@@ -3670,6 +3698,13 @@ function toggleHideValues() {
   const equityCenter = document.getElementById('equityPieCenter');
   if (equityCenter) valuesHidden ? maskElement(equityCenter) : unmaskElement(equityCenter);
   document.querySelectorAll('.equity-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
+  // P&L attribution values
+  document.querySelectorAll('.pnl-attr-hideable').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
+  // Cost basis value
+  const cbValToggle = document.getElementById('cbValue');
+  if (cbValToggle) valuesHidden ? maskElement(cbValToggle) : unmaskElement(cbValToggle);
 
   // posModal + RSU modal monetary values (only if modal is open)
   document.querySelectorAll('.modal-money-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
