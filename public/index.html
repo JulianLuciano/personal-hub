@@ -417,6 +417,9 @@
   #cardRibbonOuter { touch-action: pan-y; }
   #cardRibbonTrack { align-items: stretch; }
   #cardRibbonTrack .chart-card { display: flex; flex-direction: column; }
+  #mcRibbonOuter { touch-action: pan-y; }
+  #mcRibbonTrack { align-items: stretch; }
+  #mcRibbonTrack .chart-card { display: flex; flex-direction: column; }
   #equityPieCard #equityPieLegend::-webkit-scrollbar { display: none; }
 
   .chart-card {
@@ -1826,7 +1829,6 @@
 
       <!-- MC Params + Scenarios -->
       <div class="mc-card" style="overflow:visible">
-        <!-- Scenario row + advanced toggle -->
         <div style="padding:14px 16px 0">
           <div style="display:flex;align-items:center;gap:8px">
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1">
@@ -1838,28 +1840,49 @@
           </div>
         </div>
 
-        <!-- Advanced: retorno + vol, hidden by default -->
+        <!-- Advanced: retorno + vol for investments AND cash -->
         <div class="mc-adv-panel" id="mcAdvPanel">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px">
-            <div class="mc-p-item">
-              <span class="mc-p-lbl">Retorno anual</span>
-              <input class="mc-p-inp" id="mc-p-return" type="number" inputmode="decimal" step="0.5" value="9">
-              <span class="mc-p-unit">% anual</span>
+          <div style="padding:0 16px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Inversiones</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+              <div class="mc-p-item">
+                <span class="mc-p-lbl">Retorno anual</span>
+                <input class="mc-p-inp" id="mc-p-return" type="number" inputmode="decimal" step="0.5" value="9">
+                <span class="mc-p-unit">% anual</span>
+              </div>
+              <div class="mc-p-item">
+                <span class="mc-p-lbl">Volatilidad</span>
+                <input class="mc-p-inp" id="mc-p-vol" type="number" inputmode="decimal" step="0.5" value="18">
+                <span class="mc-p-unit">% anual</span>
+              </div>
             </div>
-            <div class="mc-p-item">
-              <span class="mc-p-lbl">Volatilidad</span>
-              <input class="mc-p-inp" id="mc-p-vol" type="number" inputmode="decimal" step="0.5" value="18">
-              <span class="mc-p-unit">% anual</span>
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Cash</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="mc-p-item">
+                <span class="mc-p-lbl">Retorno anual</span>
+                <input class="mc-p-inp" id="mc-p-cash-return" type="number" inputmode="decimal" step="0.5" value="3">
+                <span class="mc-p-unit">% anual</span>
+              </div>
+              <div class="mc-p-item">
+                <span class="mc-p-lbl">Volatilidad</span>
+                <input class="mc-p-inp" id="mc-p-cash-vol" type="number" inputmode="decimal" step="0.5" value="1">
+                <span class="mc-p-unit">% anual</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Cash flow params -->
+        <!-- Portfolio split + cash flow params -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px">
           <div class="mc-p-item">
-            <span class="mc-p-lbl">Valor actual</span>
-            <input class="mc-p-inp" id="mc-p-start" type="number" inputmode="numeric" step="500" value="12000">
-            <span class="mc-p-unit">£ portfolio</span>
+            <span class="mc-p-lbl">Invertido</span>
+            <input class="mc-p-inp" id="mc-p-invested" type="number" inputmode="numeric" step="500" value="8000">
+            <span class="mc-p-unit">£ en activos</span>
+          </div>
+          <div class="mc-p-item">
+            <span class="mc-p-lbl">Cash</span>
+            <input class="mc-p-inp" id="mc-p-cash" type="number" inputmode="numeric" step="500" value="4000">
+            <span class="mc-p-unit">£ líquido</span>
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Ahorro mensual</span>
@@ -1881,11 +1904,6 @@
             <input class="mc-p-inp" id="mc-p-years" type="number" inputmode="numeric" step="1" value="5">
             <span class="mc-p-unit">años</span>
           </div>
-          <div class="mc-p-item">
-            <span class="mc-p-lbl">Simulaciones</span>
-            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000">
-            <span class="mc-p-unit">iteraciones</span>
-          </div>
         </div>
 
         <!-- Toggles -->
@@ -1896,6 +1914,16 @@
             <div class="mc-tog on" data-toggle="bonus"><div class="mc-tog-dot"></div><span>Bono</span></div>
             <div class="mc-tog on" data-toggle="rsu"><div class="mc-tog-dot"></div><span>RSUs</span></div>
             <div class="mc-tog on" data-toggle="eom"><div class="mc-tog-dot"></div><span>Fin de mes</span></div>
+          </div>
+        </div>
+
+        <div style="padding:0 16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+            <div class="mc-p-item">
+              <span class="mc-p-lbl">Simulaciones</span>
+              <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000">
+              <span class="mc-p-unit">iteraciones</span>
+            </div>
           </div>
         </div>
 
@@ -1924,50 +1952,63 @@
         </div>
       </div>
 
-      <!-- Fan chart -->
-      <div class="mc-card">
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;padding:14px 16px 0">Evolución de cartera</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;padding:0 16px 8px">
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent5)"></div><span style="font-size:10px;color:var(--muted)">p90</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent3)"></div><span style="font-size:10px;color:var(--muted)">p75</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></div><span style="font-size:10px;color:var(--muted)">p50</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent4)"></div><span style="font-size:10px;color:var(--muted)">p25</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:#ff4d6d"></div><span style="font-size:10px;color:var(--muted)">p10</span></div>
-        </div>
-        <div style="position:relative;width:100%;height:230px;touch-action:none;padding:0 16px">
-          <div class="mc-chart-empty" id="mcFanEmpty">Corré la simulación para ver resultados</div>
-          <canvas id="mcFanChart" style="display:none"></canvas>
-        </div>
-        <div style="font-size:9px;color:var(--muted);text-align:right;padding:5px 16px 14px">
-          Pinch para zoom · <button style="font-size:10px;color:var(--accent);cursor:pointer;background:none;border:none;font-family:'DM Sans',sans-serif;padding:0" id="mcZoomReset">Resetear zoom</button>
-        </div>
-      </div>
+      <!-- Results ribbon: 3 cards swipeable -->
+      <div id="mcRibbonOuter" style="position:relative;overflow:hidden;border-radius:var(--card-radius);touch-action:pan-y">
+        <div id="mcRibbonTrack" style="display:flex;width:300%;will-change:transform;transition:none;gap:10px">
 
-      <!-- Histogram -->
-      <div class="mc-card">
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:14px 16px 0">Distribución de resultados</div>
-        <div style="display:flex;gap:6px;padding:10px 16px">
-          <button class="mc-hist-tab" data-yr="1">Año 1</button>
-          <button class="mc-hist-tab active" data-yr="3">Año 3</button>
-          <button class="mc-hist-tab" data-yr="5">Año 5</button>
-        </div>
-        <div style="position:relative;width:100%;height:230px;touch-action:none;padding:0 16px">
-          <div class="mc-chart-empty" id="mcHistEmpty">—</div>
-          <canvas id="mcHistChart" style="display:none"></canvas>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;padding:10px 16px 14px">
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(255,77,109,.7)"></div><span style="font-size:10px;color:var(--muted)">&lt; £30k</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(108,99,255,.8)"></div><span style="font-size:10px;color:var(--muted)">£30k–£100k</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(67,233,123,.8)"></div><span style="font-size:10px;color:var(--muted)">£100k–£200k</span></div>
-          <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:rgba(79,195,247,.8)"></div><span style="font-size:10px;color:var(--muted)">&gt; £200k</span></div>
-        </div>
-      </div>
+          <!-- CARD 1: Fan chart -->
+          <div class="chart-card" style="width:calc(33.333% - 7px);flex-shrink:0;margin-bottom:0;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Evolución</div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:var(--accent5)"></div><span style="font-size:8px;color:var(--muted)">p90</span></div>
+                <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:var(--accent)"></div><span style="font-size:8px;color:var(--muted)">p50</span></div>
+                <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:#ff4d6d"></div><span style="font-size:8px;color:var(--muted)">p10</span></div>
+              </div>
+            </div>
+            <div style="position:relative;width:100%;height:200px;touch-action:none">
+              <div class="mc-chart-empty" id="mcFanEmpty">Corré la simulación</div>
+              <canvas id="mcFanChart" style="display:none"></canvas>
+            </div>
+            <div style="font-size:8px;color:var(--muted);text-align:right;margin-top:4px">
+              Pinch zoom · <button style="font-size:8px;color:var(--accent);cursor:pointer;background:none;border:none;font-family:'DM Sans',sans-serif;padding:0" id="mcZoomReset">Reset</button>
+            </div>
+            <div style="position:absolute;bottom:8px;right:10px;pointer-events:none"><svg width="11" height="11" viewBox="0 0 13 13" fill="none"><polyline points="3,3 10,6.5 3,10" stroke="rgba(240,240,245,0.35)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
 
-      <!-- Table -->
-      <div class="mc-card">
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:14px 16px 10px">Tabla de percentiles</div>
-        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0 16px 14px">
-          <div id="mcTblWrap" style="color:var(--muted);font-size:12px;padding:4px 0">Sin datos</div>
+          <!-- CARD 2: Histogram -->
+          <div class="chart-card" style="width:calc(33.333% - 7px);flex-shrink:0;margin-bottom:0;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Distribución</div>
+              <div style="display:flex;gap:4px">
+                <button class="mc-hist-tab" data-yr="1">1A</button>
+                <button class="mc-hist-tab active" data-yr="3">3A</button>
+                <button class="mc-hist-tab" data-yr="5">5A</button>
+              </div>
+            </div>
+            <div style="position:relative;width:100%;height:200px;touch-action:none">
+              <div class="mc-chart-empty" id="mcHistEmpty">—</div>
+              <canvas id="mcHistChart" style="display:none"></canvas>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:rgba(255,77,109,.7)"></div><span style="font-size:8px;color:var(--muted)">&lt;30k</span></div>
+              <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:rgba(108,99,255,.8)"></div><span style="font-size:8px;color:var(--muted)">30-100k</span></div>
+              <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:rgba(67,233,123,.8)"></div><span style="font-size:8px;color:var(--muted)">100-200k</span></div>
+              <div style="display:flex;align-items:center;gap:3px"><div style="width:5px;height:5px;border-radius:50%;background:rgba(79,195,247,.8)"></div><span style="font-size:8px;color:var(--muted)">&gt;200k</span></div>
+            </div>
+            <div style="position:absolute;bottom:8px;right:10px;pointer-events:none"><svg width="11" height="11" viewBox="0 0 13 13" fill="none"><polyline points="3,3 10,6.5 3,10" stroke="rgba(240,240,245,0.35)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div style="position:absolute;bottom:8px;left:10px;pointer-events:none"><svg width="11" height="11" viewBox="0 0 13 13" fill="none"><polyline points="10,3 3,6.5 10,10" stroke="rgba(240,240,245,0.35)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+
+          <!-- CARD 3: Percentile table -->
+          <div class="chart-card" style="width:calc(33.333% - 7px);flex-shrink:0;margin-bottom:0;position:relative">
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px">Tabla de percentiles</div>
+            <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+              <div id="mcTblWrap" style="color:var(--muted);font-size:12px">Sin datos</div>
+            </div>
+            <div style="position:absolute;bottom:8px;left:10px;pointer-events:none"><svg width="11" height="11" viewBox="0 0 13 13" fill="none"><polyline points="10,3 3,6.5 10,10" stroke="rgba(240,240,245,0.35)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+
         </div>
       </div>
 
@@ -2265,10 +2306,12 @@ function switchNav(el, name) {
     }, 30000);
   }
   if (name === 'analytics') {
-    // Seed portfolio value from liveData if available
-    const startInput = document.getElementById('mc-p-start');
-    if (startInput && typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
-      startInput.value = Math.round(liveData.totalUSD / (liveData.gbpUsd || 1.27));
+    // Seed portfolio values from liveData if available
+    if (typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
+      const invEl = document.getElementById('mc-p-invested');
+      const cashEl = document.getElementById('mc-p-cash');
+      if (invEl) invEl.value = mcGetPortfolioInvested();
+      if (cashEl) cashEl.value = mcGetPortfolioCash();
     }
     // Render health score
     if (typeof renderHealthScore === 'function') renderHealthScore();
@@ -6247,12 +6290,24 @@ const mcTogState = { monthly:true, bonus:true, rsu:true, eom:true };
 const MC_SCEN = { bear:{ret:3,vol:25}, neutral:{ret:9,vol:18}, bull:{ret:16,vol:22} };
 let mcHistYr = 3;
 
-// Seed portfolio value from already-loaded liveData
-function mcGetPortfolioGBP() {
+// Seed portfolio values from already-loaded liveData
+function mcGetPortfolioInvested() {
   if (typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
-    return Math.round(liveData.totalUSD / (liveData.gbpUsd || 1.27));
+    const invested = liveData.assets
+      .filter(a => a.pos.category !== 'fiat' && a.valueUSD > 0)
+      .reduce((s, a) => s + a.valueUSD, 0);
+    return Math.round(invested * FX_RATE);
   }
-  return 12000;
+  return 8000;
+}
+function mcGetPortfolioCash() {
+  if (typeof liveData !== 'undefined' && liveData && liveData.totalUSD) {
+    const cash = liveData.assets
+      .filter(a => a.pos.category === 'fiat' && a.valueUSD > 0)
+      .reduce((s, a) => s + a.valueUSD, 0);
+    return Math.round(cash * FX_RATE);
+  }
+  return 4000;
 }
 
 // Box-Muller
@@ -6264,23 +6319,31 @@ function mcRandn() {
 
 function mcCalMonth(m) { return (MC_NOW_MONTH + m) % 12; }
 
-function mcSimulate({ start, annRet, annVol, years, n, monthly, bonus, rsu,
+function mcSimulate({ startInvested, startCash, annRet, annVol, cashRet, cashVol, years, n, monthly, bonus, rsu,
                       useMo, useBo, useRSU, isEOM }) {
   const mr = annRet / 100 / 12;
   const mv = annVol / 100 / Math.sqrt(12);
+  const cr = cashRet / 100 / 12;
+  const cv = cashVol / 100 / Math.sqrt(12);
   const M  = years * 12;
   const snaps = Array.from({ length: n }, () => new Float32Array(M + 1));
   for (let s = 0; s < n; s++) {
-    let v = start;
-    snaps[s][0] = v;
+    let inv = startInvested;
+    let cash = startCash;
+    snaps[s][0] = inv + cash;
     for (let m = 1; m <= M; m++) {
       const applyMarket = !(isEOM && m === 1);
-      if (applyMarket) v *= 1 + mr + mv * mcRandn();
+      if (applyMarket) {
+        inv  *= 1 + mr + mv * mcRandn();
+        cash *= 1 + cr + cv * mcRandn();
+      }
       const cm = mcCalMonth(m);
-      if (useMo)             v += monthly;
-      if (useBo && MC_BONUS_MONTHS.has(cm)) v += bonus / 2;
-      if (useRSU && MC_RSU_MONTHS.has(cm))   v += rsu;
-      snaps[s][m] = v < 0 ? 0 : v;
+      // New cash flows go to invested (assumption: you invest new money)
+      if (useMo)             inv += monthly;
+      if (useBo && MC_BONUS_MONTHS.has(cm)) inv += bonus / 2;
+      if (useRSU && MC_RSU_MONTHS.has(cm))   inv += rsu;
+      const total = inv + cash;
+      snaps[s][m] = total < 0 ? 0 : total;
     }
   }
   return snaps;
@@ -6390,20 +6453,23 @@ function mcRun() {
 
   setTimeout(() => {
     const _n = (id, fb) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? fb : v; };
-    const annRet  = _n('mc-p-return', 9);
-    const annVol  = _n('mc-p-vol',    18);
-    const monthly = _n('mc-p-monthly',950);
-    const bonus   = _n('mc-p-bonus',  9500);
-    const rsu     = _n('mc-p-rsu',    2650);
-    const years   = parseInt(document.getElementById('mc-p-years').value) || 5;
-    const n       = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 3000, 15000);
-    const start   = _n('mc-p-start', mcGetPortfolioGBP());
+    const annRet   = _n('mc-p-return', 9);
+    const annVol   = _n('mc-p-vol',    18);
+    const cashRet  = _n('mc-p-cash-return', 3);
+    const cashVol  = _n('mc-p-cash-vol',    1);
+    const monthly  = _n('mc-p-monthly',950);
+    const bonus    = _n('mc-p-bonus',  9500);
+    const rsu      = _n('mc-p-rsu',    2650);
+    const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
+    const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
+    const startInvested = _n('mc-p-invested', mcGetPortfolioInvested());
+    const startCash     = _n('mc-p-cash', mcGetPortfolioCash());
 
     const M = years * 12;
     mcSimMonths = M;
 
     const sims = mcSimulate({
-      start, annRet, annVol, years, n,
+      startInvested, startCash, annRet, annVol, cashRet, cashVol, years, n,
       monthly, bonus, rsu,
       useMo: mcTogState.monthly, useBo: mcTogState.bonus, useRSU: mcTogState.rsu,
       isEOM: mcTogState.eom
@@ -6568,7 +6634,100 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Seed portfolio value when navigating to analytics
-  // The value is pulled from liveData on each run via mcGetPortfolioGBP()
+
+  // ── MC Results Ribbon (3-card swipe) ──
+  (function() {
+    let mcRibOffset = 0, mcRibDragging = false, mcRibPointerDown = false;
+    let mcRibIsHoriz = false, mcRibIsVert = false;
+    let mcRibStartX = 0, mcRibStartY = 0, mcRibDragCurX = 0;
+    let mcRibLastX = 0, mcRibLastT = 0, mcRibVelX = 0;
+    let mcRibPage = 0; // 0, 1, or 2
+
+    function mcRibCardWidth() {
+      const outer = document.getElementById('mcRibbonOuter');
+      return outer ? outer.offsetWidth + 10 : 330;
+    }
+
+    function mcRibSetPos(x, animate) {
+      const track = document.getElementById('mcRibbonTrack');
+      if (!track) return;
+      track.style.transition = animate ? 'transform 0.38s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none';
+      track.style.transform = 'translateX(' + x + 'px)';
+    }
+
+    function mcRibClamp(raw) {
+      const W = mcRibCardWidth();
+      const minOff = -(W * 2);
+      if (raw > 0) return raw * 0.2;
+      if (raw < minOff) return minOff + (raw - minOff) * 0.2;
+      return raw;
+    }
+
+    function mcRibSnap(velocity) {
+      const W = mcRibCardWidth();
+      const cur = mcRibOffset;
+      // Determine target page from position + velocity
+      let page = Math.round(-cur / W);
+      if (Math.abs(velocity) > 0.5) {
+        page = velocity < -0.5 ? Math.min(page + 1, 2) : Math.max(page - 1, 0);
+      }
+      page = Math.max(0, Math.min(2, page));
+      mcRibPage = page;
+      mcRibOffset = -page * W;
+      mcRibSetPos(mcRibOffset, true);
+    }
+
+    const outer = document.getElementById('mcRibbonOuter');
+    if (outer) {
+      outer.addEventListener('pointerdown', function(e) {
+        if (e.target.closest('canvas')) return;
+        mcRibPointerDown = true;
+        mcRibDragging = false;
+        mcRibIsHoriz = false;
+        mcRibIsVert = false;
+        mcRibStartX = e.clientX;
+        mcRibStartY = e.clientY;
+        mcRibDragCurX = mcRibOffset;
+        mcRibLastX = e.clientX;
+        mcRibLastT = performance.now();
+        mcRibVelX = 0;
+      }, { passive: true });
+
+      document.addEventListener('pointermove', function(e) {
+        if (!mcRibPointerDown) return;
+        const dx = e.clientX - mcRibStartX;
+        const dy = e.clientY - mcRibStartY;
+        if (!mcRibIsHoriz && !mcRibIsVert) {
+          if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+            if (Math.abs(dx) > Math.abs(dy) * 1.4) mcRibIsHoriz = true;
+            else mcRibIsVert = true;
+          }
+        }
+        if (!mcRibIsHoriz) return;
+        mcRibDragging = true;
+        e.preventDefault();
+        const now = performance.now();
+        const dt = now - mcRibLastT || 16;
+        mcRibVelX = (e.clientX - mcRibLastX) / dt;
+        mcRibLastX = e.clientX; mcRibLastT = now;
+        mcRibOffset = mcRibClamp(mcRibDragCurX + dx);
+        mcRibSetPos(mcRibOffset, false);
+      }, { passive: false });
+
+      document.addEventListener('pointerup', function() {
+        if (!mcRibPointerDown) return;
+        mcRibPointerDown = false;
+        if (!mcRibIsHoriz) return;
+        mcRibSnap(mcRibVelX);
+      });
+
+      document.addEventListener('pointercancel', function() {
+        if (!mcRibPointerDown) return;
+        mcRibPointerDown = false;
+        mcRibSnap(0);
+      });
+    }
+  })();
 });
 </script>
 </body>
