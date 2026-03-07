@@ -5296,6 +5296,30 @@ function buildWatchlistContext() {
   return tsv.trim();
 }
 
+function buildHealthContext() {
+  if (typeof computeHealthData !== 'function') return '';
+  const d = computeHealthData();
+  if (!d) return '';
+
+  const topStock = d.topNonBroadETF.ticker === 'RSU_META' ? 'META' : d.topNonBroadETF.ticker;
+  const sectors = Object.entries(d.sectorMap).sort((a, b) => b[1] - a[1]).map(([s, w]) => `${s} ${(w*100).toFixed(0)}%`).join(', ');
+
+  let ctx = 'HEALTH_SCORE\n';
+  ctx += `total: ${d.healthScore}/100 (weights: diversification 20%, risk_alignment 20%, valuation 15%, currency 15%, concentration 15%, income 15%)\n`;
+  ctx += `note: excludes RENT_DEPOSIT + EMERGENCY_FUND from all scores except currency_exposure + income_momentum\n\n`;
+
+  ctx += 'HEALTH_METRICS\n';
+  ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
+  ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
+  ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
+  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | includes_all_assets (rent+emergency=GBP)\n`;
+  ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
+  ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
+  ctx += `sectors: ${sectors}\n`;
+
+  return ctx;
+}
+
 function buildMarketContext() {
   const mm = window._marketMeta || {};
 
@@ -5594,6 +5618,7 @@ RULES
 
 ${buildPortfolioContext()}
 
+${buildHealthContext()}
 ${buildMarketContext()}
 ${macroSection     ? '\n' + macroSection     : ''}
 ${watchlistSection ? '\n' + watchlistSection : ''}`;
