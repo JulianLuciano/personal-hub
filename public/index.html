@@ -2538,15 +2538,23 @@ async function loadPortfolio() {
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
     }
 
-    // ── Cost basis: sum of (qty × avg_cost_usd) for priced assets + raw fiat ──
+    // ── Cost basis: use initial_investment_usd when available, else avg_cost × qty ──
+    // For RSUs: cost basis = initial_investment_usd (value at vest, i.e. what was taxed)
+    // If initial_investment_usd is missing/0, the position's entire value is P&L
     let costBasisUSD = 0;
     for (const pos of posData) {
       if (pos.category === 'fiat') {
         if (pos.currency === 'GBP') costBasisUSD += pos.qty / FX_RATE;
         else costBasisUSD += Number(pos.qty);
       } else {
-        const avg = Number(pos.avg_cost_usd);
-        if (avg) costBasisUSD += avg * Number(pos.qty);
+        const inv = Number(pos.initial_investment_usd);
+        if (inv) {
+          costBasisUSD += inv;
+        } else {
+          // Fallback to avg_cost × qty if no initial_investment recorded
+          const avg = Number(pos.avg_cost_usd);
+          if (avg) costBasisUSD += avg * Number(pos.qty);
+        }
       }
     }
 
@@ -3002,13 +3010,16 @@ function renderPnlAttribution() {
       if (!dayPct) return;
       const prevValue = valueUSD / (1 + dayPct / 100);
       const contribUSD = prevValue * (dayPct / 100);
-      const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
       contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
     } else {
-      // Historic P&L contribution
+      // Historic P&L contribution — must match cost basis logic
       const inv = Number(pos.initial_investment_usd);
-      if (!inv) return;
-      const contribUSD = valueUSD - inv;
+      const avg = Number(pos.avg_cost_usd);
+      const qty = Number(pos.qty);
+      // Use initial_investment_usd if available, else avg_cost × qty, else skip
+      const basis = inv ? inv : (avg ? avg * qty : 0);
+      if (!basis && valueUSD < 1) return; // no basis and no value = nothing to show
+      const contribUSD = valueUSD - basis;
       contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
     }
   });
