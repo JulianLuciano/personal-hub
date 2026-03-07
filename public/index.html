@@ -6051,7 +6051,7 @@ function computeHealthData() {
     ddEstimate,
     subscores: [
       { name: 'Diversificación', score: diversificationScore, icon: '◆',
-        detail: `HHI* ${(hhiNorm*100).toFixed(1)}% · ${effectiveN.toFixed(1)} pos. efectivas de ${N}`,
+        detail: `${effectiveN.toFixed(1)} pos. efectivas de ${N} · concentración ${(hhiNorm*100).toFixed(0)}%`,
         color: diversificationScore > 66 ? 'var(--accent3)' : diversificationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Alineación al riesgo', score: riskAlignScore, icon: '◎',
         detail: `Drawdown est. ${ddEstimate.toFixed(1)}% vs tolerancia ${DRAWDOWN_TOLERANCE}%`,
