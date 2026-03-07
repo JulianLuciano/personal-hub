@@ -876,44 +876,6 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
   .toggle-switch.on::after { transform: translateX(18px); }
-
-  /* LOCK SCREEN */
-  #lockScreen {
-    position: fixed; inset: 0; background: var(--bg); z-index: 9999;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    transition: opacity 0.4s ease;
-  }
-  #lockScreen.hidden { opacity: 0; pointer-events: none; }
-  .lock-avatar {
-    width: 72px; height: 72px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    display: flex; align-items: center; justify-content: center;
-    font-size: 32px; margin-bottom: 20px;
-    box-shadow: 0 0 40px rgba(108,99,255,0.3);
-  }
-  .lock-title { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; margin-bottom: 6px; }
-  .lock-sub { font-size: 13px; color: var(--muted); margin-bottom: 48px; }
-  .lock-btn {
-    display: flex; flex-direction: column; align-items: center; gap: 10px;
-    cursor: pointer; padding: 20px 40px; border-radius: 20px;
-    background: var(--surface); border: 1px solid var(--border); transition: all 0.15s;
-  }
-  .lock-btn:active { transform: scale(0.96); }
-  .lock-btn-icon { font-size: 36px; }
-  .lock-btn-label { font-size: 13px; color: var(--muted); font-weight: 500; }
-  .pin-dots { display: flex; gap: 14px; margin: 24px 0 32px; }
-  .pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); transition: all 0.15s; }
-  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
-  .pin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 240px; }
-  .pin-key {
-    height: 60px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; cursor: pointer; transition: all 0.1s;
-  }
-  .pin-key:active { background: var(--accent); color: #fff; transform: scale(0.94); }
-  .pin-key.del { font-size: 16px; color: var(--muted); }
-  .pin-error { color: var(--accent2); font-size: 12px; margin-top: -20px; margin-bottom: 10px; min-height: 16px; }
-@keyframes spin { to { transform: rotate(360deg); } }
 /* asterisk masking handled in JS */
 
   .modal {
@@ -1124,40 +1086,6 @@
 </head>
 <body>
 
-<div id="lockScreen">
-  <div class="lock-avatar">J</div>
-  <div class="lock-title">Personal Hub</div>
-  <div class="lock-sub">Julian Luciano</div>
-  <div id="passkeyBtn" class="lock-btn" onclick="tryPasskey()" style="display:none">
-    <div class="lock-btn-icon">&#x1F512;</div>
-    <div class="lock-btn-label">Desbloquear con Face ID</div>
-  </div>
-  <div id="pinView" style="display:none;flex-direction:column;align-items:center">
-    <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Ingres&#225; tu PIN</div>
-    <div class="pin-dots">
-      <div class="pin-dot" id="d0"></div>
-      <div class="pin-dot" id="d1"></div>
-      <div class="pin-dot" id="d2"></div>
-      <div class="pin-dot" id="d3"></div>
-    </div>
-    <div class="pin-error" id="pinError"></div>
-    <div class="pin-grid">
-      <div class="pin-key" onclick="pinKey('1')">1</div>
-      <div class="pin-key" onclick="pinKey('2')">2</div>
-      <div class="pin-key" onclick="pinKey('3')">3</div>
-      <div class="pin-key" onclick="pinKey('4')">4</div>
-      <div class="pin-key" onclick="pinKey('5')">5</div>
-      <div class="pin-key" onclick="pinKey('6')">6</div>
-      <div class="pin-key" onclick="pinKey('7')">7</div>
-      <div class="pin-key" onclick="pinKey('8')">8</div>
-      <div class="pin-key" onclick="pinKey('9')">9</div>
-      <div class="pin-key" style="opacity:0;pointer-events:none"></div>
-      <div class="pin-key" onclick="pinKey('0')">0</div>
-      <div class="pin-key del" onclick="pinDel()">&#x232B;</div>
-    </div>
-    <div style="margin-top:20px;font-size:12px;color:var(--muted);cursor:pointer" onclick="showPasskey()">Usar Face ID</div>
-  </div>
-</div>
 
 <div class="phone-frame" id="app">
 
@@ -2120,15 +2048,6 @@
     <div class="settings-group">
       <div class="settings-group-label">Cuenta</div>
       <div class="settings-list">
-        <div class="settings-row" onclick="toggleLockEnabled()">
-          <div class="settings-row-icon" style="background:rgba(79,195,247,0.15)">🔒</div>
-          <div class="settings-row-text">
-            <div class="row-title">Bloqueo con PIN / Face ID</div>
-            <div class="row-sub" id="lockSettingSub">Desactivado</div>
-          </div>
-          <div class="toggle-switch" id="lockToggle"></div>
-        </div>
-        <div class="settings-row">
           <div class="settings-row-icon" style="background:rgba(255,101,132,0.15)">🚪</div>
           <div class="settings-row-text"><div class="row-title" style="color:var(--accent2)">Cerrar sesión</div></div>
         </div>
@@ -2423,17 +2342,15 @@ function startTimer(idx, mins) {
   }, 1000);
 }
 
-// ── SUPABASE CONFIG ──
-const SUPABASE_URL = 'https://mddlszahjirlxxyhcumj.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_AdSRAm8WckoufXQyOZpR-A_Z6qTOruS';
+// ── DATA ACCESS (via server proxy) ──
+// Supabase credentials stay server-side. Frontend calls /api/db/* which proxies to Supabase.
 
 async function sbFetch(path) {
-  const res = await fetch(SUPABASE_URL + path, {
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_KEY,
-      'Accept': 'application/json'
-    }
+  // path comes as '/rest/v1/positions?select=*'
+  // transform to '/api/db/positions?select=*'
+  const proxyPath = path.replace(/^\/rest\/v1\//, '/api/db/');
+  const res = await fetch(proxyPath, {
+    headers: { 'Accept': 'application/json' }
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -5882,187 +5799,11 @@ function initAllModals() {
 }
 document.addEventListener('DOMContentLoaded', initAllModals);
 
-// AUTH
-// States: 'pin_setup' | 'face_id' | 'pin_fallback'
-let pinInput = '';
-let CORRECT_PIN = null;
-let authState = 'loading';
-
-fetch('/api/config')
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    CORRECT_PIN = String(d.pin || '').trim() || '__never__';
-    initAuth();
-  })
-  .catch(function(e) {
-    console.warn('Config fetch error:', e);
-    CORRECT_PIN = '__never__';
-    initAuth();
-  });
-
-function isLockEnabled() {
-  return localStorage.getItem('ph_lock_enabled') === '1';
-}
-
-function toggleLockEnabled() {
-  const enabled = isLockEnabled();
-  const newVal = !enabled;
-  localStorage.setItem('ph_lock_enabled', newVal ? '1' : '0');
-  updateLockToggleUI(newVal);
-}
-
-function updateLockToggleUI(enabled) {
-  const tog = document.getElementById('lockToggle');
-  const sub = document.getElementById('lockSettingSub');
-  if (tog) tog.classList.toggle('on', enabled);
-  if (sub) sub.textContent = enabled ? 'Activado · PIN + Face ID' : 'Desactivado';
-}
-
-function initAuth() {
-  // Init settings toggle UI
-  const lockEnabled = isLockEnabled();
-  updateLockToggleUI(lockEnabled);
-
-  // If lock is disabled — skip straight to app
-  if (!lockEnabled) {
-    unlock();
-    return;
-  }
-
-  var registered = localStorage.getItem('ph_passkey') === '1';
-  if (registered) {
-    authState = 'face_id';
-    showFaceID();
-  } else {
-    authState = 'pin_setup';
-    showPIN('Configurá tu acceso — ingresá el PIN');
-  }
-}
-
-function showFaceID() {
-  document.getElementById('passkeyBtn').style.display = 'flex';
-  document.getElementById('pinView').style.display = 'none';
-  // Auto-trigger Face ID
-  setTimeout(doFaceID, 300);
-}
-
-function showPIN(label) {
-  document.getElementById('passkeyBtn').style.display = 'none';
-  document.getElementById('pinView').style.display = 'flex';
-  var sub = document.querySelector('.lock-sub');
-  if (label && sub) sub.textContent = label;
-}
-
-function isPinReady() {
-  return CORRECT_PIN !== null;
-}
-
-async function doFaceID() {
-  try {
-    var cred = await navigator.credentials.get({
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rpId: location.hostname,
-        userVerification: 'required',
-        timeout: 60000,
-      }
-    });
-    if (cred) { unlock(); }
-  } catch(e) {
-    // Face ID cancelled/failed — show PIN as fallback
-    authState = 'pin_fallback';
-    showPIN('Ingres\u00e1 tu PIN');
-  }
-}
-
-async function doRegisterFaceID() {
-  // Called only after PIN verified for the first time
-  try {
-    var supported = window.PublicKeyCredential &&
-      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (!supported) { unlock(); return; }
-
-    var cred = await navigator.credentials.create({
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rp: { name: 'Personal Hub', id: location.hostname },
-        user: {
-          id: new Uint8Array([74,85,76,73,65,78]),  // fixed bytes for "JULIAN"
-          name: 'julian',
-          displayName: 'Julian'
-        },
-        pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-          requireResidentKey: false
-        },
-        timeout: 60000,
-      }
-    });
-    if (cred) {
-      localStorage.setItem('ph_passkey', '1');
-    }
-  } catch(e) {
-    // User skipped Face ID registration — that's ok, PIN will work next time
-  }
-  unlock();
-}
-
-// Called when Face ID button is tapped manually
-function tryPasskey() {
-  doFaceID();
-}
-
-function unlock() {
-  var lock = document.getElementById('lockScreen');
-  lock.classList.add('hidden');
-  setTimeout(function() { lock.style.display = 'none'; }, 400);
-  requestAnimationFrame(function() { requestAnimationFrame(drawChart); });
-  // Preload portfolio + RSU data so AI agent has full context immediately
+// ── App init — load data on startup ──
+document.addEventListener('DOMContentLoaded', function() {
   loadPortfolio();
   loadRSUVests();
-}
-
-function pinKey(k) {
-  if (!isPinReady() || pinInput.length >= 4) return;
-  pinInput += k;
-  updatePinDots();
-  if (pinInput.length === 4) {
-    setTimeout(function() {
-      if (pinInput === CORRECT_PIN) {
-        pinInput = '';
-        updatePinDots();
-        if (authState === 'pin_setup') {
-          // First time correct PIN — now register Face ID
-          doRegisterFaceID();
-        } else {
-          // Fallback PIN after Face ID failed
-          unlock();
-        }
-      } else {
-        document.getElementById('pinError').textContent = 'PIN incorrecto';
-        pinInput = '';
-        updatePinDots();
-        setTimeout(function() {
-          document.getElementById('pinError').textContent = '';
-        }, 1500);
-      }
-    }, 150);
-  }
-}
-
-function pinDel() {
-  pinInput = pinInput.slice(0, -1);
-  updatePinDots();
-}
-
-function updatePinDots() {
-  for (var i = 0; i < 4; i++) {
-    document.getElementById('d' + i).classList.toggle('filled', i < pinInput.length);
-  }
-}
-
+});
 
 // ── PORTFOLIO HEALTH ENGINE ──────────────────────────────────────────────────
 

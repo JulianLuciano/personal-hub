@@ -4,14 +4,52 @@ const path    = require('path');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Exposes config from environment variables — never stored in code
 app.get('/api/config', (req, res) => {
   res.json({
-    pin:          String(process.env.PIN || '1521'),
     anthropicKey: process.env.ANTHROPIC_API_KEY || ''
   });
+});
+
+// ── Supabase Proxy ────────────────────────────────────────────────────────────
+// All Supabase calls from the frontend go through here.
+// Credentials stay server-side only — never exposed to the browser.
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || '';
+
+app.get('/api/db/*', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const subPath = req.params[0];
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const supaUrl = `${SUPABASE_URL}/rest/v1/${subPath}${qs}`;
+
+  try {
+    const sbRes = await fetch(supaUrl, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Accept': 'application/json',
+      }
+    });
+
+    if (!sbRes.ok) {
+      const errText = await sbRes.text();
+      console.error(`[db-proxy] ${sbRes.status} for ${subPath}:`, errText.slice(0, 300));
+      return res.status(sbRes.status).json({ error: errText.slice(0, 300) });
+    }
+
+    const data = await sbRes.json();
+    res.json(data);
+  } catch (e) {
+    console.error('[db-proxy] fetch error:', e.message);
+    res.status(502).json({ error: 'Supabase unreachable' });
+  }
 });
 
 // ── Market data via yahoo-finance2 ──────────────────────────────────────────
