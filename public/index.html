@@ -5947,10 +5947,12 @@ function computeHealthData() {
     currency: a.pos.currency,
   }));
 
-  // ── HHI (over health portfolio excluding RENT_DEPOSIT) ──
-  const allWeights = healthAssets.map(a => a.valueUSD / healthTotalUSD);
-  const N = allWeights.length;
-  const hhi = allWeights.reduce((s, w) => s + w * w, 0);
+  // ── HHI (over health portfolio: investments + liquid cash, excludes RENT_DEPOSIT) ──
+  // Cash is an allocation decision and should count for concentration
+  const hhiAssets = healthAssets.filter(a => a.valueUSD > 0.5);
+  const hhiWeights = hhiAssets.map(a => a.valueUSD / healthTotalUSD);
+  const N = hhiAssets.filter(a => a.pos.category !== 'fiat' || a.valueUSD > 1).length; // count meaningful positions
+  const hhi = hhiWeights.reduce((s, w) => s + w * w, 0);
   const effectiveN = hhi > 0 ? 1 / hhi : 0;
   // Normalized HHI: 0 = perfectly equal, 1 = all in one position
   // Auto-calibrates to number of positions: HHI* = (HHI - 1/N) / (1 - 1/N)
@@ -6175,13 +6177,27 @@ function updateDrawdown() {
   const sym = currentCurrency === 'GBP' ? '£' : '$';
   const lossDisplay = currentCurrency === 'GBP' ? lossGBP : lossGBP / FX_RATE;
 
-  document.getElementById('ddPortfolio').textContent = '-' + portfolioDrop.toFixed(1) + '%';
-  document.getElementById('ddLoss').textContent = '-' + sym + Math.round(Math.abs(lossDisplay)).toLocaleString('es-AR');
+  // Color based on severity vs tolerance
+  const dropColor = portfolioDrop <= DRAWDOWN_TOLERANCE ? 'var(--accent3)'
+    : portfolioDrop <= DRAWDOWN_TOLERANCE * 1.3 ? 'var(--accent4)'
+    : 'var(--accent2)';
+
+  const ddPortEl = document.getElementById('ddPortfolio');
+  ddPortEl.textContent = '-' + portfolioDrop.toFixed(1) + '%';
+  ddPortEl.style.color = dropColor;
+
+  const ddLossEl = document.getElementById('ddLoss');
+  ddLossEl.textContent = '-' + sym + Math.round(Math.abs(lossDisplay)).toLocaleString('es-AR');
+  ddLossEl.style.color = dropColor;
 
   const tolEl = document.getElementById('ddTolerance');
   if (portfolioDrop <= DRAWDOWN_TOLERANCE) {
     tolEl.textContent = '✓ OK';
     tolEl.style.color = 'var(--accent3)';
+  } else if (portfolioDrop <= DRAWDOWN_TOLERANCE * 1.3) {
+    // Within 30% above tolerance — warning but not critical
+    tolEl.textContent = '~ Cerca';
+    tolEl.style.color = 'var(--accent4)';
   } else {
     tolEl.textContent = '⚠ Excede';
     tolEl.style.color = 'var(--accent2)';
