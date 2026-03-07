@@ -1941,7 +1941,7 @@
       </div>
 
       <!-- Probabilities -->
-      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:2px 0 8px">Probabilidad de alcanzar objetivos</div>
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:0;margin-top:-10px;margin-bottom:-10px">Probabilidad de alcanzar objetivos</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px">
         <div class="mc-prob-card">
           <div class="mc-prob-yr">+12m</div>
@@ -6874,11 +6874,6 @@ function mcRun() {
 
     btn.disabled = false;
     btn.textContent = 'Simular';
-
-    setTimeout(() => {
-      const probCards = document.querySelector('.mc-prob-card');
-      if (probCards) probCards.scrollIntoView({ behavior:'smooth', block:'start' });
-    }, 100);
   }, 20);
 }
 
