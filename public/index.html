@@ -82,7 +82,7 @@
     letter-spacing: -0.5px;
   }
   .topbar-left p {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     margin-top: 2px;
   }
@@ -662,15 +662,15 @@
     padding: 20px;
     margin-bottom: 16px;
   }
-  .portfolio-total-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .portfolio-total-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
   .portfolio-total {
     font-family: var(--font-num);
-    font-size: 36px;
+    font-size: 38px;
     font-weight: 800;
     margin: 6px 0 4px;
     letter-spacing: -1px;
   }
-  .portfolio-change { font-size: 13px; }
+  .portfolio-change { font-size: 14px; }
   .portfolio-change.up { color: var(--accent3); }
   .portfolio-change.down { color: var(--accent2); }
 
@@ -722,6 +722,56 @@
   .asset-chg.down { color: var(--accent2); }
 
   .sparkline { margin-top: 4px; }
+
+  /* P&L Attribution bars */
+  .pnl-attr-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  .pnl-attr-ticker {
+    width: 52px;
+    font-weight: 600;
+    font-size: 11px;
+    text-align: right;
+    flex-shrink: 0;
+    color: var(--muted);
+  }
+  .pnl-attr-track {
+    flex: 1;
+    height: 16px;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .pnl-attr-center {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+  }
+  .pnl-attr-bar {
+    height: 14px;
+    border-radius: 3px;
+    position: absolute;
+    top: 1px;
+    transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+    min-width: 2px;
+  }
+  .pnl-attr-val {
+    width: 58px;
+    font-family: var(--font-num);
+    font-weight: 700;
+    font-size: 11px;
+    text-align: left;
+    flex-shrink: 0;
+  }
+  .pnl-attr-val.up { color: var(--accent3); }
+  .pnl-attr-val.down { color: var(--accent2); }
 
   .period-tabs {
     display: flex;
@@ -1570,6 +1620,15 @@
       </div><!-- end track -->
     </div><!-- end ribbon outer -->
 
+    <!-- P&L Attribution -->
+    <div class="chart-card" id="pnlAttributionCard" style="display:none;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin-bottom:0">Contribución al P&L del día</h3>
+        <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal">—</div>
+      </div>
+      <div id="pnlAttrBars"></div>
+    </div>
+
     <!-- Positions with category subtabs -->
     <p class="section-label">Posiciones</p>
     <div style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px" id="posTabs">
@@ -1683,9 +1742,9 @@
         <div style="padding:14px 16px 0">
           <div style="display:flex;align-items:center;gap:8px">
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1">
-              <button class="mc-scen-btn active" data-scen="bear">🐻 Bajista</button>
-              <button class="mc-scen-btn" data-scen="neutral">📊 Neutral</button>
-              <button class="mc-scen-btn" data-scen="bull">🚀 Alcista</button>
+              <button class="mc-scen-btn" data-scen="bear">▼ Bajista</button>
+              <button class="mc-scen-btn active" data-scen="neutral">◆ Neutral</button>
+              <button class="mc-scen-btn" data-scen="bull">▲ Alcista</button>
             </div>
             <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
           </div>
@@ -1696,12 +1755,12 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px">
             <div class="mc-p-item">
               <span class="mc-p-lbl">Retorno anual</span>
-              <input class="mc-p-inp" id="mc-p-return" type="number" inputmode="decimal" step="0.5" value="3">
+              <input class="mc-p-inp" id="mc-p-return" type="number" inputmode="decimal" step="0.5" value="9">
               <span class="mc-p-unit">% anual</span>
             </div>
             <div class="mc-p-item">
               <span class="mc-p-lbl">Volatilidad</span>
-              <input class="mc-p-inp" id="mc-p-vol" type="number" inputmode="decimal" step="0.5" value="25">
+              <input class="mc-p-inp" id="mc-p-vol" type="number" inputmode="decimal" step="0.5" value="18">
               <span class="mc-p-unit">% anual</span>
             </div>
           </div>
@@ -1736,7 +1795,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Simulaciones</span>
-            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="3000">
+            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="100000">
             <span class="mc-p-unit">iteraciones</span>
           </div>
         </div>
@@ -2894,8 +2953,81 @@ function renderPortfolio() {
   // Render equity breakdown pie
   renderEquityPie();
 
+  // Render P&L attribution
+  renderPnlAttribution();
+
   // Load chart data from Supabase
   loadChartData();
+}
+
+// ── P&L ATTRIBUTION CHART ──────────────────────────────────────────────
+function renderPnlAttribution() {
+  if (!liveData) return;
+  const card = document.getElementById('pnlAttributionCard');
+  const barsEl = document.getElementById('pnlAttrBars');
+  const totalEl = document.getElementById('pnlAttrTotal');
+  const { assets, changeUSD } = liveData;
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+
+  // Compute each position's dollar contribution to daily P&L
+  const contribs = [];
+  assets.forEach(({ pos, valueUSD, dayPct }) => {
+    if (pos.category === 'fiat' || !dayPct || valueUSD < 1) return;
+    // Contribution = value * dayPct / (100 + dayPct) gives yesterday's value * dayPct/100
+    const prevValue = valueUSD / (1 + dayPct / 100);
+    const contribUSD = prevValue * (dayPct / 100);
+    const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
+    contribs.push({
+      ticker: pos.ticker,
+      name: meta.name || pos.ticker,
+      contribUSD,
+      contribDisplay: contribUSD * rate,
+      dayPct
+    });
+  });
+
+  if (!contribs.length || contribs.every(c => Math.abs(c.contribUSD) < 0.01)) {
+    card.style.display = 'none';
+    return;
+  }
+
+  // Sort by absolute contribution (biggest movers first)
+  contribs.sort((a, b) => Math.abs(b.contribUSD) - Math.abs(a.contribUSD));
+
+  // Total
+  const totalContrib = contribs.reduce((s, c) => s + c.contribDisplay, 0);
+  const totalColor = totalContrib >= 0 ? 'var(--accent3)' : 'var(--accent2)';
+  totalEl.style.color = totalColor;
+  totalEl.textContent = (totalContrib >= 0 ? '+' : '') + sym + Math.abs(totalContrib).toFixed(2);
+
+  // Max absolute for scaling bars
+  const maxAbs = Math.max(...contribs.map(c => Math.abs(c.contribDisplay)), 0.01);
+
+  let html = '';
+  contribs.forEach(c => {
+    const pct = (Math.abs(c.contribDisplay) / maxAbs) * 45; // max 45% of track width
+    const isUp = c.contribDisplay >= 0;
+    const barColor = isUp ? 'var(--accent3)' : 'var(--accent2)';
+    const barStyle = isUp
+      ? `left:50%;width:${pct}%;background:${barColor}`
+      : `right:50%;width:${pct}%;background:${barColor}`;
+    const valStr = (isUp ? '+' : '-') + sym + Math.abs(c.contribDisplay).toFixed(2);
+    const valCls = isUp ? 'up' : 'down';
+
+    html += `<div class="pnl-attr-row">
+      <div class="pnl-attr-ticker">${c.ticker}</div>
+      <div class="pnl-attr-track">
+        <div class="pnl-attr-center"></div>
+        <div class="pnl-attr-bar" style="${barStyle}"></div>
+      </div>
+      <div class="pnl-attr-val ${valCls}">${valStr}</div>
+    </div>`;
+  });
+
+  barsEl.innerHTML = html;
+  card.style.display = '';
 }
 
 // ── EQUITY PIE (ticker-level) ──────────────────────────────────────────
