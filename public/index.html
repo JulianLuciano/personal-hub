@@ -932,6 +932,7 @@
 .mc-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .mc-empty { padding:36px 16px; text-align:center; color:var(--muted); font-size:12px; display:flex; flex-direction:column; align-items:center; gap:10px; }
 .mc-section-pad { padding:0 24px 100px; display:flex; flex-direction:column; }
+.mc-section-inner { display:flex; flex-direction:column; gap:16px; }
 
 /* ── New MC Analytics styles ─────────────────────────── */
 .mc-scen-btn {
@@ -1674,11 +1675,7 @@
 
   <!-- ANALYTICS / MONTE CARLO PANEL -->
   <div class="panel" id="panel-analytics">
-    <div class="analytics-hero">
-      <div class="analytics-hero-title">Analytics</div>
-      <div class="analytics-hero-sub">Simulaciones Monte Carlo de tu portfolio</div>
-    </div>
-    <div class="mc-section-pad">
+    <div class="mc-section-inner">
 
       <!-- Params + Scenarios -->
       <div class="mc-card" style="overflow:visible">
@@ -1762,7 +1759,7 @@
 
       <!-- Probabilities -->
       <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:2px 0 8px">Probabilidad de alcanzar objetivos</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px">
         <div class="mc-prob-card">
           <div class="mc-prob-yr">+12m</div>
           <div class="mc-prob-val" id="mcProb30k" style="color:var(--accent3)">—</div>
@@ -1782,7 +1779,7 @@
 
       <!-- Fan chart -->
       <div class="mc-card">
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;padding:14px 16px 0">Evolución de cartera · abanico de percentiles</div>
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;padding:14px 16px 0">Evolución de cartera</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;padding:0 16px 8px">
           <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent5)"></div><span style="font-size:10px;color:var(--muted)">p90</span></div>
           <div style="display:flex;align-items:center;gap:4px"><div style="width:7px;height:7px;border-radius:50%;background:var(--accent3)"></div><span style="font-size:10px;color:var(--muted)">p75</span></div>
