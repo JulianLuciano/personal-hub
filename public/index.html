@@ -2538,22 +2538,36 @@ async function loadPortfolio() {
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
     }
 
-    // ── Cost basis: use initial_investment_usd when available, else avg_cost × qty ──
-    // For RSUs: cost basis = initial_investment_usd (value at vest, i.e. what was taxed)
-    // If initial_investment_usd is missing/0, the position's entire value is P&L
+    // ── Cost basis: computed natively in BOTH currencies ──
+    // USD cost basis: initial_investment_usd for non-fiat + fiat USD at face value + fiat GBP at today's FX
+    // GBP cost basis: initial_investment_gbp for non-fiat + fiat GBP at face value + fiat USD at today's FX
+    // This avoids round-trip FX conversion errors
     let costBasisUSD = 0;
+    let costBasisGBP = 0;
     for (const pos of posData) {
       if (pos.category === 'fiat') {
-        if (pos.currency === 'GBP') costBasisUSD += pos.qty / FX_RATE;
-        else costBasisUSD += Number(pos.qty);
-      } else {
-        const inv = Number(pos.initial_investment_usd);
-        if (inv) {
-          costBasisUSD += inv;
+        if (pos.currency === 'GBP') {
+          costBasisGBP += Number(pos.qty);
+          costBasisUSD += Number(pos.qty) / FX_RATE;
         } else {
-          // Fallback to avg_cost × qty if no initial_investment recorded
+          costBasisUSD += Number(pos.qty);
+          costBasisGBP += Number(pos.qty) * FX_RATE;
+        }
+      } else {
+        // Non-fiat: use initial_investment in native currency, fallback to avg_cost × qty
+        const invUSD = Number(pos.initial_investment_usd);
+        const invGBP = Number(pos.initial_investment_gbp);
+        if (invUSD) {
+          costBasisUSD += invUSD;
+        } else {
           const avg = Number(pos.avg_cost_usd);
           if (avg) costBasisUSD += avg * Number(pos.qty);
+        }
+        if (invGBP) {
+          costBasisGBP += invGBP;
+        } else {
+          const avg = Number(pos.avg_cost_gbp);
+          if (avg) costBasisGBP += avg * Number(pos.qty);
         }
       }
     }
@@ -2586,7 +2600,7 @@ async function loadPortfolio() {
       }
     }
 
-    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD };
+    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.
@@ -2819,7 +2833,7 @@ function getMarketStatus(ticker, category) {
 
 function renderPortfolio() {
   if (!liveData) return;
-  const { totalUSD, changeUSD, changeGBP, costBasisUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeGBP, costBasisUSD, costBasisGBP, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
@@ -2840,11 +2854,12 @@ function renderPortfolio() {
   changeEl.style.color = changeColor;
   changeEl.innerHTML = arrow + ' ' + changeFormatted + ' · ' + (changeDisplay >= 0 ? '+' : '') + changePct.toFixed(2) + '% vs ayer';
 
-  // Cost basis line
+  // Cost basis line — use native currency to avoid FX round-trip errors
   const cbEl = document.getElementById('portfolioCostBasis');
   const cbValEl = document.getElementById('cbValue');
-  if (cbEl && cbValEl && costBasisUSD) {
-    cbValEl.textContent = fmtVal(costBasisUSD, rate, sym);
+  const cbNative = isGBP ? costBasisGBP : costBasisUSD;
+  if (cbEl && cbValEl && cbNative) {
+    cbValEl.textContent = sym + Math.round(cbNative).toLocaleString('es-AR');
     if (valuesHidden) maskElement(cbValEl);
   }
 
@@ -3006,21 +3021,30 @@ function renderPnlAttribution() {
     if (pos.category === 'fiat' || valueUSD < 1) return;
 
     if (pnlAttrMode === 'day') {
-      // Daily contribution
+      // Daily contribution (always USD-based, converted at display)
       if (!dayPct) return;
       const prevValue = valueUSD / (1 + dayPct / 100);
       const contribUSD = prevValue * (dayPct / 100);
       contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
     } else {
-      // Historic P&L contribution — must match cost basis logic
-      const inv = Number(pos.initial_investment_usd);
-      const avg = Number(pos.avg_cost_usd);
-      const qty = Number(pos.qty);
-      // Use initial_investment_usd if available, else avg_cost × qty, else skip
-      const basis = inv ? inv : (avg ? avg * qty : 0);
-      if (!basis && valueUSD < 1) return; // no basis and no value = nothing to show
-      const contribUSD = valueUSD - basis;
-      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
+      // Historic P&L contribution — use native currency to match cost basis
+      if (isGBP) {
+        const invGBP = Number(pos.initial_investment_gbp);
+        const avgGBP = Number(pos.avg_cost_gbp);
+        const qty = Number(pos.qty);
+        const basisGBP = invGBP ? invGBP : (avgGBP ? avgGBP * qty : 0);
+        const valueGBP = valueUSD * FX_RATE;
+        if (!basisGBP && valueGBP < 1) return;
+        contribs.push({ ticker: pos.ticker, contribUSD: valueUSD - (basisGBP / FX_RATE), contribDisplay: valueGBP - basisGBP });
+      } else {
+        const inv = Number(pos.initial_investment_usd);
+        const avg = Number(pos.avg_cost_usd);
+        const qty = Number(pos.qty);
+        const basis = inv ? inv : (avg ? avg * qty : 0);
+        if (!basis && valueUSD < 1) return;
+        const contribUSD = valueUSD - basis;
+        contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD });
+      }
     }
   });
 
