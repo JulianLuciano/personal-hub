@@ -1847,16 +1847,14 @@
           </div>
         </div>
 
-        <!-- Ajustar + Simular row: always visible -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px 14px">
-          <button class="mc-adv-btn" id="mcAdvBtn">⚙ ajustar</button>
-          <div style="display:flex;gap:8px;align-items:center" onclick="event.stopPropagation()">
-            <div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex-shrink:0">
-              <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000" style="width:52px;padding:5px 4px;font-size:10px;text-align:center">
-              <span class="mc-p-unit">sims</span>
-            </div>
-            <button class="mc-run-btn" id="mcRunBtn" style="margin-top:0;padding:10px 20px;font-size:13px">Simular</button>
+        <!-- Simular + sims + ajustar row: always visible -->
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 16px 14px">
+          <button class="mc-run-btn" id="mcRunBtn" style="margin-top:0;padding:10px 0;font-size:13px;flex:1">Simular</button>
+          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0" onclick="event.stopPropagation()">
+            <input class="mc-p-inp" id="mc-p-sims" type="number" inputmode="numeric" step="1000" value="10000" style="width:50px;padding:5px 4px;font-size:10px;text-align:center">
+            <span class="mc-p-unit" style="margin-top:0">sims</span>
           </div>
+          <button class="mc-adv-btn" id="mcAdvBtn" style="flex-shrink:0">⚙ ajustar</button>
         </div>
 
         <!-- Collapsible body -->
