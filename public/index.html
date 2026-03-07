@@ -1118,8 +1118,8 @@
   border-bottom:1px solid var(--border);
 }
 .health-metric-row:last-child { border-bottom:none; }
-.health-metric-label { font-size:12px; color:var(--muted); }
-.health-metric-val { font-family:var(--font-num); font-size:13px; font-weight:700; }
+.health-metric-label { font-size:12px; color:var(--muted); flex:1; min-width:0; }
+.health-metric-val { font-family:var(--font-num); font-size:13px; font-weight:700; flex-shrink:0; max-width:50%; text-align:right; }
 </style>
 </head>
 <body>
@@ -1800,7 +1800,7 @@
     <div class="analytics-subtab active" id="analyticsHealth">
 
       <!-- Health Score Gauge -->
-      <div class="mc-card" style="text-align:center;padding:24px 16px">
+      <div class="mc-card" style="text-align:center;padding:24px 16px;cursor:pointer" onclick="openHealthDetail('total')">
         <div id="healthGauge" style="position:relative;width:140px;height:80px;margin:0 auto 12px">
           <canvas id="healthGaugeCanvas" width="280" height="160" style="width:140px;height:80px"></canvas>
           <div style="position:absolute;bottom:0;left:0;right:0;text-align:center">
@@ -5786,6 +5786,7 @@ function initAllModals() {
   initDragClose('posModal', closePosDetail);
   initDragClose('rsuModal', closeRSU);
   initDragClose('aiModal', closeAIChat);
+  initDragClose('healthDetailModal', closeHealthDetail);
 }
 document.addEventListener('DOMContentLoaded', initAllModals);
 
@@ -6226,11 +6227,11 @@ function renderHealthScore() {
 
   // ── Sub-scores ──
   const ssEl = document.getElementById('healthSubscores');
-  ssEl.innerHTML = data.subscores.map(s => `
-    <div class="health-subscore">
+  ssEl.innerHTML = data.subscores.map((s, idx) => `
+    <div class="health-subscore" onclick="openHealthDetail('subscore_${idx}')" style="cursor:pointer">
       <div class="health-ss-icon" style="background:${s.color}22;color:${s.color}">${s.icon}</div>
       <div class="health-ss-info">
-        <div class="health-ss-name">${s.name}</div>
+        <div class="health-ss-name">${s.name}<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--border);font-size:7px;color:var(--muted);margin-left:4px;vertical-align:middle;line-height:1">i</span></div>
         <div class="health-ss-detail">${s.detail}</div>
         <div class="health-ss-bar"><div class="health-ss-fill" style="width:${s.score}%;background:${s.color}"></div></div>
       </div>
@@ -6320,7 +6321,7 @@ function openHealthDetail(type) {
       const rowspan = positions.length;
       positions.forEach((p, i) => {
         html += '<tr style="border-bottom:1px solid var(--border)">';
-        if (i === 0) html += `<td style="padding:6px 4px;font-weight:700;color:var(--accent);vertical-align:top;font-size:11px" rowspan="${rowspan}">${sector}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${(sectorWeight*100).toFixed(0)}%</span></td>`;
+        if (i === 0) html += `<td style="padding:6px 4px;font-weight:700;color:var(--accent);vertical-align:top;font-size:10px;width:70px;max-width:70px;word-wrap:break-word" rowspan="${rowspan}">${sector}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${(sectorWeight*100).toFixed(0)}%</span></td>`;
         html += `<td style="padding:4px 4px;font-weight:500">${p.ticker}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(p.weight*100).toFixed(1)}%</td></tr>`;
       });
     });
@@ -6357,6 +6358,46 @@ function openHealthDetail(type) {
     gbpAssets.forEach(a => {
       html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
     });
+    html += '</table>';
+  }
+
+  // Subscore explanations
+  const subscoreExplanations = [
+    { name: 'Diversificación', text: 'Usa el HHI Normalizado (Herfindahl-Hirschman). Mide qué tan concentrado está tu portfolio relativo a la distribución óptima (todas las posiciones iguales). HHI* = 0% = perfectamente diversificado, 100% = todo en una posición. Score = 100 × (1 - HHI*). Se auto-calibra al número de posiciones.' },
+    { name: 'Alineación al riesgo', text: 'Basado en el beta ponderado del portfolio. Beta < 1 = amortigua caídas del mercado, Beta > 1 = amplifica. Escala: beta 0.8 = score 100 (defensivo), beta 1.6 = score 0 (muy agresivo). Se complementa con las estimaciones de corrección (SPY -14%) y bear market (SPY -34%).' },
+    { name: 'Valuación', text: 'Forward P/E ponderado del portfolio vs benchmark S&P ~21x. Un P/E bajo significa que pagás menos por cada peso de ganancia futura — más "margin of safety". Escala: 16x = score 100, 35x = score 0. Datos de Yahoo Finance.' },
+    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT como GBP.' },
+    { name: 'Concentración individual', text: 'La posición individual (no-ETF broad) más grande como % del portfolio. ETFs diversificados (SPY, VWRP) no penalizan; ETFs temáticos (NDIA, ARKK) sí. Escala: <10% = score 100, >30% = score 0.' },
+    { name: 'Income momentum', text: 'Flujo anual de cash nuevo (ahorro + bono + RSUs) como % del portfolio. Mientras más alto, menos dependés del rendimiento del mercado para crecer. Score = ratio / 50% × 100, capped a 100.' },
+  ];
+
+  if (type.startsWith('subscore_')) {
+    const idx = parseInt(type.split('_')[1]);
+    const ss = data.subscores[idx];
+    const exp = subscoreExplanations[idx];
+    if (!ss || !exp) return;
+    title = exp.name;
+    html = `<div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:16px">${exp.text}</div>`;
+    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface2);border-radius:12px">
+      <div style="font-family:var(--font-num);font-size:28px;font-weight:800;color:${ss.color}">${ss.score}</div>
+      <div>
+        <div style="font-size:12px;font-weight:600">${ss.name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${ss.detail}</div>
+      </div>
+    </div>`;
+  }
+
+  if (type === 'total') {
+    title = 'Composición del Health Score';
+    const weights = [20, 20, 15, 15, 15, 15];
+    html = '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Promedio ponderado de 6 sub-scores</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--muted);font-size:10px">Componente</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Peso</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Score</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Aporte</th></tr>';
+    data.subscores.forEach((ss, i) => {
+      const contrib = (ss.score * weights[i] / 100).toFixed(1);
+      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px">${ss.name}</td><td style="text-align:right;padding:6px 4px;color:var(--muted)">${weights[i]}%</td><td style="text-align:right;padding:6px 4px;font-family:var(--font-num);font-weight:700;color:${ss.color}">${ss.score}</td><td style="text-align:right;padding:6px 4px;font-family:var(--font-num);font-weight:600">${contrib}</td></tr>`;
+    });
+    html += `<tr><td style="padding:8px 4px;font-weight:700">Total</td><td></td><td></td><td style="text-align:right;padding:8px 4px;font-family:var(--font-num);font-weight:800;font-size:16px">${data.healthScore}</td></tr>`;
     html += '</table>';
   }
 
