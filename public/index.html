@@ -1672,19 +1672,19 @@
     <!-- P&L Attribution -->
     <div class="chart-card" id="pnlAttributionCard" style="display:none;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePnlCollapse()">
-        <div style="display:flex;align-items:center;gap:6px">
-          <h3 style="margin-bottom:0;white-space:nowrap">P&L Attribution</h3>
-          <svg id="pnlChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+        <div style="display:flex;align-items:center;gap:5px">
+          <svg id="pnlChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;flex-shrink:0;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
+          <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;white-space:nowrap">P&L</span>
         </div>
-        <div style="font-size:12px;font-weight:700;font-family:var(--font-num)" id="pnlAttrTotal" class="pnl-attr-hideable">—</div>
-      </div>
-      <div id="pnlAttrBody" style="margin-top:12px">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div onclick="event.stopPropagation()" style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border)">
             <div id="pnlModeHist" onclick="setPnlAttrMode('hist')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">Total</div>
             <div id="pnlModeDay" onclick="setPnlAttrMode('day')" style="padding:3px 8px;border-radius:100px;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s">Hoy</div>
           </div>
+          <div style="font-size:12px;font-weight:700;font-family:var(--font-num);min-width:50px;text-align:right" id="pnlAttrTotal" class="pnl-attr-hideable">—</div>
         </div>
+      </div>
+      <div id="pnlAttrBody" style="margin-top:12px;display:none">
         <div id="pnlAttrBars"></div>
       </div>
     </div>
@@ -3155,7 +3155,7 @@ function renderPortfolio() {
 // ── P&L ATTRIBUTION CHART ──────────────────────────────────────────────
 let pnlAttrMode = 'hist'; // 'hist' = total P&L, 'day' = daily
 
-let pnlCollapsed = false;
+let pnlCollapsed = true; // default collapsed
 function togglePnlCollapse() {
   pnlCollapsed = !pnlCollapsed;
   const body = document.getElementById('pnlAttrBody');
@@ -3253,7 +3253,7 @@ function renderPnlAttribution() {
   const totalContrib = contribs.reduce((s, c) => s + c.contribDisplay, 0);
   const totalColor = totalContrib >= 0 ? 'var(--accent3)' : 'var(--accent2)';
   totalEl.style.color = totalColor;
-  totalEl.textContent = (totalContrib >= 0 ? '+' : '') + sym + Math.abs(totalContrib).toFixed(2);
+  totalEl.textContent = (totalContrib >= 0 ? '+' : '-') + sym + Math.abs(totalContrib).toFixed(2);
   if (valuesHidden) maskElement(totalEl);
 
   const maxAbs = Math.max(...contribs.map(c => Math.abs(c.contribDisplay)), 0.01);
