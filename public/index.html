@@ -2226,6 +2226,16 @@
     </div>
   </div>
 
+  <!-- HEALTH DETAIL MODAL -->
+  <div class="modal-overlay" id="healthDetailModal">
+    <div class="modal" style="max-height:75vh;overflow-y:auto;padding-bottom:40px">
+      <div class="modal-handle"></div>
+      <h2 id="healthDetailTitle" style="font-size:17px;margin-bottom:16px">—</h2>
+      <div id="healthDetailBody"></div>
+      <button style="margin-top:20px;width:100%;padding:14px;border-radius:14px;border:none;background:var(--surface2);color:var(--muted);font-size:14px;cursor:pointer" onclick="closeHealthDetail()">Cerrar</button>
+    </div>
+  </div>
+
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
     <div class="nav-item active" onclick="switchNav(this, 'today')">
@@ -6085,15 +6095,16 @@ function computeHealthData() {
   const portfolioGBP = healthTotalUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
-  // ── Drawdown estimate at 20% SPY drop ──
-  const ddEstimate = portfolioBeta * 20;
+  // ── Drawdown estimates (informational, used in subscores) ──
+  const ddCorrection = portfolioBeta * 14; // typical SPY correction
+  const ddBearMarket = portfolioBeta * 34; // typical bear market
 
   // ── Sub-scores (0-100) ──
   function clamp(v) { return Math.max(0, Math.min(100, Math.round(v))); }
 
   const diversificationScore = clamp(100 * (1 - hhiNorm));
-  // Risk alignment: use DRAWDOWN_TOLERANCE (20%) as reference
-  const riskAlignScore = clamp(100 - (ddEstimate - 14) / (30 - 14) * 100);
+  // Risk alignment: beta-based — how much does portfolio amplify market moves
+  const riskAlignScore = clamp(100 - (portfolioBeta - 0.8) / (1.6 - 0.8) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
   const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
@@ -6113,19 +6124,37 @@ function computeHealthData() {
 
   const topNonBroadETFTicker = topNonBroadETF.ticker === 'RSU_META' ? 'META' : topNonBroadETF.ticker;
 
+  // Per-position detail data for modals
+  const positionDetails = weights.map(({ ticker, w, wInv, valueUSD, currency }) => {
+    const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
+    const d = mm[yahooTicker] || {};
+    const displayTicker = ticker === 'RSU_META' ? 'META' : ticker;
+    return {
+      ticker: displayTicker,
+      beta: d.beta ?? TICKER_BETA_FALLBACK[ticker] ?? null,
+      pe: d.forwardPE ?? d.trailingPE ?? null,
+      sector: getTickerSector(ticker, mm),
+      currency,
+      weight: wInv,
+      valueUSD,
+      valueGBP: valueUSD * FX_RATE,
+    };
+  });
+
   return {
-    healthScore, hhi, effectiveN, healthTotalUSD,
+    healthScore, hhi, effectiveN, healthTotalUSD, hhiNorm,
     topPosition, topNonBroadETF, topSector, sectorMap,
     usdPct, gbpPct,
     portfolioBeta, portfolioVol, portfolioPE,
     incomeRatio, annualFlow, portfolioGBP,
-    ddEstimate,
+    ddCorrection, ddBearMarket,
+    positionDetails, currencyTotalUSD,
     subscores: [
       { name: 'Diversificación', score: diversificationScore, icon: '◆',
         detail: `${effectiveN.toFixed(1)} pos. efectivas de ${N} · concentración ${(hhiNorm*100).toFixed(0)}%`,
         color: diversificationScore > 66 ? 'var(--accent3)' : diversificationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Alineación al riesgo', score: riskAlignScore, icon: '◎',
-        detail: `Drawdown est. ${ddEstimate.toFixed(1)}% vs tolerancia ${DRAWDOWN_TOLERANCE}%`,
+        detail: `Beta ${portfolioBeta.toFixed(2)} · corrección -${ddCorrection.toFixed(0)}% · bear -${ddBearMarket.toFixed(0)}%`,
         color: riskAlignScore > 66 ? 'var(--accent3)' : riskAlignScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Valuación', score: valuationScore, icon: '◈',
         detail: portfolioPE ? `Forward P/E ${portfolioPE.toFixed(1)}x vs S&P ~21x` : 'Sin datos de P/E',
@@ -6137,7 +6166,7 @@ function computeHealthData() {
         detail: `Top stock: ${topNonBroadETFTicker} (${(topNonBroadETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonBroadETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
         color: singleStockScore > 66 ? 'var(--accent3)' : singleStockScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Income momentum', score: incomeScore, icon: '◈',
-        detail: `Flujo anual £${Math.round(annualFlow).toLocaleString('es-AR')} = ${(incomeRatio*100).toFixed(0)}% del portfolio`,
+        detail: `Flujo anual = ${(incomeRatio*100).toFixed(0)}% del portfolio`,
         color: incomeScore > 66 ? 'var(--accent3)' : incomeScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
     ],
   };
@@ -6209,31 +6238,137 @@ function renderHealthScore() {
     </div>
   `).join('');
 
-  // ── Key Metrics ──
+  // ── Key Metrics (with ⓘ for drillable ones) ──
   const metricsEl = document.getElementById('healthMetrics');
   const topTicker = data.topNonBroadETF.ticker === 'RSU_META' ? 'META' : data.topNonBroadETF.ticker;
-  // Impact if top non-ETF stock drops 20%: weight × drop = portfolio impact
   const impactIf20 = (data.topNonBroadETF.w * 20).toFixed(1);
+  const infoIcon = '<span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--border);font-size:8px;color:var(--muted);margin-left:5px;flex-shrink:0;line-height:1">i</span>';
 
   const metrics = [
-    { label: 'Beta del portfolio', val: data.portfolioBeta.toFixed(2), color: data.portfolioBeta > 1.3 ? 'var(--accent2)' : data.portfolioBeta > 1.0 ? 'var(--accent4)' : 'var(--accent3)' },
+    { label: 'Beta del portfolio', val: data.portfolioBeta.toFixed(2), color: data.portfolioBeta > 1.3 ? 'var(--accent2)' : data.portfolioBeta > 1.0 ? 'var(--accent4)' : 'var(--accent3)', drilldown: 'beta' },
     { label: 'Volatilidad estimada (anual)', val: data.portfolioVol.toFixed(1) + '%', color: data.portfolioVol > 22 ? 'var(--accent2)' : data.portfolioVol > 16 ? 'var(--accent4)' : 'var(--accent3)' },
-    { label: 'Valuación (fwd P/E ponderado)', val: data.portfolioPE ? data.portfolioPE.toFixed(1) + 'x' : '—', color: data.portfolioPE > 30 ? 'var(--accent2)' : data.portfolioPE > 22 ? 'var(--accent4)' : 'var(--accent3)' },
-    { label: 'Mayor exposición sectorial', val: data.topSector[0] + ' (' + (data.topSector[1]*100).toFixed(0) + '%)', color: data.topSector[1] > 0.4 ? 'var(--accent4)' : 'var(--text)' },
-    { label: 'Exposición USD / GBP', val: (data.usdPct*100).toFixed(0) + '% / ' + (data.gbpPct*100).toFixed(0) + '%', color: data.usdPct > 0.85 ? 'var(--accent4)' : 'var(--text)' },
+    { label: 'Valuación (fwd P/E)', val: data.portfolioPE ? data.portfolioPE.toFixed(1) + 'x' : '—', color: data.portfolioPE > 30 ? 'var(--accent2)' : data.portfolioPE > 22 ? 'var(--accent4)' : 'var(--accent3)', drilldown: 'pe' },
+    { label: 'Mayor exposición sectorial', val: data.topSector[0] + ' (' + (data.topSector[1]*100).toFixed(0) + '%)', color: data.topSector[1] > 0.4 ? 'var(--accent4)' : 'var(--text)', drilldown: 'sector' },
+    { label: 'Exposición USD / GBP', val: (data.usdPct*100).toFixed(0) + '% / ' + (data.gbpPct*100).toFixed(0) + '%', color: data.usdPct > 0.85 ? 'var(--accent4)' : 'var(--text)', drilldown: 'currency' },
     { label: `Si ${topTicker} cae 20%`, val: '-' + impactIf20 + '% portfolio', color: 'var(--accent2)' },
     { label: 'Posiciones efectivas (1/HHI)', val: data.effectiveN.toFixed(1), color: data.effectiveN < 5 ? 'var(--accent2)' : data.effectiveN < 10 ? 'var(--accent4)' : 'var(--accent3)' },
   ];
 
-  metricsEl.innerHTML = metrics.map(m => `
-    <div class="health-metric-row">
-      <div class="health-metric-label">${m.label}</div>
+  metricsEl.innerHTML = metrics.map(m => {
+    const clickAttr = m.drilldown ? ` onclick="openHealthDetail('${m.drilldown}')" style="cursor:pointer"` : '';
+    const icon = m.drilldown ? infoIcon : '';
+    return `<div class="health-metric-row"${clickAttr}>
+      <div class="health-metric-label">${m.label}${icon}</div>
       <div class="health-metric-val" style="color:${m.color}">${m.val}</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   // ── Drawdown slider ──
   updateDrawdown();
+}
+
+// ── Health detail modal ──
+function openHealthDetail(type) {
+  const data = computeHealthData();
+  if (!data) return;
+  const isGBP = currentCurrency === 'GBP';
+  const sym = isGBP ? '£' : '$';
+  const pd = data.positionDetails;
+
+  let title = '', html = '';
+
+  if (type === 'beta') {
+    title = 'Beta por posición';
+    const sorted = [...pd].filter(p => p.beta != null).sort((a, b) => b.beta - a.beta);
+    html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--muted);font-size:10px">Ticker</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Beta</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Peso</th></tr>';
+    sorted.forEach(p => {
+      const bColor = p.beta > 1.3 ? 'var(--accent2)' : p.beta > 1.0 ? 'var(--accent4)' : 'var(--accent3)';
+      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;font-weight:600">${p.ticker}</td><td style="text-align:right;padding:6px 4px;font-family:var(--font-num);font-weight:700;color:${bColor}">${p.beta.toFixed(2)}</td><td style="text-align:right;padding:6px 4px;color:var(--muted)">${(p.weight*100).toFixed(1)}%</td></tr>`;
+    });
+    html += '</table>';
+  }
+
+  if (type === 'pe') {
+    title = 'P/E por posición';
+    const sorted = [...pd].filter(p => p.pe != null && p.pe > 0).sort((a, b) => b.pe - a.pe);
+    html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px;color:var(--muted);font-size:10px">Ticker</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">P/E</th><th style="text-align:right;padding:6px 4px;color:var(--muted);font-size:10px">Peso</th></tr>';
+    sorted.forEach(p => {
+      const peColor = p.pe > 30 ? 'var(--accent2)' : p.pe > 22 ? 'var(--accent4)' : 'var(--accent3)';
+      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;font-weight:600">${p.ticker}</td><td style="text-align:right;padding:6px 4px;font-family:var(--font-num);font-weight:700;color:${peColor}">${p.pe.toFixed(1)}x</td><td style="text-align:right;padding:6px 4px;color:var(--muted)">${(p.weight*100).toFixed(1)}%</td></tr>`;
+    });
+    html += '</table>';
+  }
+
+  if (type === 'sector') {
+    title = 'Exposición sectorial';
+    // Group positions by sector
+    const sectorGroups = {};
+    pd.forEach(p => {
+      if (!sectorGroups[p.sector]) sectorGroups[p.sector] = [];
+      sectorGroups[p.sector].push(p);
+    });
+    const sortedSectors = Object.entries(sectorGroups).sort((a, b) => {
+      const wA = a[1].reduce((s, p) => s + p.weight, 0);
+      const wB = b[1].reduce((s, p) => s + p.weight, 0);
+      return wB - wA;
+    });
+    html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    sortedSectors.forEach(([sector, positions]) => {
+      const sectorWeight = positions.reduce((s, p) => s + p.weight, 0);
+      const rowspan = positions.length;
+      positions.forEach((p, i) => {
+        html += '<tr style="border-bottom:1px solid var(--border)">';
+        if (i === 0) html += `<td style="padding:6px 4px;font-weight:700;color:var(--accent);vertical-align:top;font-size:11px" rowspan="${rowspan}">${sector}<br><span style="font-size:10px;color:var(--muted);font-weight:400">${(sectorWeight*100).toFixed(0)}%</span></td>`;
+        html += `<td style="padding:4px 4px;font-weight:500">${p.ticker}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(p.weight*100).toFixed(1)}%</td></tr>`;
+      });
+    });
+    html += '</table>';
+  }
+
+  if (type === 'currency') {
+    title = 'Exposición por moneda';
+    // Include ALL assets (including rent deposit for FX calc)
+    const allAssets = liveData.assets.filter(a => a.valueUSD > 0.5);
+    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
+    const usdAssets = [], gbpAssets = [];
+    allAssets.forEach(a => {
+      const pos = a.pos;
+      const displayTicker = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
+      const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
+      const entry = { ticker: displayTicker, name: meta.name, valueUSD: a.valueUSD, valueGBP: a.valueUSD * FX_RATE, pct: a.valueUSD / data.currencyTotalUSD };
+      if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) usdAssets.push(entry);
+      else gbpAssets.push(entry);
+    });
+    usdAssets.sort((a, b) => b.valueUSD - a.valueUSD);
+    gbpAssets.sort((a, b) => b.valueUSD - a.valueUSD);
+
+    const fmtV = v => isGBP ? sym + Math.round(v * FX_RATE).toLocaleString('es-AR') : sym + Math.round(v).toLocaleString('es-AR');
+
+    html = '<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">USD (' + (data.usdPct*100).toFixed(0) + '%)</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">';
+    usdAssets.forEach(a => {
+      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
+    });
+    html += '</table>';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--accent3);margin-bottom:6px">GBP (' + (data.gbpPct*100).toFixed(0) + '%)</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    gbpAssets.forEach(a => {
+      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
+    });
+    html += '</table>';
+  }
+
+  // Show in modal
+  const modal = document.getElementById('healthDetailModal');
+  document.getElementById('healthDetailTitle').textContent = title;
+  document.getElementById('healthDetailBody').innerHTML = html;
+  modal.classList.add('open');
+}
+
+function closeHealthDetail() {
+  document.getElementById('healthDetailModal').classList.remove('open');
 }
 
 function updateDrawdown() {
