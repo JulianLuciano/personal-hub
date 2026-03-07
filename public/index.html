@@ -3020,16 +3020,17 @@ function renderPnlAttribution() {
   const sym = isGBP ? '£' : '$';
 
   const contribs = [];
+  let fiatGBPContribUSD = 0; // accumulate all GBP fiat FX P&L
+  let hasFiatGBP = false;
   assets.forEach(({ pos, valueUSD, dayPct, pctUSD }) => {
     // Fiat: only show in USD mode (historic) where GBP cash has FX P&L
     if (pos.category === 'fiat') {
-      if (isGBP || pnlAttrMode === 'day') return; // no FX P&L in GBP view or daily mode
-      if (valueUSD < 1) return;
+      if (isGBP || pnlAttrMode === 'day') return;
+      if (pos.currency !== 'GBP' || valueUSD < 1) return;
       const inv = Number(pos.initial_investment_usd);
-      if (!inv) return; // no initial_investment = can't compute FX P&L
-      const contribUSD = valueUSD - inv;
-      if (Math.abs(contribUSD) < 0.01) return;
-      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD });
+      if (!inv) return;
+      fiatGBPContribUSD += valueUSD - inv;
+      hasFiatGBP = true;
       return;
     }
 
@@ -3063,12 +3064,22 @@ function renderPnlAttribution() {
     }
   });
 
+  // Add grouped GBP fiat FX P&L as single "Libras" entry
+  if (hasFiatGBP && Math.abs(fiatGBPContribUSD) >= 0.01) {
+    contribs.push({ ticker: 'Libras', contribUSD: fiatGBPContribUSD, contribDisplay: fiatGBPContribUSD });
+  }
+
   if (!contribs.length || contribs.every(c => Math.abs(c.contribUSD) < 0.01)) {
     card.style.display = 'none';
     return;
   }
 
-  contribs.sort((a, b) => Math.abs(b.contribUSD) - Math.abs(a.contribUSD));
+  contribs.sort((a, b) => {
+    // Libras always last
+    if (a.ticker === 'Libras') return 1;
+    if (b.ticker === 'Libras') return -1;
+    return Math.abs(b.contribUSD) - Math.abs(a.contribUSD);
+  });
 
   const totalContrib = contribs.reduce((s, c) => s + c.contribDisplay, 0);
   const totalColor = totalContrib >= 0 ? 'var(--accent3)' : 'var(--accent2)';
