@@ -5581,18 +5581,30 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
+    const _p = window._aiProfile || {};
+    const _name          = _p.name          || 'Julián';
+    const _monthlyExp    = _p.monthlyExp    || '£4000';
+    const _savingsRange  = _p.savingsRange  || '£900-1000/mo';
+    const _bonusRange    = _p.bonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)';
+    const _rsuRange      = _p.rsuRange      || 'META quarterly ~£2500-2800 net/vest';
+    const _emergencyFund = _p.emergencyFund || '£2500';
+    const _cashAvailable = _p.cashAvailable || '£500 aprox';
+    const _goals         = _p.goals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
+    const _salaryRange   = _p.salaryRange   || '£20k-22k';
+    const _annualInvest  = _p.annualInvest  || '£31k-34k/yr';
+
+    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: £4000
-savings: £900-1000/mo | bonus_net: £9000-10000/yr (Mar+Sep, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
-emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
-cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
+location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
+savings: ${_savingsRange} | bonus_net: ${_bonusRange} | rsu: ${_rsuRange}
+emergency_fund: ${_emergencyFund} (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
+cash_available: GBP_LIQUID = excedente para invertir (actualmente ${_cashAvailable})
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
+goals: ${_goals}
 
 CASHFLOW_ANALYSIS
-annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
+annual_investable: ~${_salaryRange} salary+bonus + ~£11k-12k RSUs = ${_annualInvest}
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
 key_dates: Mar+Sep (bonus), quarterly (RSU vest)
 
@@ -5660,15 +5672,29 @@ async function getAnthropicKey() {
   return window._anthropicKey;
 }
 
-// Load Railway env config on page start — fills MC inputs independently of AI chat
+// Load Railway env config on page start — fills MC inputs + stores AI profile overrides
 async function loadAppConfig() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
     window._anthropicKey = cfg.anthropicKey; // cache for AI chat
+    // Monte Carlo inputs
     if (cfg.mcMonthly != null) { const el = document.getElementById('mc-p-monthly'); if (el) el.value = cfg.mcMonthly; }
     if (cfg.mcBonus   != null) { const el = document.getElementById('mc-p-bonus');   if (el) el.value = cfg.mcBonus;   }
     if (cfg.mcRsu     != null) { const el = document.getElementById('mc-p-rsu');     if (el) el.value = cfg.mcRsu;     }
+    // AI system prompt profile (stored globally, used when building systemPrompt)
+    window._aiProfile = {
+      name:          cfg.aiName          || 'Julián',
+      monthlyExp:    cfg.aiMonthlyExp    || '£4000',
+      savingsRange:  cfg.aiSavingsRange  || '£900-1000/mo',
+      bonusRange:    cfg.aiBonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)',
+      rsuRange:      cfg.aiRsuRange      || 'META quarterly ~£2500-2800 net/vest',
+      emergencyFund: cfg.aiEmergencyFund || '£2500',
+      cashAvailable: cfg.aiCashAvailable || '£500 aprox',
+      goals:         cfg.aiGoals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)',
+      salaryRange:   cfg.aiSalaryRange   || '£20k-22k',
+      annualInvest:  cfg.aiAnnualInvest  || '£31k-34k/yr',
+    };
   } catch(e) { console.warn('[config] failed to load app config:', e.message); }
 }
 loadAppConfig();

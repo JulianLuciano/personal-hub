@@ -9,11 +9,26 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Exposes config from environment variables — never stored in code
 app.get('/api/config', (req, res) => {
+  const n = (key) => process.env[key] !== undefined ? Number(process.env[key]) : null;
+  const s = (key) => process.env[key] || null;
   res.json({
-    anthropicKey:   process.env.ANTHROPIC_API_KEY || '',
-    mcMonthly:      process.env.MC_MONTHLY_SAVING  !== undefined ? Number(process.env.MC_MONTHLY_SAVING)  : null,
-    mcBonus:        process.env.MC_ANNUAL_BONUS     !== undefined ? Number(process.env.MC_ANNUAL_BONUS)    : null,
-    mcRsu:          process.env.MC_RSU_PER_VEST     !== undefined ? Number(process.env.MC_RSU_PER_VEST)    : null,
+    // AI + keys
+    anthropicKey:     process.env.ANTHROPIC_API_KEY || '',
+    // Monte Carlo simulation inputs
+    mcMonthly:        n('MC_MONTHLY_SAVING'),
+    mcBonus:          n('MC_ANNUAL_BONUS'),
+    mcRsu:            n('MC_RSU_PER_VEST'),
+    // AI system prompt profile overrides
+    aiName:           s('AI_PROFILE_NAME'),           // e.g. "Julián"
+    aiMonthlyExp:     s('AI_MONTHLY_EXPENSES'),       // e.g. "£4000"
+    aiSavingsRange:   s('AI_SAVINGS_RANGE'),          // e.g. "£900-1000/mo"
+    aiBonusRange:     s('AI_BONUS_RANGE'),            // e.g. "£9000-10000/yr (Mar+Sep, 50/50)"
+    aiRsuRange:       s('AI_RSU_RANGE'),              // e.g. "META quarterly ~£2500-2800 net/vest"
+    aiEmergencyFund:  s('AI_EMERGENCY_FUND'),         // e.g. "£2500"
+    aiCashAvailable:  s('AI_CASH_AVAILABLE'),         // e.g. "£500 aprox"
+    aiGoals:          s('AI_GOALS'),                  // e.g. "£30k (end 2026) | £100k (end 2028) | £200k (end 2030)"
+    aiSalaryRange:    s('AI_SALARY_RANGE'),           // e.g. "£20k-22k"
+    aiAnnualInvest:   s('AI_ANNUAL_INVESTABLE'),      // e.g. "£31k-34k/yr"
   });
 });
 
