@@ -1,5 +1,6 @@
 const express = require('express');
 const path    = require('path');
+const { recalculatePositions } = require('./recalculator');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -9,26 +10,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Exposes config from environment variables — never stored in code
 app.get('/api/config', (req, res) => {
-  const n = (key) => process.env[key] !== undefined ? Number(process.env[key]) : null;
-  const s = (key) => process.env[key] || null;
   res.json({
-    // AI + keys
-    anthropicKey:     process.env.ANTHROPIC_API_KEY || '',
-    // Monte Carlo simulation inputs
-    mcMonthly:        n('MC_MONTHLY_SAVING'),
-    mcBonus:          n('MC_ANNUAL_BONUS'),
-    mcRsu:            n('MC_RSU_PER_VEST'),
-    // AI system prompt profile overrides
-    aiName:           s('AI_PROFILE_NAME'),           // e.g. "Julián"
-    aiMonthlyExp:     s('AI_MONTHLY_EXPENSES'),       // e.g. "£4000"
-    aiSavingsRange:   s('AI_SAVINGS_RANGE'),          // e.g. "£900-1000/mo"
-    aiBonusRange:     s('AI_BONUS_RANGE'),            // e.g. "£9000-10000/yr (Mar+Sep, 50/50)"
-    aiRsuRange:       s('AI_RSU_RANGE'),              // e.g. "META quarterly ~£2500-2800 net/vest"
-    aiEmergencyFund:  s('AI_EMERGENCY_FUND'),         // e.g. "£2500"
-    aiCashAvailable:  s('AI_CASH_AVAILABLE'),         // e.g. "£500 aprox"
-    aiGoals:          s('AI_GOALS'),                  // e.g. "£30k (end 2026) | £100k (end 2028) | £200k (end 2030)"
-    aiSalaryRange:    s('AI_SALARY_RANGE'),           // e.g. "£20k-22k"
-    aiAnnualInvest:   s('AI_ANNUAL_INVESTABLE'),      // e.g. "£31k-34k/yr"
+    anthropicKey: process.env.ANTHROPIC_API_KEY || ''
   });
 });
 
@@ -315,6 +298,72 @@ setTimeout(() => {
 }, 30000);
 
 // ───────────────────────────────────────────────────────────────────────────
+
+// ── Positions Recalculator ────────────────────────────────────────────────────
+// Llamado desde el frontend después de INSERT/UPDATE en transactions.
+// Recalcula positions_dev (solo managed_by = 'transactions') usando weighted average.
+app.post('/api/recalculate-positions', async (req, res) => {
+  try {
+    const result = await recalculatePositions();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[recalculate-positions] Error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Manual cash updater ───────────────────────────────────────────────────────
+// Actualiza posiciones de cash manualmente (managed_by = 'manual').
+// Body: { ticker, qty, avg_cost_usd, notes }
+// Solo permite tocar campos seguros — nunca cambia managed_by ni category.
+app.post('/api/positions/manual', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const { ticker, qty, avg_cost_usd, notes } = req.body || {};
+
+  if (!ticker) return res.status(400).json({ error: 'ticker requerido' });
+
+  const updates = { updated_at: new Date().toISOString() };
+  if (qty           !== undefined) updates.qty           = qty;
+  if (avg_cost_usd  !== undefined) {
+    updates.avg_cost_usd    = avg_cost_usd;
+    updates.fx_gbp_usd_avg  = avg_cost_usd; // para cash GBP, fx_avg = TC al tenerlo
+  }
+  if (notes !== undefined) updates.notes = notes;
+
+  // Recalcula initial_investment_usd si tenemos qty y avg_cost_usd
+  if (updates.qty !== undefined && updates.avg_cost_usd !== undefined) {
+    updates.initial_investment_usd = Math.round(updates.qty * updates.avg_cost_usd * 100) / 100;
+    updates.initial_investment_gbp = updates.qty; // para GBP cash, gbp = qty
+  }
+
+  const supaUrl = `${SUPABASE_URL}/rest/v1/positions_dev?ticker=eq.${encodeURIComponent(ticker)}&managed_by=eq.manual`;
+
+  try {
+    const sbRes = await fetch(supaUrl, {
+      method: 'PATCH',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type':  'application/json',
+        'Prefer':        'return=representation',
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!sbRes.ok) {
+      const errText = await sbRes.text();
+      return res.status(sbRes.status).json({ error: errText });
+    }
+
+    const data = await sbRes.json();
+    res.json({ ok: true, data });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
