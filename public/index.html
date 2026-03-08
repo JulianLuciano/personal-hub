@@ -5601,7 +5601,7 @@ async function aiSendMsg() {
     const _emergencyQty   = _emergencyAsset ? Math.round(Number(_emergencyAsset.pos.qty)) : (_emergencyFund || '?');
     const _gbpLiquidQty   = _gbpLiquidAsset ? Math.round(Number(_gbpLiquidAsset.pos.qty)) : (_cashAvailable || '?');
 
-    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
+    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Cuando saludes, usá siempre el nombre ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
 Hoy es ${_todayStr}.
 
 PROFILE
@@ -5619,7 +5619,7 @@ key_dates: último día hábil de Mar+Sep (bonus), quarterly (RSU vest)
 
 RULES
 - ${fxLine}
-- META concentration risk: RSUs + held shares = largest single exposure
+- META concentration risk: RSUs + held shares = evaluate concentration, warn only if single-stock exposure is high relative to total portfolio
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
