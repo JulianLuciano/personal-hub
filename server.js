@@ -10,7 +10,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Exposes config from environment variables — never stored in code
 app.get('/api/config', (req, res) => {
   res.json({
-    anthropicKey: process.env.ANTHROPIC_API_KEY || ''
+    anthropicKey:   process.env.ANTHROPIC_API_KEY || '',
+    mcMonthly:      process.env.MC_MONTHLY_SAVING  !== undefined ? Number(process.env.MC_MONTHLY_SAVING)  : null,
+    mcBonus:        process.env.MC_ANNUAL_BONUS     !== undefined ? Number(process.env.MC_ANNUAL_BONUS)    : null,
+    mcRsu:          process.env.MC_RSU_PER_VEST     !== undefined ? Number(process.env.MC_RSU_PER_VEST)    : null,
   });
 });
 

@@ -2499,20 +2499,33 @@ async function loadPortfolio() {
       }
     }
 
-    // Which "day" to use as baseline for each ticker's daily variation:
-    // If the market hasn't opened yet today, today's price == yesterday's close
-    // so we compare yesterday vs the day before (2d ago).
-    // Crypto is always open so always use today vs yesterday.
+    // ── Weekend-aware baseline logic ───────────────────────────────────────────
+    // For equities (non-crypto):
+    //   Saturday → show last close (Fri) vs previous close (Thu) → baseline = 'yesterday' vs 'dayBefore'
+    //   Sunday   → show last close (Fri) vs 2 days before that (Wed) → baseline = 'yesterday' vs 'twoBefore'
+    //   Weekday, market already open  → today vs yesterday
+    //   Weekday, market not open yet  → yesterday vs dayBefore
+    // Crypto (BTC etc.) is always open → always today vs yesterday
+    const _nowDow = new Date().getUTCDay(); // 0=Sun, 6=Sat
+    const _isSaturday = _nowDow === 6;
+    const _isSunday   = _nowDow === 0;
+
     function baselineDayForTicker(ticker) {
-      if (ticker === 'BTC') return 'today';
+      if (ticker === 'BTC' || ticker === 'ETH' || ticker === 'ADA' || ticker === 'SOL') {
+        return 'today'; // crypto: always live
+      }
+      if (_isSaturday) return 'weekend_sat'; // Fri vs Thu
+      if (_isSunday)   return 'weekend_sun'; // Fri vs Wed
       const lseTickers = ['VWRP.L', 'ARKK.L', 'NDIA.L'];
       const exchange = lseTickers.includes(ticker) ? 'LSE' : 'NYSE';
       return marketOpenedTodayUTC(exchange) ? 'today' : 'yesterday';
     }
 
-    const todayUTC     = new Date().toISOString().slice(0, 10);
-    const yesterdayUTC = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
-    const twoDaysUTC   = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
+    const todayUTC      = new Date().toISOString().slice(0, 10);
+    const yesterdayUTC  = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
+    const twoDaysUTC    = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
+    const threeDaysUTC  = new Date(Date.now() - 3 * 24*60*60*1000).toISOString().slice(0, 10);
+    const fourDaysUTC   = new Date(Date.now() - 4 * 24*60*60*1000).toISOString().slice(0, 10);
 
     // Fetch yesterday prices (always needed)
     const ydStart = yesterdayUTC + 'T00:00:00.000Z';
@@ -2528,7 +2541,7 @@ async function loadPortfolio() {
       if (!pricesYesterday[t]) pricesYesterday[t] = row.price_usd;
     });
 
-    // Fetch day-before-yesterday prices (needed when market hasn't opened yet)
+    // Fetch day-before-yesterday prices (needed for pre-market weekdays + Saturday)
     const d2Start = twoDaysUTC   + 'T00:00:00.000Z';
     const d2End   = yesterdayUTC + 'T00:00:00.000Z';
     const priceDataD2 = await sbFetch(
@@ -2542,9 +2555,30 @@ async function loadPortfolio() {
       if (!pricesDayBefore[t]) pricesDayBefore[t] = row.price_usd;
     });
 
+    // Fetch ante-ante-ayer prices (needed for Sunday: Fri vs Wed)
+    // On Sunday: today=Sun, yesterday=Sat(no data), 2d=Fri(last close), 3d=Thu, 4d=Wed
+    // We want Fri vs Wed, so we need the Wed prices.
+    // We fetch a wider window (3d and 4d back) to find the last trading day before Fri.
+    let pricesTwoBefore = {};
+    if (_isSunday) {
+      // On Sunday, 2d ago = Fri (last close), 4d ago = Wed. Fetch Wed prices.
+      const d4Start = fourDaysUTC  + 'T00:00:00.000Z';
+      const d4End   = threeDaysUTC + 'T00:00:00.000Z';
+      const priceDataD4 = await sbFetch(
+        '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
+        '&captured_at=gte.' + d4Start + '&captured_at=lt.' + d4End +
+        '&order=captured_at.desc&limit=500'
+      );
+      priceDataD4.forEach(row => {
+        const t = normTicker(row.ticker);
+        if (!pricesTwoBefore[t]) pricesTwoBefore[t] = row.price_usd;
+      });
+    }
+
     console.log('[Portfolio] prices today:', prices);
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
+    if (_isSunday) console.log('[Portfolio] prices two-before (Wed):', pricesTwoBefore);
 
     // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
@@ -2610,18 +2644,29 @@ async function loadPortfolio() {
         }
       }
 
-      // Daily variation: use correct baseline depending on whether market opened today
+      // Daily variation: use correct baseline depending on day of week / market status
       let dayPct = null;
-      const baseline = baselineDayForTicker(pos.ticker === 'RSU_META' ? 'META' : pos.ticker);
+      const _t4bl = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
+      const baseline = baselineDayForTicker(_t4bl);
       if (baseline === 'today') {
-        // Normal: today's price vs yesterday's close
+        // Normal weekday, market open: today vs yesterday
         const prevPrice = pricesYesterday[pos.ticker];
         if (priceUSD && prevPrice) dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
-      } else {
-        // Market hasn't opened yet: compare yesterday's close vs day-before close
+      } else if (baseline === 'yesterday') {
+        // Weekday pre-market: yesterday vs day-before
         const prevPrice = pricesYesterday[pos.ticker];
         const d2Price   = pricesDayBefore[pos.ticker];
         if (prevPrice && d2Price) dayPct = ((prevPrice - d2Price) / d2Price) * 100;
+      } else if (baseline === 'weekend_sat') {
+        // Saturday: Fri (yesterday) vs Thu (dayBefore)
+        const friPrice = pricesYesterday[pos.ticker];
+        const thuPrice = pricesDayBefore[pos.ticker];
+        if (friPrice && thuPrice) dayPct = ((friPrice - thuPrice) / thuPrice) * 100;
+      } else if (baseline === 'weekend_sun') {
+        // Sunday: Fri (2d ago = pricesDayBefore) vs Wed (4d ago = pricesTwoBefore)
+        const friPrice = pricesDayBefore[pos.ticker];
+        const wedPrice = pricesTwoBefore[pos.ticker];
+        if (friPrice && wedPrice) dayPct = ((friPrice - wedPrice) / wedPrice) * 100;
       }
 
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
@@ -2665,12 +2710,39 @@ async function loadPortfolio() {
     }
 
     // ── Portfolio daily change ──────────────────────────────────────────────────
-    // If LSE hasn't opened yet, use yesterday vs day-before snapshots.
+    // Weekend-aware: Sat → Fri vs Thu snapshots; Sun → Fri vs Wed snapshots.
     // Compute BOTH USD and GBP change from snapshot native values — no FX conversion needed.
     let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
-    if (lseOpened) {
-      // Normal: today vs yesterday
+
+    // Find the snapshot that corresponds to each reference day
+    // snapData is sorted desc by captured_at
+    function snapForDay(targetDateStr) {
+      return snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) === targetDateStr) || null;
+    }
+
+    if (_isSaturday) {
+      // Saturday: Fri (yesterday) vs Thu (2 days ago)
+      const friSnap = snapForDay(yesterdayUTC);
+      const thuSnap = snapForDay(twoDaysUTC);
+      if (friSnap && thuSnap) {
+        changeUSD = friSnap.total_usd - thuSnap.total_usd;
+        const friGBP = friSnap.total_gbp || (friSnap.total_usd * (friSnap.fx_rate || FX_RATE));
+        const thuGBP = thuSnap.total_gbp || (thuSnap.total_usd * (thuSnap.fx_rate || FX_RATE));
+        changeGBP = friGBP - thuGBP;
+      }
+    } else if (_isSunday) {
+      // Sunday: Fri (2d ago) vs Wed (4d ago)
+      const friSnap = snapForDay(twoDaysUTC);
+      const wedSnap = snapForDay(fourDaysUTC);
+      if (friSnap && wedSnap) {
+        changeUSD = friSnap.total_usd - wedSnap.total_usd;
+        const friGBP = friSnap.total_gbp || (friSnap.total_usd * (friSnap.fx_rate || FX_RATE));
+        const wedGBP = wedSnap.total_gbp || (wedSnap.total_usd * (wedSnap.fx_rate || FX_RATE));
+        changeGBP = friGBP - wedGBP;
+      }
+    } else if (lseOpened) {
+      // Normal weekday, market open: today vs yesterday
       if (yesterdaySnap) {
         changeUSD = totalUSD - yesterdaySnap.total_usd;
         const todayGBP = totalUSD * FX_RATE;
@@ -2678,7 +2750,7 @@ async function loadPortfolio() {
         changeGBP = todayGBP - prevGBP;
       }
     } else {
-      // Pre-market: yesterday vs day-before
+      // Weekday pre-market: yesterday vs day-before
       if (yesterdaySnap && dayBeforeSnapObj) {
         changeUSD = yesterdaySnap.total_usd - dayBeforeSnapObj.total_usd;
         const yGBP  = yesterdaySnap.total_gbp   || (yesterdaySnap.total_usd   * (yesterdaySnap.fx_rate   || FX_RATE));
@@ -3145,9 +3217,16 @@ function renderPnlAttribution() {
     if (pos.category === 'fiat') {
       if (isGBP || pnlAttrMode === 'day') return;
       if (pos.currency !== 'GBP' || valueUSD < 1) return;
-      const inv = Number(pos.initial_investment_usd);
-      if (!inv) return;
-      fiatGBPContribUSD += valueUSD - inv;
+      // Cost basis in USD: prefer qty * avg_cost_usd (TC at purchase) which is the most
+      // accurate. If not set, fall back to initial_investment_usd.
+      // NOTE: initial_investment_usd may be stored as GBP face value instead of USD equiv
+      // (a data entry error), so avg_cost_usd * qty is the more reliable calculation.
+      const qty       = Number(pos.qty);
+      const avgCostUSD = Number(pos.avg_cost_usd);   // TC en USD/GBP al momento de compra
+      const initUSD    = Number(pos.initial_investment_usd);
+      const costUSD    = (avgCostUSD && qty) ? qty * avgCostUSD : initUSD;
+      if (!costUSD) return;
+      fiatGBPContribUSD += valueUSD - costUSD;
       hasFiatGBP = true;
       return;
     }
@@ -5583,6 +5662,13 @@ async function getAnthropicKey() {
   const res = await fetch('/api/config');
   const cfg = await res.json();
   window._anthropicKey = cfg.anthropicKey;
+  // Pre-fill Monte Carlo inputs from Railway env vars (only once, only if server sent a value)
+  if (!window._mcConfigLoaded) {
+    window._mcConfigLoaded = true;
+    if (cfg.mcMonthly != null) { const el = document.getElementById('mc-p-monthly'); if (el) el.value = cfg.mcMonthly; }
+    if (cfg.mcBonus   != null) { const el = document.getElementById('mc-p-bonus');   if (el) el.value = cfg.mcBonus;   }
+    if (cfg.mcRsu     != null) { const el = document.getElementById('mc-p-rsu');     if (el) el.value = cfg.mcRsu;     }
+  }
   return window._anthropicKey;
 }
 
