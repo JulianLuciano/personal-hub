@@ -379,7 +379,7 @@ app.post('/api/ocr-transaction', async (req, res) => {
 
 BROKERS:
 1. Trading212 (dark UI):
-   - USD stock: header "Market Buy {qty} {ticker}", FILL PRICE "1 X = ${usd}", EXCHANGE RATE "£1 = ${fx}", FX FEE £{fee}, TOTAL £{amount}
+   - USD stock: header "Market Buy {qty} {ticker}", FILL PRICE "1 X = \${usd}", EXCHANGE RATE "£1 = \${fx}", FX FEE £{fee}, TOTAL £{amount}
    - GBP stock (VWRP): FILL PRICE "1 X = £{gbp}", no exchange rate, no fee, pricing_currency=GBP, exchange=LSE
 2. Kraken (Spanish): "BTC comprados £{total}", Cantidad/Precio/Comision/Total, amount_local = total_gbp - fee, broker=Kraken
 
