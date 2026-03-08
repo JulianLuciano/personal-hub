@@ -7476,26 +7476,16 @@ async function handleTxImage(event) {
   const btn = document.getElementById('txOcrBtn');
   btn.innerHTML = '⏳ <span>Leyendo...</span>';
   btn.disabled = true;
-  setTxStatus('Leyendo screenshot...', '');
+  setTxStatus('Procesando imagen...', '');
 
   try {
-    // Convertir a base64 de forma robusta (funciona en mobile/HEIC/todos los browsers)
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array  = new Uint8Array(arrayBuffer);
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      binary += String.fromCharCode(...uint8Array.subarray(i, i + chunkSize));
-    }
-    const base64 = btoa(binary);
+    // Comprimir imagen a max 1200px y calidad 0.85 — suficiente para OCR, reduce tamaño ~80%
+    const base64 = await compressImageToBase64(file, 1200, 0.85);
+    const mediaType = 'image/jpeg'; // canvas siempre exporta jpeg
 
-    // Detectar mediaType con fallback seguro
-    const rawType = file.type || '';
-    const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType)
-      ? rawType
-      : 'image/jpeg';
+    setTxStatus('Leyendo screenshot...', '');
 
-    const res  = await fetch('/api/ocr-transaction', {
+    const res = await fetch('/api/ocr-transaction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: base64, mediaType }),
@@ -7518,12 +7508,39 @@ async function handleTxImage(event) {
     );
 
   } catch(e) {
-    setTxStatus('Error al procesar imagen: ' + e.message, 'err');
+    setTxStatus('Error: ' + e.message, 'err');
   } finally {
     btn.innerHTML = '📷 <span>Leer screen</span>';
     btn.disabled = false;
     event.target.value = '';
   }
+}
+
+function compressImageToBase64(file, maxWidth, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      // Calcular dimensiones manteniendo aspect ratio
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        h = Math.round(h * maxWidth / w);
+        w = maxWidth;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      // Exportar como JPEG base64 (sin el prefijo data:...)
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo cargar la imagen')); };
+    img.src = url;
+  });
 }
 
 function fillFormFromOcr(tx) {
