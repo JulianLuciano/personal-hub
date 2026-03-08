@@ -2140,7 +2140,7 @@
         <button class="ai-close" onclick="closeAIChat()">×</button>
       </div>
       <div id="aiMessages">
-        <div class="ai-msg assistant">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>
+        <div class="ai-msg assistant" id="aiWelcomeMsg">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>
       </div>
       <div class="ai-quick-btns">
         <div class="ai-quick-btn" onclick="aiQuick('¿Cómo está la composición actual de mi portfolio?')">Composición</div>
@@ -5704,6 +5704,12 @@ async function loadAppConfig() {
       salaryRange:   cfg.aiSalaryRange   || '£20k-22k',
       annualInvest:  cfg.aiAnnualInvest  || '£31k-34k/yr',
     };
+    // Update all DOM elements that display the user's name
+    const name = window._aiProfile.name;
+    const welcomeEl = document.getElementById('aiWelcomeMsg');
+    if (welcomeEl) welcomeEl.textContent = 'Hola ' + name + ' 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?';
+    const topbarH1 = document.querySelector('.topbar-left h1');
+    if (topbarH1) topbarH1.textContent = 'Good morning, ' + name + ' 👋';
   } catch(e) { console.warn('[config] failed to load app config:', e.message); }
 }
 loadAppConfig();
