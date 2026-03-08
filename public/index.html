@@ -5593,7 +5593,9 @@ async function aiSendMsg() {
     const _salaryRange   = _p.salaryRange   || '£20k-22k';
     const _annualInvest  = _p.annualInvest  || '£31k-34k/yr';
 
+    const _todayStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
+Hoy es ${_todayStr}.
 
 PROFILE
 location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
@@ -5606,7 +5608,7 @@ goals: ${_goals}
 CASHFLOW_ANALYSIS
 annual_investable: ~${_salaryRange} salary+bonus + ~£11k-12k RSUs = ${_annualInvest}
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: Mar+Sep (bonus), quarterly (RSU vest)
+key_dates: último día hábil de Mar+Sep (bonus), quarterly (RSU vest)
 
 RULES
 - ${fxLine}
