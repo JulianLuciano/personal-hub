@@ -5,7 +5,7 @@ const { recalculatePositions } = require('./recalculator');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Exposes config from environment variables — never stored in code
@@ -450,7 +450,7 @@ Respond ONLY with a valid JSON object, no markdown, no explanation:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:      'claude-opus-4-5',
+        model:      'claude-sonnet-4-5-20251001',
         max_tokens: 1024,
         messages: [{
           role: 'user',
@@ -471,8 +471,8 @@ Respond ONLY with a valid JSON object, no markdown, no explanation:
 
     if (!response.ok) {
       const err = await response.text();
-      console.error('[ocr] Anthropic error:', err.slice(0, 200));
-      return res.status(502).json({ error: 'Anthropic API error', detail: err.slice(0, 200) });
+      console.error('[ocr] Anthropic error status:', response.status, err.slice(0, 400));
+      return res.status(502).json({ error: `Anthropic ${response.status}: ${err.slice(0, 200)}` });
     }
 
     const data  = await response.json();
