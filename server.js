@@ -366,9 +366,6 @@ app.post('/api/positions/manual', async (req, res) => {
 });
 
 // ── OCR Transaction ───────────────────────────────────────────────────────────
-// Recibe una imagen base64, la manda a Claude Vision, devuelve JSON con campos
-// pre-rellenados para el formulario de transactions.
-// Body: { image: "<base64>", mediaType: "image/jpeg" | "image/png" }
 app.post('/api/ocr-transaction', async (req, res) => {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
@@ -376,118 +373,83 @@ app.post('/api/ocr-transaction', async (req, res) => {
   const { image, mediaType } = req.body || {};
   if (!image) return res.status(400).json({ error: 'image requerida (base64)' });
 
-  const prompt = `You are extracting financial transaction data from a broker screenshot.
+  console.log('[ocr] received, size:', image.length, 'type:', mediaType);
 
-BROKERS YOU WILL SEE:
-1. Trading212 (dark UI) — two variants:
-   a. USD-priced stock (e.g. SPY, MELI, NU, BRK.B, MSFT, ARKK.L, NDIA.L):
-      - Header: "Market Buy {qty} {ticker}" and "-£{amount}"
-      - FILLED QUANTITY: "{qty} {ticker}"
-      - FILL PRICE: "1 {ticker} = ${price_usd}"
-      - EXCHANGE RATE: "£1 = ${fx_rate}" (this is USD per GBP = fx_rate_to_usd)
-      - FX FEE: £{fee}
-      - TOTAL: £{amount_local}
-      - asset_class: "stock", broker: "Trading212", exchange: infer from ticker
-   b. GBP-priced stock (e.g. VWRP, VWRP.L):
-      - Header: "Market Buy {qty} {ticker}" and "-£{amount}"
-      - FILL PRICE: "1 {ticker} = £{price_gbp}" (NO exchange rate, NO FX fee)
-      - TOTAL: £{amount_local}
-      - pricing_currency: "GBP", asset_class: "stock", broker: "Trading212", exchange: "LSE"
-      - fee_local: 0
+  const prompt = `Extract financial transaction data from this broker screenshot. Return ONLY a JSON object, no markdown.
 
-2. Kraken (dark UI, Spanish language):
-   - Header: "BTC comprados: £{amount}" (or other crypto)
-   - Cantidad: {qty} BTC
-   - Precio: {price_gbp} GBP  
-   - Comisión: {fee} GBP  ← this is fee_local; amount_local = total - fee
-   - Total: {total} GBP and ≈${total_usd}
-   - Fecha: {date}
-   - asset_class: "cripto", broker: "Kraken", exchange: null
-   - IMPORTANT: amount_local = total_gbp - fee_local (e.g. £100 total - £0.99 fee = £99.01)
+BROKERS:
+1. Trading212 (dark UI):
+   - USD stock: header "Market Buy {qty} {ticker}", FILL PRICE "1 X = ${usd}", EXCHANGE RATE "£1 = ${fx}", FX FEE £{fee}, TOTAL £{amount}
+   - GBP stock (VWRP): FILL PRICE "1 X = £{gbp}", no exchange rate, no fee, pricing_currency=GBP, exchange=LSE
+2. Kraken (Spanish): "BTC comprados £{total}", Cantidad/Precio/Comision/Total, amount_local = total_gbp - fee, broker=Kraken
 
-3. Schwab (not seen yet — if you see it, extract what you can)
+TICKER MAP: SPY5->SPY, VWRP->VWRP.L, ARKK->ARKK.L, NDIA->NDIA.L
+DATE: YYYY-MM-DD format
 
-TICKER MAPPING (broker display name → your DB ticker):
-- SPY5 → SPY
-- VWRP → VWRP.L
-- ARKK → ARKK.L  
-- NDIA → NDIA.L
-- BTC → BTC
-- ETH → ETH
-- Keep others as-is (MELI, NU, MSFT, BRK.B, META, etc.)
+Return this JSON structure:
+{"ticker":"","name":null,"type":"BUY","asset_class":"stock","date":"","qty":0,"price_usd":null,"price_local":null,"amount_usd":null,"amount_local":0,"fee_local":0,"fx_rate_to_usd":null,"pricing_currency":"USD","broker":"","exchange":null,"confidence":"high","notes":null}`;
 
-DATE FORMAT: convert to YYYY-MM-DD. Examples:
-- "06 Mar 2026" → "2026-03-06"
-- "1 mar 2026" → "2026-03-01"
+  const bodyStr = JSON.stringify({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 512,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
+        { type: 'text', text: prompt },
+      ],
+    }],
+  });
 
-Respond ONLY with a valid JSON object, no markdown, no explanation:
-{
-  "ticker": string,
-  "name": string or null,
-  "type": "BUY" | "SELL" | "RSU_VEST",
-  "asset_class": "stock" | "cripto" | "rsu" | "fiat",
-  "date": "YYYY-MM-DD",
-  "qty": number,
-  "price_usd": number or null,
-  "price_local": number or null,
-  "amount_usd": number or null,
-  "amount_local": number,
-  "fee_local": number,
-  "fx_rate_to_usd": number or null,
-  "pricing_currency": "USD" | "GBP",
-  "broker": string,
-  "exchange": string or null,
-  "confidence": "high" | "medium" | "low",
-  "notes": string or null
-}`;
+  console.log('[ocr] body size:', bodyStr.length);
+
+  const https = require('https');
+  const options = {
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(bodyStr),
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01',
+    },
+  };
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 1024,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type:   'image',
-              source: {
-                type:       'base64',
-                media_type: mediaType || 'image/jpeg',
-                data:       image,
-              },
-            },
-            { type: 'text', text: prompt },
-          ],
-        }],
-      }),
+    const result = await new Promise((resolve, reject) => {
+      const reqHttp = https.request(options, (response) => {
+        let data = '';
+        response.on('data', chunk => { data += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode, body: data }));
+      });
+      reqHttp.on('error', reject);
+      reqHttp.setTimeout(55000, () => { reqHttp.destroy(); reject(new Error('Timeout 55s')); });
+      reqHttp.write(bodyStr);
+      reqHttp.end();
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('[ocr] Anthropic error status:', response.status, err.slice(0, 400));
-      return res.status(502).json({ error: `Anthropic ${response.status}: ${err.slice(0, 200)}` });
+    console.log('[ocr] Anthropic status:', result.status, 'response length:', result.body.length);
+
+    if (result.status !== 200) {
+      console.error('[ocr] error body:', result.body.slice(0, 400));
+      return res.status(502).json({ error: `Anthropic ${result.status}: ${result.body.slice(0, 300)}` });
     }
 
-    const data  = await response.json();
-    const text  = data.content?.[0]?.text || '';
+    const data = JSON.parse(result.body);
+    const text = data.content?.[0]?.text || '';
+    console.log('[ocr] Claude raw:', text.slice(0, 300));
 
     try {
       const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
       res.json({ ok: true, transaction: parsed });
     } catch(e) {
-      console.error('[ocr] JSON parse error, raw:', text.slice(0, 300));
-      res.status(422).json({ error: 'No se pudo parsear respuesta de Claude', raw: text.slice(0, 300) });
+      console.error('[ocr] parse error:', text.slice(0, 300));
+      res.status(422).json({ error: 'Parse error', raw: text.slice(0, 300) });
     }
 
   } catch(e) {
-    console.error('[ocr] fetch error:', e.message);
+    console.error('[ocr] error:', e.message);
     res.status(502).json({ error: e.message });
   }
 });
