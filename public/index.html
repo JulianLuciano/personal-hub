@@ -1844,7 +1844,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">RSUs por vest</span>
-            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2000">
             <span class="mc-p-unit">£ / trimestre</span>
           </div>
           <div class="mc-p-item">
@@ -5586,7 +5586,7 @@ async function aiSendMsg() {
     const _monthlyExp    = _p.monthlyExp    || '£4000';
     const _savingsRange  = _p.savingsRange  || '£900-1000/mo';
     const _bonusRange    = _p.bonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)';
-    const _rsuRange      = _p.rsuRange      || 'META quarterly ~£2500-2800 net/vest';
+    const _rsuRange      = _p.rsuRange      || 'META quarterly ~£2000 net/vest';
     const _emergencyFund = _p.emergencyFund || '£2500';
     const _cashAvailable = _p.cashAvailable || '£500 aprox';
     const _goals         = _p.goals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
@@ -5697,7 +5697,7 @@ async function loadAppConfig() {
       monthlyExp:    cfg.aiMonthlyExp    || '£4000',
       savingsRange:  cfg.aiSavingsRange  || '£900-1000/mo',
       bonusRange:    cfg.aiBonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)',
-      rsuRange:      cfg.aiRsuRange      || 'META quarterly ~£2500-2800 net/vest',
+      rsuRange:      cfg.aiRsuRange      || 'META quarterly ~£2000 net/vest',
       emergencyFund: cfg.aiEmergencyFund || '£2500',
       cashAvailable: cfg.aiCashAvailable || '£500 aprox',
       goals:         cfg.aiGoals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)',
@@ -6067,7 +6067,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (950 * 12) + 9500 + (2000 * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -6625,7 +6625,7 @@ function mcRun() {
     const cashVol  = _n('mc-p-cash-vol',    1);
     const monthly  = _n('mc-p-monthly',950);
     const bonus    = _n('mc-p-bonus',  9500);
-    const rsu      = _n('mc-p-rsu',    2650);
+    const rsu      = _n('mc-p-rsu',    2000);
     const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
     const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
     const startInvested = _n('mc-p-invested', mcGetPortfolioInvested());
