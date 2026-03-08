@@ -5657,15 +5657,21 @@ async function getAnthropicKey() {
   const res = await fetch('/api/config');
   const cfg = await res.json();
   window._anthropicKey = cfg.anthropicKey;
-  // Pre-fill Monte Carlo inputs from Railway env vars (only once, only if server sent a value)
-  if (!window._mcConfigLoaded) {
-    window._mcConfigLoaded = true;
+  return window._anthropicKey;
+}
+
+// Load Railway env config on page start — fills MC inputs independently of AI chat
+async function loadAppConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    window._anthropicKey = cfg.anthropicKey; // cache for AI chat
     if (cfg.mcMonthly != null) { const el = document.getElementById('mc-p-monthly'); if (el) el.value = cfg.mcMonthly; }
     if (cfg.mcBonus   != null) { const el = document.getElementById('mc-p-bonus');   if (el) el.value = cfg.mcBonus;   }
     if (cfg.mcRsu     != null) { const el = document.getElementById('mc-p-rsu');     if (el) el.value = cfg.mcRsu;     }
-  }
-  return window._anthropicKey;
+  } catch(e) { console.warn('[config] failed to load app config:', e.message); }
 }
+loadAppConfig();
 
 function aiRenderMarkdown(text) {
   // Escape HTML first
