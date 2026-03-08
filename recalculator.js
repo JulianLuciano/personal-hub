@@ -33,6 +33,16 @@ function resolvePositionTicker(t) {
 }
 
 /**
+ * Mapea asset_class de transactions → category de positions.
+ * transactions: 'stock' | 'cripto' | 'rsu' | 'fiat'
+ * positions:    'acciones' | 'cripto' | 'rsu' | 'fiat'
+ */
+function resolveCategory(assetClass) {
+  if (assetClass === 'stock') return 'acciones';
+  return assetClass || 'acciones';
+}
+
+/**
  * Procesa todas las transactions en orden cronológico y devuelve
  * un mapa { positionTicker → calculatedFields }.
  */
@@ -60,7 +70,7 @@ function calculateFromTransactions(transactions) {
         total_fees_local:       0,
         // Metadata (tomada del primer registro, no cambia)
         name:                   t.name          || null,
-        category:               t.asset_class   || 'acciones',
+        category:               resolveCategory(t.asset_class),
         currency:               t.local_currency || 'GBP',
         pricing_currency:       t.pricing_currency || 'USD',
         exchange:               t.exchange      || null,
@@ -195,6 +205,7 @@ async function recalculatePositions() {
     'qty', 'avg_cost_usd', 'avg_cost_gbp', 'fx_gbp_usd_avg',
     'initial_investment_usd', 'initial_investment_gbp', 'total_fees_local'
   ];
+  const TEXT_FIELDS_TO_COMPARE = ['category'];
 
   const toUpsert = [];
 
@@ -202,19 +213,19 @@ async function recalculatePositions() {
     const curr = existingMap[row.ticker];
 
     if (!curr) {
-      // Ticker nuevo — INSERT
       toUpsert.push(row);
       result.inserted.push(row.ticker);
       console.log(`[recalculator] NUEVO ticker: ${row.ticker}`);
       continue;
     }
 
-    // Comparar campos numéricos con tolerancia por floating point
-    const changed = FIELDS_TO_COMPARE.some(f => {
+    const numChanged = FIELDS_TO_COMPARE.some(f => {
       const a = Number(curr[f]) || 0;
       const b = Number(row[f])  || 0;
       return Math.abs(a - b) > 0.000001;
     });
+    const txtChanged = TEXT_FIELDS_TO_COMPARE.some(f => curr[f] !== row[f]);
+    const changed = numChanged || txtChanged;
 
     if (changed) {
       toUpsert.push(row);
