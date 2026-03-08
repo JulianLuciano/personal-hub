@@ -2379,7 +2379,7 @@
         </button>
         <button class="tx-panel-close" onclick="closeTxPanel()">✕</button>
       </div>
-      <input type="file" id="txImageInput" accept="image/*" capture="environment" style="display:none" onchange="handleTxImage(event)">
+      <input type="file" id="txImageInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style="display:none" onchange="handleTxImage(event)">
     </div>
     <div class="tx-panel-body">
 
@@ -7479,19 +7479,15 @@ async function handleTxImage(event) {
   setTxStatus('Leyendo screenshot...', '');
 
   try {
-    // Convertir a base64 de forma robusta
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target.result;
-        // result es "data:image/jpeg;base64,XXXX" — extraemos solo la parte base64
-        const parts = result.split(',');
-        if (parts.length < 2) { reject(new Error('No se pudo leer la imagen')); return; }
-        resolve(parts[1]);
-      };
-      reader.onerror = () => reject(new Error('Error al leer el archivo'));
-      reader.readAsDataURL(file);
-    });
+    // Convertir a base64 de forma robusta (funciona en mobile/HEIC/todos los browsers)
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array  = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      binary += String.fromCharCode(...uint8Array.subarray(i, i + chunkSize));
+    }
+    const base64 = btoa(binary);
 
     // Detectar mediaType con fallback seguro
     const rawType = file.type || '';
