@@ -7590,9 +7590,21 @@ function fillFormFromOcr(tx) {
   // Qty
   if (tx.qty) document.getElementById('txQty').value = tx.qty;
 
-  // Amounts — set directamente (más preciso que recalcular)
-  if (tx.amount_local) document.getElementById('txAmountLocal').value = Number(tx.amount_local).toFixed(4);
-  if (tx.amount_usd)   document.getElementById('txAmountUsd').value   = Number(tx.amount_usd).toFixed(4);
+  // Amounts — calcular con lógica consistente
+  const feeVal      = parseFloat(tx.fee_local) || 0;
+  const amtLocalRaw = parseFloat(tx.amount_local) || 0;
+  const fxVal       = parseFloat(tx.fx_rate_to_usd) || 0;
+
+  // amount_local siempre = total_gbp - fee (aplica a Trading212 y Kraken)
+  const amtLocal = amtLocalRaw - feeVal;
+
+  // amount_usd = amount_local * fx_rate (si hay fx rate)
+  const amtUsd = tx.amount_usd
+    ? parseFloat(tx.amount_usd)
+    : (fxVal ? amtLocal * fxVal : 0);
+
+  if (amtLocal) document.getElementById('txAmountLocal').value = amtLocal.toFixed(4);
+  if (amtUsd)   document.getElementById('txAmountUsd').value   = amtUsd.toFixed(4);
 
   // Fee
   document.getElementById('txFeeLocal').value = tx.fee_local ?? 0;
