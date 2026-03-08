@@ -2514,8 +2514,8 @@ async function loadPortfolio() {
       if (ticker === 'BTC' || ticker === 'ETH' || ticker === 'ADA' || ticker === 'SOL') {
         return 'today'; // crypto: always live
       }
-      if (_isSaturday) return 'weekend_sat'; // Fri vs Thu
-      if (_isSunday)   return 'weekend_sun'; // Fri vs Wed
+      // Sat & Sun: last close = Fri, baseline = Thu → same comparison both days
+      if (_isSaturday || _isSunday) return 'weekend'; // Fri vs Thu
       const lseTickers = ['VWRP.L', 'ARKK.L', 'NDIA.L'];
       const exchange = lseTickers.includes(ticker) ? 'LSE' : 'NYSE';
       return marketOpenedTodayUTC(exchange) ? 'today' : 'yesterday';
@@ -2525,7 +2525,7 @@ async function loadPortfolio() {
     const yesterdayUTC  = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
     const twoDaysUTC    = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
     const threeDaysUTC  = new Date(Date.now() - 3 * 24*60*60*1000).toISOString().slice(0, 10);
-    const fourDaysUTC   = new Date(Date.now() - 4 * 24*60*60*1000).toISOString().slice(0, 10);
+    const fourDaysUTC   = new Date(Date.now() - 4 * 24*60*60*1000).toISOString().slice(0, 10); // Sun: 4d ago = Thu
 
     // Fetch yesterday prices (always needed)
     const ydStart = yesterdayUTC + 'T00:00:00.000Z';
@@ -2560,25 +2560,29 @@ async function loadPortfolio() {
     // We want Fri vs Wed, so we need the Wed prices.
     // We fetch a wider window (3d and 4d back) to find the last trading day before Fri.
     let pricesTwoBefore = {};
+    // Sunday: need Thu prices (3d ago for Sun = Thu; 4d ago for Sun = Thu snapshot boundary)
+    // pricesTwoBefore  = used as the "Fri" reference on Sunday (2d ago from Sun = Fri)
+    // pricesThreeBefore = used as the "Thu" baseline on Sunday (3d ago from Sun = Thu)
+    let pricesThreeBefore = {};
     if (_isSunday) {
-      // On Sunday, 2d ago = Fri (last close), 4d ago = Wed. Fetch Wed prices.
-      const d4Start = fourDaysUTC  + 'T00:00:00.000Z';
-      const d4End   = threeDaysUTC + 'T00:00:00.000Z';
-      const priceDataD4 = await sbFetch(
+      // 3d ago from Sunday = Thursday
+      const d3Start = threeDaysUTC + 'T00:00:00.000Z';
+      const d3End   = twoDaysUTC   + 'T00:00:00.000Z';
+      const priceDataD3 = await sbFetch(
         '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
-        '&captured_at=gte.' + d4Start + '&captured_at=lt.' + d4End +
+        '&captured_at=gte.' + d3Start + '&captured_at=lt.' + d3End +
         '&order=captured_at.desc&limit=500'
       );
-      priceDataD4.forEach(row => {
+      priceDataD3.forEach(row => {
         const t = normTicker(row.ticker);
-        if (!pricesTwoBefore[t]) pricesTwoBefore[t] = row.price_usd;
+        if (!pricesThreeBefore[t]) pricesThreeBefore[t] = row.price_usd;
       });
     }
 
     console.log('[Portfolio] prices today:', prices);
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
-    if (_isSunday) console.log('[Portfolio] prices two-before (Wed):', pricesTwoBefore);
+    if (_isSunday) console.log('[Portfolio] prices three-before (Thu):', pricesThreeBefore);
 
     // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
@@ -2657,16 +2661,13 @@ async function loadPortfolio() {
         const prevPrice = pricesYesterday[pos.ticker];
         const d2Price   = pricesDayBefore[pos.ticker];
         if (prevPrice && d2Price) dayPct = ((prevPrice - d2Price) / d2Price) * 100;
-      } else if (baseline === 'weekend_sat') {
-        // Saturday: Fri (yesterday) vs Thu (dayBefore)
-        const friPrice = pricesYesterday[pos.ticker];
-        const thuPrice = pricesDayBefore[pos.ticker];
+      } else if (baseline === 'weekend') {
+        // Sat & Sun: last close = Fri, baseline = Thu
+        // Sat: Fri = pricesYesterday, Thu = pricesDayBefore
+        // Sun: Fri = pricesDayBefore,  Thu = pricesThreeBefore
+        const friPrice = _isSaturday ? pricesYesterday[pos.ticker] : pricesDayBefore[pos.ticker];
+        const thuPrice = _isSaturday ? pricesDayBefore[pos.ticker] : pricesThreeBefore[pos.ticker];
         if (friPrice && thuPrice) dayPct = ((friPrice - thuPrice) / thuPrice) * 100;
-      } else if (baseline === 'weekend_sun') {
-        // Sunday: Fri (2d ago = pricesDayBefore) vs Wed (4d ago = pricesTwoBefore)
-        const friPrice = pricesDayBefore[pos.ticker];
-        const wedPrice = pricesTwoBefore[pos.ticker];
-        if (friPrice && wedPrice) dayPct = ((friPrice - wedPrice) / wedPrice) * 100;
       }
 
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
@@ -2721,25 +2722,19 @@ async function loadPortfolio() {
       return snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) === targetDateStr) || null;
     }
 
-    if (_isSaturday) {
-      // Saturday: Fri (yesterday) vs Thu (2 days ago)
-      const friSnap = snapForDay(yesterdayUTC);
-      const thuSnap = snapForDay(twoDaysUTC);
+    if (_isSaturday || _isSunday) {
+      // Weekend: always Fri vs Thu (last close vs prior close)
+      // Sat: Fri = yesterdayUTC, Thu = twoDaysUTC
+      // Sun: Fri = twoDaysUTC,   Thu = threeDaysUTC
+      const friDate = _isSaturday ? yesterdayUTC : twoDaysUTC;
+      const thuDate = _isSaturday ? twoDaysUTC   : threeDaysUTC;
+      const friSnap = snapForDay(friDate);
+      const thuSnap = snapForDay(thuDate);
       if (friSnap && thuSnap) {
         changeUSD = friSnap.total_usd - thuSnap.total_usd;
         const friGBP = friSnap.total_gbp || (friSnap.total_usd * (friSnap.fx_rate || FX_RATE));
         const thuGBP = thuSnap.total_gbp || (thuSnap.total_usd * (thuSnap.fx_rate || FX_RATE));
         changeGBP = friGBP - thuGBP;
-      }
-    } else if (_isSunday) {
-      // Sunday: Fri (2d ago) vs Wed (4d ago)
-      const friSnap = snapForDay(twoDaysUTC);
-      const wedSnap = snapForDay(fourDaysUTC);
-      if (friSnap && wedSnap) {
-        changeUSD = friSnap.total_usd - wedSnap.total_usd;
-        const friGBP = friSnap.total_gbp || (friSnap.total_usd * (friSnap.fx_rate || FX_RATE));
-        const wedGBP = wedSnap.total_gbp || (wedSnap.total_usd * (wedSnap.fx_rate || FX_RATE));
-        changeGBP = friGBP - wedGBP;
       }
     } else if (lseOpened) {
       // Normal weekday, market open: today vs yesterday
