@@ -377,6 +377,14 @@ app.post('/api/ocr-transaction', async (req, res) => {
 
   const prompt = `Extract financial transaction data from this broker screenshot. Return ONLY a JSON object, no markdown.
 
+CRITICAL - always extract these fields exactly as shown in the image:
+- price_usd: the exact fill/execution price in USD (e.g. from "1 SPY5 = $672.33" -> 672.33)
+- price_local: the exact fill price in GBP if shown (e.g. "1 VWRP = £128.92" -> 128.92)
+- fx_rate_to_usd: USD per 1 GBP (e.g. from "£1 = $1.33365998" -> 1.33365998). NEVER leave null if shown in image.
+- qty: exact filled quantity with all decimals (e.g. "0.19806635")
+- fee_local: FX FEE or Comision in GBP (0 if not shown)
+- amount_local: TOTAL in GBP shown in image
+
 BROKERS:
 1. Trading212 (dark UI):
    - USD stock: header "Market Buy {qty} {ticker}", FILL PRICE "1 X = \${usd}", EXCHANGE RATE "£1 = \${fx}", FX FEE £{fee}, TOTAL £{amount}

@@ -7506,6 +7506,13 @@ async function handleTxImage(event) {
                           '⚠ Leído con baja confianza — revisá todo',
       conf === 'high' ? 'ok' : ''
     );
+    // Botón verde por 3 segundos
+    btn.innerHTML = '✅ <span>Leído</span>';
+    btn.style.background = 'linear-gradient(135deg,#22c55e,#16a34a)';
+    setTimeout(() => {
+      btn.innerHTML = '📷 <span>Leer screen</span>';
+      btn.style.background = 'linear-gradient(135deg,var(--accent),#a78bfa)';
+    }, 3000);
 
   } catch(e) {
     setTxStatus('Error: ' + e.message, 'err');
