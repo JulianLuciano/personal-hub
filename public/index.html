@@ -2372,7 +2372,13 @@
   <div class="tx-panel" id="txPanel">
     <div class="tx-panel-header">
       <h2>Nueva transacción</h2>
-      <button class="tx-panel-close" onclick="closeTxPanel()">✕</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="tx-panel-close" id="txOcrBtn" onclick="document.getElementById('txImageInput').click()" title="Cargar screenshot">
+          📷
+        </button>
+        <button class="tx-panel-close" onclick="closeTxPanel()">✕</button>
+      </div>
+      <input type="file" id="txImageInput" accept="image/*" style="display:none" onchange="handleTxImage(event)">
     </div>
     <div class="tx-panel-body">
 
@@ -7458,6 +7464,133 @@ async function loadTxHistory() {
   } catch(e) {
     container.innerHTML = '<span style="color:var(--accent2)">Error al cargar historial</span>';
   }
+}
+
+// ── OCR ───────────────────────────────────────────────────────────────────────
+
+async function handleTxImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const btn = document.getElementById('txOcrBtn');
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  setTxStatus('Leyendo screenshot...', '');
+
+  try {
+    // Convert to base64
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const mediaType = file.type || 'image/jpeg';
+
+    const res  = await fetch('/api/ocr-transaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64, mediaType }),
+    });
+
+    const json = await res.json();
+
+    if (!json.ok || !json.transaction) {
+      setTxStatus('No se pudo leer el screenshot: ' + (json.error || ''), 'err');
+      return;
+    }
+
+    fillFormFromOcr(json.transaction);
+    const conf = json.transaction.confidence;
+    setTxStatus(
+      `✓ Screenshot leído${conf === 'low' ? ' — revisá los campos' : conf === 'medium' ? ' — verificá precio y qty' : ''}`,
+      conf === 'high' ? 'ok' : ''
+    );
+
+  } catch(e) {
+    setTxStatus('Error al procesar imagen: ' + e.message, 'err');
+  } finally {
+    btn.textContent = '📷';
+    btn.disabled = false;
+    // Reset input so same file can be re-uploaded
+    event.target.value = '';
+  }
+}
+
+function fillFormFromOcr(tx) {
+  const ASSET_CLASS_MAP = { stock: 'acciones', cripto: 'cripto', rsu: 'rsu', fiat: 'fiat' };
+  const TYPE_MAP        = { BUY: 'BUY', SELL: 'SELL', RSU_VEST: 'RSU_VEST', FX_CONVERSION: 'FX_CONVERSION' };
+  const EXCHANGE_OPTIONS = ['NASDAQ', 'NYSE', 'LSE', ''];
+
+  // Ticker & name
+  if (tx.ticker) document.getElementById('txTicker').value = tx.ticker;
+  if (tx.name)   document.getElementById('txName').value   = tx.name;
+
+  // Type
+  if (tx.type && TYPE_MAP[tx.type]) document.getElementById('txType').value = TYPE_MAP[tx.type];
+
+  // Asset class
+  const ac = ASSET_CLASS_MAP[tx.asset_class] || tx.asset_class || 'acciones';
+  document.getElementById('txAssetClass').value = ac;
+
+  // Date
+  if (tx.date) document.getElementById('txDate').value = tx.date;
+
+  // Pricing currency toggle
+  const pricing = tx.pricing_currency || 'USD';
+  setPricingCurrency(pricing);
+
+  // Price main field
+  if (pricing === 'GBP' && tx.price_local) {
+    document.getElementById('txPriceMain').value = tx.price_local;
+  } else if (pricing === 'USD' && tx.price_usd) {
+    document.getElementById('txPriceMain').value = tx.price_usd;
+  }
+
+  // FX rate
+  if (tx.fx_rate_to_usd) {
+    document.getElementById('txFxRate').value = tx.fx_rate_to_usd;
+  }
+
+  // Recalc derived price
+  recalcDerivedPrice();
+
+  // Qty
+  if (tx.qty) document.getElementById('txQty').value = tx.qty;
+
+  // Amounts (set directly — more accurate than recalculating)
+  if (tx.amount_local) document.getElementById('txAmountLocal').value = Number(tx.amount_local).toFixed(4);
+  if (tx.amount_usd)   document.getElementById('txAmountUsd').value   = Number(tx.amount_usd).toFixed(4);
+
+  // Fee
+  document.getElementById('txFeeLocal').value = tx.fee_local ?? 0;
+
+  // Broker
+  const brokerSel = document.getElementById('txBroker');
+  const brokerOpts = Array.from(brokerSel.options).map(o => o.value);
+  if (tx.broker && brokerOpts.includes(tx.broker)) {
+    brokerSel.value = tx.broker;
+  } else if (tx.broker) {
+    brokerSel.value = '_other';
+    document.getElementById('txBrokerOther').style.display = 'block';
+    document.getElementById('txBrokerOther').value = tx.broker;
+  }
+
+  // Exchange
+  const exchSel = document.getElementById('txExchange');
+  if (tx.exchange === null || tx.exchange === '') {
+    exchSel.value = '';
+  } else if (EXCHANGE_OPTIONS.includes(tx.exchange)) {
+    exchSel.value = tx.exchange;
+  } else {
+    exchSel.value = '_other';
+    document.getElementById('txExchangeOther').style.display = 'block';
+    document.getElementById('txExchangeOther').value = tx.exchange;
+  }
+
+  // Notes
+  if (tx.notes) document.getElementById('txNotes').value = tx.notes;
 }
 </script>
 </body>
