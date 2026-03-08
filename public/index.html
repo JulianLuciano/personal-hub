@@ -2390,22 +2390,27 @@
           <div class="tx-field">
             <label>Tipo</label>
             <select id="txType" onchange="onTxTypeChange()">
-              <option value="BUY">BUY</option>
-              <option value="SELL">SELL</option>
-              <option value="RSU_VEST">RSU_VEST</option>
-              <option value="FX_CONVERSION">FX_CONVERSION</option>
+              <option value="BUY">Compra</option>
+              <option value="SELL">Venta</option>
+              <option value="RSU_VEST">RSU Vest</option>
+              <option value="FX_CONVERSION">FX / Cambio</option>
             </select>
           </div>
+        </div>
+
+        <div class="tx-field">
+          <label>Nombre</label>
+          <input id="txName" type="text" placeholder="ej. Mercado Libre">
         </div>
 
         <div class="tx-field-row">
           <div class="tx-field">
             <label>Asset class</label>
             <select id="txAssetClass">
-              <option value="acciones">acciones</option>
-              <option value="cripto">cripto</option>
-              <option value="rsu">rsu</option>
-              <option value="fiat">fiat</option>
+              <option value="acciones">Acciones</option>
+              <option value="cripto">Cripto</option>
+              <option value="rsu">RSU</option>
+              <option value="fiat">Fiat</option>
             </select>
           </div>
           <div class="tx-field">
@@ -2416,10 +2421,22 @@
 
         <div class="tx-section-label">Precio</div>
 
+        <!-- Toggle USD / GBP pricing -->
+        <div style="display:flex;gap:6px;margin-bottom:4px">
+          <button id="txPricingUSD" onclick="setPricingCurrency('USD')"
+            style="flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer">
+            USD
+          </button>
+          <button id="txPricingGBP" onclick="setPricingCurrency('GBP')"
+            style="flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer">
+            GBP
+          </button>
+        </div>
+
         <div class="tx-price-row">
           <div class="tx-field">
-            <label>Price USD</label>
-            <input id="txPriceUsd" type="number" step="any" placeholder="0.00" oninput="onTxPriceChange()">
+            <label id="txPriceMainLabel">Price USD</label>
+            <input id="txPriceMain" type="number" step="any" placeholder="0.00" oninput="onTxPriceMainChange()">
           </div>
           <button class="tx-fetch-btn" id="txFetchBtn" onclick="fetchTxPrice()">⚡ Live</button>
         </div>
@@ -2427,11 +2444,11 @@
         <div class="tx-field-row">
           <div class="tx-field">
             <label>FX rate (USD/GBP)</label>
-            <input id="txFxRate" type="number" step="any" placeholder="1.335" oninput="onTxFxChange()">
+            <input id="txFxRate" type="number" step="any" placeholder="1.3350" oninput="onTxFxChange()">
           </div>
           <div class="tx-field">
-            <label>Price GBP</label>
-            <input id="txPriceLocal" type="number" step="any" placeholder="0.00" class="derived" oninput="onTxPriceLocalChange()">
+            <label id="txPriceDerivedLabel">Price GBP</label>
+            <input id="txPriceDerived" type="number" step="any" placeholder="0.00" class="derived" readonly>
           </div>
         </div>
 
@@ -2443,19 +2460,19 @@
             <input id="txQty" type="number" step="any" placeholder="0.00000000" oninput="onTxQtyChange()">
           </div>
           <div class="tx-field">
-            <label>Amount GBP</label>
-            <input id="txAmountLocal" type="number" step="any" placeholder="0.00" oninput="onTxAmountLocalChange()">
+            <label>Fee GBP</label>
+            <input id="txFeeLocal" type="number" step="any" placeholder="0.15">
           </div>
         </div>
 
         <div class="tx-field-row">
           <div class="tx-field">
-            <label>Amount USD</label>
-            <input id="txAmountUsd" type="number" step="any" placeholder="0.00" class="derived" readonly>
+            <label>Amount GBP</label>
+            <input id="txAmountLocal" type="number" step="any" placeholder="0.00" class="derived" readonly>
           </div>
           <div class="tx-field">
-            <label>Fee GBP</label>
-            <input id="txFeeLocal" type="number" step="any" placeholder="0.15">
+            <label>Amount USD</label>
+            <input id="txAmountUsd" type="number" step="any" placeholder="0.00" class="derived" readonly>
           </div>
         </div>
 
@@ -2464,21 +2481,26 @@
         <div class="tx-field-row">
           <div class="tx-field">
             <label>Broker</label>
-            <select id="txBroker">
+            <select id="txBroker" onchange="onTxBrokerChange()">
               <option value="Trading212">Trading212</option>
               <option value="Schwab">Schwab</option>
               <option value="Kraken">Kraken</option>
+              <option value="_other">Otro...</option>
             </select>
+            <input id="txBrokerOther" type="text" placeholder="Nombre del broker"
+              style="display:none;margin-top:6px">
           </div>
           <div class="tx-field">
             <label>Exchange</label>
-            <select id="txExchange">
+            <select id="txExchange" onchange="onTxExchangeChange()">
               <option value="NASDAQ">NASDAQ</option>
               <option value="NYSE">NYSE</option>
               <option value="LSE">LSE</option>
-              <option value="CRYPTO">CRYPTO</option>
               <option value="">— ninguno —</option>
+              <option value="_other">Otro...</option>
             </select>
+            <input id="txExchangeOther" type="text" placeholder="Nombre del exchange"
+              style="display:none;margin-top:6px">
           </div>
         </div>
 
@@ -7111,29 +7133,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Transaction Panel ────────────────────────────────────────────────────────
 
-const TX_DEFAULTS = {
-  broker:    'Trading212',
-  exchange:  'NASDAQ',
-  feeLocal:  '0.15',
-};
+const TX_DEFAULTS = { broker: 'Trading212', exchange: 'NASDAQ', feeLocal: '0.15' };
 
 const TX_TICKER_META = {
-  'MELI':    { assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
-  'SPY':     { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
-  'BRK.B':   { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
-  'NU':      { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
-  'MSFT':    { assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
-  'META':    { assetClass: 'rsu',      exchange: 'NASDAQ', pricing: 'USD' },
-  'VWRP.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'GBP' },
-  'ARKK.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
-  'NDIA.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
-  'BTC':     { assetClass: 'cripto',   exchange: '',       pricing: 'USD' },
+  'MELI':    { name: 'Mercado Libre',       assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'SPY':     { name: 'S&P 500 ETF',         assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'BRK.B':   { name: 'Berkshire Hathaway',  assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'NU':      { name: 'Nu Holdings',         assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'MSFT':    { name: 'Microsoft',           assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'META':    { name: 'Meta RSU',            assetClass: 'rsu',      exchange: 'NASDAQ', pricing: 'USD' },
+  'VWRP.L': { name: 'Vanguard All World',   assetClass: 'acciones', exchange: 'LSE',    pricing: 'GBP' },
+  'ARKK.L': { name: 'ARK Innovation ETF',  assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'NDIA.L': { name: 'India ETF',           assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'BTC':     { name: 'Bitcoin',             assetClass: 'cripto',   exchange: '',       pricing: 'USD' },
 };
 
+let _txPricingCurrency = 'USD';
+
 function openTxPanel() {
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('txDate').value = today;
+  document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
   setTxStatus('', '');
+  _txPricingCurrency = 'USD';
+  setPricingCurrency('USD');
   document.getElementById('txOverlay').classList.add('open');
   document.getElementById('txPanel').classList.add('open');
 }
@@ -7149,11 +7170,54 @@ function setTxStatus(msg, type) {
   el.className = 'tx-status' + (type ? ' ' + type : '');
 }
 
-function onTxTickerBlur() {
+function setPricingCurrency(cur) {
+  _txPricingCurrency = cur;
+  const usdBtn = document.getElementById('txPricingUSD');
+  const gbpBtn = document.getElementById('txPricingGBP');
+  const mainLabel    = document.getElementById('txPriceMainLabel');
+  const derivedLabel = document.getElementById('txPriceDerivedLabel');
+  if (cur === 'USD') {
+    usdBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer';
+    gbpBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer';
+    mainLabel.textContent    = 'Price USD';
+    derivedLabel.textContent = 'Price GBP';
+  } else {
+    gbpBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer';
+    usdBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer';
+    mainLabel.textContent    = 'Price GBP';
+    derivedLabel.textContent = 'Price USD';
+  }
+  recalcDerivedPrice();
+}
+
+function recalcDerivedPrice() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (!main || !fx) return;
+  const derived = _txPricingCurrency === 'USD' ? (main / fx) : (main * fx);
+  document.getElementById('txPriceDerived').value = derived.toFixed(4);
+}
+
+function getPriceUsd() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (_txPricingCurrency === 'USD') return main;
+  return fx ? main * fx : 0;
+}
+
+function getPriceLocal() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (_txPricingCurrency === 'GBP') return main;
+  return fx ? main / fx : 0;
+}
+
+async function onTxTickerBlur() {
   const ticker = document.getElementById('txTicker').value.trim().toUpperCase();
   if (!ticker) return;
   const meta = TX_TICKER_META[ticker];
   if (meta) {
+    document.getElementById('txName').value       = meta.name;
     document.getElementById('txAssetClass').value = meta.assetClass;
     document.getElementById('txExchange').value   = meta.exchange;
     if (ticker === 'META') {
@@ -7161,18 +7225,52 @@ function onTxTickerBlur() {
       document.getElementById('txBroker').value   = 'Schwab';
       document.getElementById('txFeeLocal').value = '0.00';
     }
+    if (meta.pricing === 'GBP') setPricingCurrency('GBP');
+  } else {
+    try {
+      const res  = await fetch(`/api/db/positions?ticker=eq.${encodeURIComponent(ticker)}&select=name,category`);
+      const rows = await res.json();
+      if (rows?.[0]?.name) {
+        document.getElementById('txName').value       = rows[0].name;
+        document.getElementById('txAssetClass').value = rows[0].category || 'acciones';
+      }
+    } catch(e) {}
   }
 }
 
 function onTxTypeChange() {
   const type = document.getElementById('txType').value;
   if (type === 'RSU_VEST') {
-    document.getElementById('txBroker').value   = 'Schwab';
-    document.getElementById('txFeeLocal').value = '0.00';
+    document.getElementById('txBroker').value     = 'Schwab';
+    document.getElementById('txFeeLocal').value   = '0.00';
+    document.getElementById('txAssetClass').value = 'rsu';
   } else {
     document.getElementById('txBroker').value   = 'Trading212';
     document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
   }
+}
+
+function onTxBrokerChange() {
+  document.getElementById('txBrokerOther').style.display =
+    document.getElementById('txBroker').value === '_other' ? 'block' : 'none';
+}
+
+function onTxExchangeChange() {
+  document.getElementById('txExchangeOther').style.display =
+    document.getElementById('txExchange').value === '_other' ? 'block' : 'none';
+}
+
+function getTxBrokerValue() {
+  const sel = document.getElementById('txBroker').value;
+  if (sel === '_other') return document.getElementById('txBrokerOther').value.trim() || null;
+  return sel;
+}
+
+function getTxExchangeValue() {
+  const sel = document.getElementById('txExchange').value;
+  if (sel === '_other') return document.getElementById('txExchangeOther').value.trim() || null;
+  if (sel === '') return null;
+  return sel;
 }
 
 async function fetchTxPrice() {
@@ -7180,20 +7278,31 @@ async function fetchTxPrice() {
   if (!ticker) { setTxStatus('Ingresá un ticker primero', 'err'); return; }
   const btn = document.getElementById('txFetchBtn');
   btn.disabled = true; btn.textContent = '...';
-  setTxStatus('Buscando precio...', '');
+  setTxStatus('Buscando precio y FX...', '');
   const YAHOO_MAP = { 'BRK.B': 'BRK-B', 'BTC': 'BTC-USD' };
   const yahooTicker = YAHOO_MAP[ticker] || ticker;
   try {
-    const res  = await fetch(`/api/market-data?tickers=${encodeURIComponent(yahooTicker)}`);
-    const json = await res.json();
-    const data = json.data?.[yahooTicker];
+    const [mktRes, fxRes] = await Promise.all([
+      fetch(`/api/market-data?tickers=${encodeURIComponent(yahooTicker)}`),
+      fetch(`/api/market-data?tickers=GBPUSD%3DX`),
+    ]);
+    const mktJson = await mktRes.json();
+    const fxJson  = await fxRes.json();
+    const data    = mktJson.data?.[yahooTicker];
+    const fxData  = fxJson.data?.['GBPUSD=X'];
+    const msgs    = [];
+    if (fxData?.regularMarketPrice) {
+      document.getElementById('txFxRate').value = fxData.regularMarketPrice.toFixed(5);
+      msgs.push(`FX: ${fxData.regularMarketPrice.toFixed(4)}`);
+    }
     if (data?.regularMarketPrice) {
-      document.getElementById('txPriceUsd').value = data.regularMarketPrice.toFixed(4);
-      onTxPriceChange();
-      setTxStatus(`Precio: $${data.regularMarketPrice.toFixed(2)}`, 'ok');
+      document.getElementById('txPriceMain').value = data.regularMarketPrice.toFixed(4);
+      onTxPriceMainChange();
+      msgs.push(`Precio: $${data.regularMarketPrice.toFixed(2)}`);
     } else {
       setTxStatus('No se encontró precio', 'err');
     }
+    if (msgs.length) setTxStatus(msgs.join(' · '), 'ok');
   } catch(e) {
     setTxStatus('Error al buscar precio', 'err');
   } finally {
@@ -7203,84 +7312,61 @@ async function fetchTxPrice() {
 
 function getTxNum(id) { return parseFloat(document.getElementById(id).value) || 0; }
 
-function onTxPriceChange() {
-  const priceUsd = getTxNum('txPriceUsd');
+function recalcAmounts() {
+  const priceUsd = getPriceUsd();
   const fx       = getTxNum('txFxRate');
-  if (priceUsd && fx) document.getElementById('txPriceLocal').value = (priceUsd / fx).toFixed(4);
-  const qty = getTxNum('txQty');
+  const qty      = getTxNum('txQty');
   if (qty && priceUsd) {
     document.getElementById('txAmountUsd').value   = (qty * priceUsd).toFixed(4);
     if (fx) document.getElementById('txAmountLocal').value = (qty * priceUsd / fx).toFixed(4);
   }
 }
 
-function onTxPriceLocalChange() {
-  const priceLoc = getTxNum('txPriceLocal');
-  const priceUsd = getTxNum('txPriceUsd');
-  if (priceLoc && priceUsd) document.getElementById('txFxRate').value = (priceUsd / priceLoc).toFixed(5);
-  const amtLocal = getTxNum('txAmountLocal');
-  const fx       = getTxNum('txFxRate');
-  if (amtLocal && fx) document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
+function onTxPriceMainChange() {
+  recalcDerivedPrice();
+  recalcAmounts();
 }
 
 function onTxFxChange() {
-  const fx       = getTxNum('txFxRate');
-  const priceUsd = getTxNum('txPriceUsd');
-  if (fx && priceUsd) document.getElementById('txPriceLocal').value = (priceUsd / fx).toFixed(4);
-  const amtLocal = getTxNum('txAmountLocal');
-  if (amtLocal && fx) document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
+  recalcDerivedPrice();
+  recalcAmounts();
 }
 
 function onTxQtyChange() {
-  const qty      = getTxNum('txQty');
-  const priceUsd = getTxNum('txPriceUsd');
-  const fx       = getTxNum('txFxRate');
-  if (qty && priceUsd) {
-    document.getElementById('txAmountUsd').value   = (qty * priceUsd).toFixed(4);
-    if (fx) document.getElementById('txAmountLocal').value = (qty * priceUsd / fx).toFixed(4);
-  }
-}
-
-function onTxAmountLocalChange() {
-  const amtLocal = getTxNum('txAmountLocal');
-  const fx       = getTxNum('txFxRate');
-  const priceUsd = getTxNum('txPriceUsd');
-  if (amtLocal && fx) {
-    document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
-    if (priceUsd) document.getElementById('txQty').value = (amtLocal * fx / priceUsd).toFixed(8);
-  }
+  recalcAmounts();
 }
 
 async function submitTransaction() {
   const ticker      = document.getElementById('txTicker').value.trim().toUpperCase();
+  const name        = document.getElementById('txName').value.trim() || ticker;
   const type        = document.getElementById('txType').value;
   const assetClass  = document.getElementById('txAssetClass').value;
   const date        = document.getElementById('txDate').value;
   const qty         = parseFloat(document.getElementById('txQty').value);
-  const priceUsd    = parseFloat(document.getElementById('txPriceUsd').value)   || null;
-  const priceLocal  = parseFloat(document.getElementById('txPriceLocal').value) || null;
   const amountUsd   = parseFloat(document.getElementById('txAmountUsd').value);
   const amountLocal = parseFloat(document.getElementById('txAmountLocal').value);
-  const feeLocal    = parseFloat(document.getElementById('txFeeLocal').value)   || 0;
-  const fxRate      = parseFloat(document.getElementById('txFxRate').value)     || null;
-  const broker      = document.getElementById('txBroker').value;
-  const exchange    = document.getElementById('txExchange').value || null;
+  const feeLocal    = parseFloat(document.getElementById('txFeeLocal').value) || 0;
+  const fxRate      = parseFloat(document.getElementById('txFxRate').value)   || null;
+  const broker      = getTxBrokerValue();
+  const exchange    = getTxExchangeValue();
   const notes       = document.getElementById('txNotes').value.trim() || null;
+  const priceUsd    = getPriceUsd() || null;
+  const priceLocal  = getPriceLocal() || null;
   const meta        = TX_TICKER_META[ticker];
-  const pricingCurrency = meta?.pricing || 'USD';
+  const pricingCurrency = meta?.pricing || (_txPricingCurrency === 'GBP' ? 'GBP' : 'USD');
 
-  if (!ticker)               { setTxStatus('Ticker requerido', 'err'); return; }
-  if (!date)                 { setTxStatus('Fecha requerida', 'err'); return; }
-  if (!qty || isNaN(qty))    { setTxStatus('Qty requerida', 'err'); return; }
-  if (!amountUsd || isNaN(amountUsd))     { setTxStatus('Amount USD requerido', 'err'); return; }
-  if (!amountLocal || isNaN(amountLocal)) { setTxStatus('Amount GBP requerido', 'err'); return; }
+  if (!ticker)             { setTxStatus('Ticker requerido', 'err'); return; }
+  if (!date)               { setTxStatus('Fecha requerida', 'err'); return; }
+  if (!qty || isNaN(qty))  { setTxStatus('Qty requerida', 'err'); return; }
+  if (!amountUsd  || isNaN(amountUsd))   { setTxStatus('Amount USD requerido', 'err'); return; }
+  if (!amountLocal || isNaN(amountLocal)){ setTxStatus('Amount GBP requerido', 'err'); return; }
 
   const btn = document.getElementById('txSubmitBtn');
   btn.disabled = true;
   setTxStatus('Guardando...', '');
 
   const payload = {
-    date, ticker, type,
+    date, ticker, name, type,
     asset_class:      assetClass,
     qty:              qty.toString(),
     price_usd:        priceUsd,
@@ -7302,33 +7388,26 @@ async function submitTransaction() {
       headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify(payload),
     });
-
     if (!insertRes.ok) {
       const err = await insertRes.text();
       setTxStatus('Error: ' + err.slice(0, 80), 'err');
       btn.disabled = false;
       return;
     }
-
-    setTxStatus('Guardado. Recalculando posiciones...', '');
-
+    setTxStatus('Guardado. Recalculando...', '');
     const recalcRes = await fetch('/api/recalculate-positions', { method: 'POST' });
     const recalc    = await recalcRes.json();
-
     if (recalc.ok) {
       const n = (recalc.updated?.length || 0) + (recalc.inserted?.length || 0);
       setTxStatus(`✓ Listo — ${n} posición(es) actualizadas`, 'ok');
     } else {
       setTxStatus('Guardado, error en recálculo: ' + (recalc.error || ''), 'err');
     }
-
     if (document.getElementById('txHistoryBody').classList.contains('open')) loadTxHistory();
-
-    ['txQty','txPriceUsd','txPriceLocal','txAmountUsd','txAmountLocal','txFxRate','txNotes'].forEach(id => {
+    ['txQty','txPriceMain','txPriceDerived','txAmountUsd','txAmountLocal','txFxRate','txNotes'].forEach(id => {
       document.getElementById(id).value = '';
     });
     document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
-
   } catch(e) {
     setTxStatus('Error inesperado: ' + e.message, 'err');
   } finally {
@@ -7355,8 +7434,9 @@ async function loadTxHistory() {
       container.innerHTML = '<span style="color:var(--muted);font-size:13px">Sin transacciones</span>';
       return;
     }
-    const fmt     = v  => v != null ? Number(v).toLocaleString('es-AR', { maximumFractionDigits: 4 }) : '—';
-    const fmtDate = d  => d ? d.slice(5).replace('-', '/') : '—';
+    const fmt      = v => v != null ? Number(v).toLocaleString('es-AR', { maximumFractionDigits: 4 }) : '—';
+    const fmtDate  = d => d ? d.slice(5).replace('-', '/') : '—';
+    const typeLabel = { BUY: 'Compra', SELL: 'Venta', RSU_VEST: 'RSU', FX_CONVERSION: 'FX' };
     container.innerHTML = `
       <div style="overflow-x:auto;margin-top:8px">
         <table class="tx-hist-table">
@@ -7367,7 +7447,7 @@ async function loadTxHistory() {
             ${rows.map(r => `<tr>
               <td>${fmtDate(r.date)}</td>
               <td style="font-weight:700">${r.ticker}</td>
-              <td><span class="tx-hist-badge ${r.type}">${r.type}</span></td>
+              <td><span class="tx-hist-badge ${r.type}">${typeLabel[r.type] || r.type}</span></td>
               <td>${fmt(r.qty)}</td>
               <td>${fmt(r.amount_local)}</td>
               <td>${fmt(r.fee_local)}</td>
