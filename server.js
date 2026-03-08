@@ -339,7 +339,7 @@ app.post('/api/positions/manual', async (req, res) => {
     updates.initial_investment_gbp = updates.qty; // para GBP cash, gbp = qty
   }
 
-  const supaUrl = `${SUPABASE_URL}/rest/v1/positions_dev?ticker=eq.${encodeURIComponent(ticker)}&managed_by=eq.manual`;
+  const supaUrl = `${SUPABASE_URL}/rest/v1/positions?ticker=eq.${encodeURIComponent(ticker)}&managed_by=eq.manual`;
 
   try {
     const sbRes = await fetch(supaUrl, {

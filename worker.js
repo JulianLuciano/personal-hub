@@ -48,11 +48,11 @@ async function fetchFxRate() {
 async function run() {
   console.log(`[${new Date().toISOString()}] Worker arrancando...`);
 
-  // 1. Load positions from positions_dev
+  // 1. Load positions
   const { data: positions, error: posError } = await supabase
-    .from('positions_dev')
+    .from('positions')
     .select('*');
-  if (posError) { console.error('Error leyendo positions_dev:', posError); return; }
+  if (posError) { console.error('Error leyendo positions:', posError); return; }
 
   // 2. Build GBP_PRICED set dynamically from pricing_currency column
   // (replaces the old hardcoded GBP_PRICED_TICKERS = new Set(['VWRP.L']))

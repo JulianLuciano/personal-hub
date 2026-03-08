@@ -1082,6 +1082,199 @@
 .health-metric-row:last-child { border-bottom:none; }
 .health-metric-label { font-size:12px; color:var(--muted); flex:1; min-width:0; }
 .health-metric-val { font-family:var(--font-num); font-size:13px; font-weight:700; flex-shrink:0; max-width:50%; text-align:right; }
+
+/* ── Transaction Panel ───────────────────────────────────────────────── */
+.tx-fab {
+  position: fixed;
+  bottom: calc(68px + 16px);
+  right: 16px;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 150;
+  box-shadow: 0 4px 20px rgba(108,99,255,0.45);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s, opacity 0.2s;
+}
+.tx-fab:active { transform: scale(0.92); }
+
+.tx-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(3px);
+  z-index: 300;
+}
+.tx-overlay.open { display: block; }
+
+.tx-panel {
+  position: fixed;
+  top: 0; right: 0;
+  width: min(420px, 100vw);
+  height: 100%;
+  background: var(--surface);
+  z-index: 301;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+}
+.tx-panel.open { transform: translateX(0); }
+
+.tx-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tx-panel-header h2 {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800; font-size: 18px;
+}
+.tx-panel-close {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.tx-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Form */
+.tx-form { display: flex; flex-direction: column; gap: 12px; }
+
+.tx-field { display: flex; flex-direction: column; gap: 4px; }
+.tx-field label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.tx-field input, .tx-field select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.tx-field input:focus, .tx-field select:focus { border-color: var(--accent); }
+.tx-field input.derived {
+  color: var(--muted);
+  font-style: italic;
+}
+.tx-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tx-field-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+.tx-price-row {
+  display: flex; align-items: flex-end; gap: 8px;
+}
+.tx-price-row .tx-field { flex: 1; }
+.tx-fetch-btn {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: rgba(108,99,255,0.12);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.tx-fetch-btn:hover { background: rgba(108,99,255,0.22); }
+.tx-fetch-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tx-section-label {
+  font-size: 11px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+
+.tx-submit-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  margin-top: 4px;
+}
+.tx-submit-btn:hover { opacity: 0.9; }
+.tx-submit-btn:active { transform: scale(0.98); }
+.tx-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tx-status {
+  font-size: 13px;
+  text-align: center;
+  min-height: 18px;
+  color: var(--muted);
+}
+.tx-status.ok  { color: var(--accent3); }
+.tx-status.err { color: var(--accent2); }
+
+/* History table */
+.tx-history-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  background: none; border: none; width: 100%;
+  color: var(--text); cursor: pointer; padding: 0;
+}
+.tx-history-toggle span { font-size: 14px; font-weight: 600; }
+.tx-history-toggle .tx-hist-arrow { color: var(--muted); font-size: 12px; transition: transform 0.2s; }
+.tx-history-toggle.open .tx-hist-arrow { transform: rotate(180deg); }
+
+.tx-history-body { display: none; margin-top: 10px; }
+.tx-history-body.open { display: block; }
+
+.tx-hist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.tx-hist-table th {
+  color: var(--muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.tx-hist-table td {
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-num);
+}
+.tx-hist-table tr:last-child td { border-bottom: none; }
+.tx-hist-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 6px;
+  background: rgba(108,99,255,0.15); color: var(--accent);
+}
+.tx-hist-badge.RSU_VEST { background: rgba(67,233,123,0.15); color: var(--accent3); }
+.tx-hist-badge.SELL     { background: rgba(255,101,132,0.15); color: var(--accent2); }
 </style>
 </head>
 <body>
@@ -1844,7 +2037,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">RSUs por vest</span>
-            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2000">
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
             <span class="mc-p-unit">£ / trimestre</span>
           </div>
           <div class="mc-p-item">
@@ -2140,7 +2333,7 @@
         <button class="ai-close" onclick="closeAIChat()">×</button>
       </div>
       <div id="aiMessages">
-        <div class="ai-msg assistant" id="aiWelcomeMsg">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>
+        <div class="ai-msg assistant">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>
       </div>
       <div class="ai-quick-btns">
         <div class="ai-quick-btn" onclick="aiQuick('¿Cómo está la composición actual de mi portfolio?')">Composición</div>
@@ -2166,6 +2359,150 @@
       <h2 id="healthDetailTitle" style="font-size:17px;margin-bottom:16px">—</h2>
       <div id="healthDetailBody"></div>
       <button style="margin-top:20px;width:100%;padding:14px;border-radius:14px;border:none;background:var(--surface2);color:var(--muted);font-size:14px;cursor:pointer" onclick="closeHealthDetail()">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- ── Transaction FAB + Panel ──────────────────────────────────────── -->
+  <button class="tx-fab" id="txFab" onclick="openTxPanel()" title="Nueva transacción">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+
+  <div class="tx-overlay" id="txOverlay" onclick="closeTxPanel()"></div>
+
+  <div class="tx-panel" id="txPanel">
+    <div class="tx-panel-header">
+      <h2>Nueva transacción</h2>
+      <button class="tx-panel-close" onclick="closeTxPanel()">✕</button>
+    </div>
+    <div class="tx-panel-body">
+
+      <!-- FORM -->
+      <div class="tx-form" id="txForm">
+
+        <div class="tx-section-label">Activo</div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>Ticker</label>
+            <input id="txTicker" type="text" placeholder="MELI" autocomplete="off"
+              oninput="this.value=this.value.toUpperCase()" onblur="onTxTickerBlur()">
+          </div>
+          <div class="tx-field">
+            <label>Tipo</label>
+            <select id="txType" onchange="onTxTypeChange()">
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+              <option value="RSU_VEST">RSU_VEST</option>
+              <option value="FX_CONVERSION">FX_CONVERSION</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>Asset class</label>
+            <select id="txAssetClass">
+              <option value="acciones">acciones</option>
+              <option value="cripto">cripto</option>
+              <option value="rsu">rsu</option>
+              <option value="fiat">fiat</option>
+            </select>
+          </div>
+          <div class="tx-field">
+            <label>Fecha</label>
+            <input id="txDate" type="date">
+          </div>
+        </div>
+
+        <div class="tx-section-label">Precio</div>
+
+        <div class="tx-price-row">
+          <div class="tx-field">
+            <label>Price USD</label>
+            <input id="txPriceUsd" type="number" step="any" placeholder="0.00" oninput="onTxPriceChange()">
+          </div>
+          <button class="tx-fetch-btn" id="txFetchBtn" onclick="fetchTxPrice()">⚡ Live</button>
+        </div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>FX rate (USD/GBP)</label>
+            <input id="txFxRate" type="number" step="any" placeholder="1.335" oninput="onTxFxChange()">
+          </div>
+          <div class="tx-field">
+            <label>Price GBP</label>
+            <input id="txPriceLocal" type="number" step="any" placeholder="0.00" class="derived" oninput="onTxPriceLocalChange()">
+          </div>
+        </div>
+
+        <div class="tx-section-label">Cantidad</div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>Qty</label>
+            <input id="txQty" type="number" step="any" placeholder="0.00000000" oninput="onTxQtyChange()">
+          </div>
+          <div class="tx-field">
+            <label>Amount GBP</label>
+            <input id="txAmountLocal" type="number" step="any" placeholder="0.00" oninput="onTxAmountLocalChange()">
+          </div>
+        </div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>Amount USD</label>
+            <input id="txAmountUsd" type="number" step="any" placeholder="0.00" class="derived" readonly>
+          </div>
+          <div class="tx-field">
+            <label>Fee GBP</label>
+            <input id="txFeeLocal" type="number" step="any" placeholder="0.15">
+          </div>
+        </div>
+
+        <div class="tx-section-label">Broker</div>
+
+        <div class="tx-field-row">
+          <div class="tx-field">
+            <label>Broker</label>
+            <select id="txBroker">
+              <option value="Trading212">Trading212</option>
+              <option value="Schwab">Schwab</option>
+              <option value="Kraken">Kraken</option>
+            </select>
+          </div>
+          <div class="tx-field">
+            <label>Exchange</label>
+            <select id="txExchange">
+              <option value="NASDAQ">NASDAQ</option>
+              <option value="NYSE">NYSE</option>
+              <option value="LSE">LSE</option>
+              <option value="CRYPTO">CRYPTO</option>
+              <option value="">— ninguno —</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tx-field">
+          <label>Notas</label>
+          <input id="txNotes" type="text" placeholder="Opcional">
+        </div>
+
+        <div class="tx-status" id="txStatus"></div>
+        <button class="tx-submit-btn" id="txSubmitBtn" onclick="submitTransaction()">Guardar transacción</button>
+
+      </div>
+
+      <!-- HISTORY -->
+      <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+        <button class="tx-history-toggle" id="txHistToggle" onclick="toggleTxHistory()">
+          <span>Historial</span>
+          <span class="tx-hist-arrow">▼</span>
+        </button>
+        <div class="tx-history-body" id="txHistoryBody">
+          <div id="txHistoryContent" style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0">Cargando...</div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -2499,33 +2836,20 @@ async function loadPortfolio() {
       }
     }
 
-    // ── Weekend-aware baseline logic ───────────────────────────────────────────
-    // For equities (non-crypto):
-    //   Saturday → show last close (Fri) vs previous close (Thu) → baseline = 'yesterday' vs 'dayBefore'
-    //   Sunday   → show last close (Fri) vs 2 days before that (Wed) → baseline = 'yesterday' vs 'twoBefore'
-    //   Weekday, market already open  → today vs yesterday
-    //   Weekday, market not open yet  → yesterday vs dayBefore
-    // Crypto (BTC etc.) is always open → always today vs yesterday
-    const _nowDow = new Date().getUTCDay(); // 0=Sun, 6=Sat
-    const _isSaturday = _nowDow === 6;
-    const _isSunday   = _nowDow === 0;
-
+    // Which "day" to use as baseline for each ticker's daily variation:
+    // If the market hasn't opened yet today, today's price == yesterday's close
+    // so we compare yesterday vs the day before (2d ago).
+    // Crypto is always open so always use today vs yesterday.
     function baselineDayForTicker(ticker) {
-      if (ticker === 'BTC' || ticker === 'ETH' || ticker === 'ADA' || ticker === 'SOL') {
-        return 'today'; // crypto: always live
-      }
-      // Sat & Sun: last close = Fri, baseline = Thu → same comparison both days
-      if (_isSaturday || _isSunday) return 'weekend'; // Fri vs Thu
+      if (ticker === 'BTC') return 'today';
       const lseTickers = ['VWRP.L', 'ARKK.L', 'NDIA.L'];
       const exchange = lseTickers.includes(ticker) ? 'LSE' : 'NYSE';
       return marketOpenedTodayUTC(exchange) ? 'today' : 'yesterday';
     }
 
-    const todayUTC      = new Date().toISOString().slice(0, 10);
-    const yesterdayUTC  = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
-    const twoDaysUTC    = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
-    const threeDaysUTC  = new Date(Date.now() - 3 * 24*60*60*1000).toISOString().slice(0, 10);
-    const fourDaysUTC   = new Date(Date.now() - 4 * 24*60*60*1000).toISOString().slice(0, 10); // Sun: 4d ago = Thu
+    const todayUTC     = new Date().toISOString().slice(0, 10);
+    const yesterdayUTC = new Date(Date.now() -     24*60*60*1000).toISOString().slice(0, 10);
+    const twoDaysUTC   = new Date(Date.now() - 2 * 24*60*60*1000).toISOString().slice(0, 10);
 
     // Fetch yesterday prices (always needed)
     const ydStart = yesterdayUTC + 'T00:00:00.000Z';
@@ -2541,7 +2865,7 @@ async function loadPortfolio() {
       if (!pricesYesterday[t]) pricesYesterday[t] = row.price_usd;
     });
 
-    // Fetch day-before-yesterday prices (needed for pre-market weekdays + Saturday)
+    // Fetch day-before-yesterday prices (needed when market hasn't opened yet)
     const d2Start = twoDaysUTC   + 'T00:00:00.000Z';
     const d2End   = yesterdayUTC + 'T00:00:00.000Z';
     const priceDataD2 = await sbFetch(
@@ -2555,34 +2879,9 @@ async function loadPortfolio() {
       if (!pricesDayBefore[t]) pricesDayBefore[t] = row.price_usd;
     });
 
-    // Fetch ante-ante-ayer prices (needed for Sunday: Fri vs Wed)
-    // On Sunday: today=Sun, yesterday=Sat(no data), 2d=Fri(last close), 3d=Thu, 4d=Wed
-    // We want Fri vs Wed, so we need the Wed prices.
-    // We fetch a wider window (3d and 4d back) to find the last trading day before Fri.
-    let pricesTwoBefore = {};
-    // Sunday: need Thu prices (3d ago for Sun = Thu; 4d ago for Sun = Thu snapshot boundary)
-    // pricesTwoBefore  = used as the "Fri" reference on Sunday (2d ago from Sun = Fri)
-    // pricesThreeBefore = used as the "Thu" baseline on Sunday (3d ago from Sun = Thu)
-    let pricesThreeBefore = {};
-    if (_isSunday) {
-      // 3d ago from Sunday = Thursday
-      const d3Start = threeDaysUTC + 'T00:00:00.000Z';
-      const d3End   = twoDaysUTC   + 'T00:00:00.000Z';
-      const priceDataD3 = await sbFetch(
-        '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
-        '&captured_at=gte.' + d3Start + '&captured_at=lt.' + d3End +
-        '&order=captured_at.desc&limit=500'
-      );
-      priceDataD3.forEach(row => {
-        const t = normTicker(row.ticker);
-        if (!pricesThreeBefore[t]) pricesThreeBefore[t] = row.price_usd;
-      });
-    }
-
     console.log('[Portfolio] prices today:', prices);
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
-    if (_isSunday) console.log('[Portfolio] prices three-before (Thu):', pricesThreeBefore);
 
     // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
     const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
@@ -2648,26 +2947,18 @@ async function loadPortfolio() {
         }
       }
 
-      // Daily variation: use correct baseline depending on day of week / market status
+      // Daily variation: use correct baseline depending on whether market opened today
       let dayPct = null;
-      const _t4bl = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
-      const baseline = baselineDayForTicker(_t4bl);
+      const baseline = baselineDayForTicker(pos.ticker === 'RSU_META' ? 'META' : pos.ticker);
       if (baseline === 'today') {
-        // Normal weekday, market open: today vs yesterday
+        // Normal: today's price vs yesterday's close
         const prevPrice = pricesYesterday[pos.ticker];
         if (priceUSD && prevPrice) dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
-      } else if (baseline === 'yesterday') {
-        // Weekday pre-market: yesterday vs day-before
+      } else {
+        // Market hasn't opened yet: compare yesterday's close vs day-before close
         const prevPrice = pricesYesterday[pos.ticker];
         const d2Price   = pricesDayBefore[pos.ticker];
         if (prevPrice && d2Price) dayPct = ((prevPrice - d2Price) / d2Price) * 100;
-      } else if (baseline === 'weekend') {
-        // Sat & Sun: last close = Fri, baseline = Thu
-        // Sat: Fri = pricesYesterday, Thu = pricesDayBefore
-        // Sun: Fri = pricesDayBefore,  Thu = pricesThreeBefore
-        const friPrice = _isSaturday ? pricesYesterday[pos.ticker] : pricesDayBefore[pos.ticker];
-        const thuPrice = _isSaturday ? pricesDayBefore[pos.ticker] : pricesThreeBefore[pos.ticker];
-        if (friPrice && thuPrice) dayPct = ((friPrice - thuPrice) / thuPrice) * 100;
       }
 
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
@@ -2711,33 +3002,12 @@ async function loadPortfolio() {
     }
 
     // ── Portfolio daily change ──────────────────────────────────────────────────
-    // Weekend-aware: Sat → Fri vs Thu snapshots; Sun → Fri vs Wed snapshots.
+    // If LSE hasn't opened yet, use yesterday vs day-before snapshots.
     // Compute BOTH USD and GBP change from snapshot native values — no FX conversion needed.
     let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
-
-    // Find the snapshot that corresponds to each reference day
-    // snapData is sorted desc by captured_at
-    function snapForDay(targetDateStr) {
-      return snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) === targetDateStr) || null;
-    }
-
-    if (_isSaturday || _isSunday) {
-      // Weekend: always Fri vs Thu (last close vs prior close)
-      // Sat: Fri = yesterdayUTC, Thu = twoDaysUTC
-      // Sun: Fri = twoDaysUTC,   Thu = threeDaysUTC
-      const friDate = _isSaturday ? yesterdayUTC : twoDaysUTC;
-      const thuDate = _isSaturday ? twoDaysUTC   : threeDaysUTC;
-      const friSnap = snapForDay(friDate);
-      const thuSnap = snapForDay(thuDate);
-      if (friSnap && thuSnap) {
-        changeUSD = friSnap.total_usd - thuSnap.total_usd;
-        const friGBP = friSnap.total_gbp || (friSnap.total_usd * (friSnap.fx_rate || FX_RATE));
-        const thuGBP = thuSnap.total_gbp || (thuSnap.total_usd * (thuSnap.fx_rate || FX_RATE));
-        changeGBP = friGBP - thuGBP;
-      }
-    } else if (lseOpened) {
-      // Normal weekday, market open: today vs yesterday
+    if (lseOpened) {
+      // Normal: today vs yesterday
       if (yesterdaySnap) {
         changeUSD = totalUSD - yesterdaySnap.total_usd;
         const todayGBP = totalUSD * FX_RATE;
@@ -2745,7 +3015,7 @@ async function loadPortfolio() {
         changeGBP = todayGBP - prevGBP;
       }
     } else {
-      // Weekday pre-market: yesterday vs day-before
+      // Pre-market: yesterday vs day-before
       if (yesterdaySnap && dayBeforeSnapObj) {
         changeUSD = yesterdaySnap.total_usd - dayBeforeSnapObj.total_usd;
         const yGBP  = yesterdaySnap.total_gbp   || (yesterdaySnap.total_usd   * (yesterdaySnap.fx_rate   || FX_RATE));
@@ -3212,16 +3482,9 @@ function renderPnlAttribution() {
     if (pos.category === 'fiat') {
       if (isGBP || pnlAttrMode === 'day') return;
       if (pos.currency !== 'GBP' || valueUSD < 1) return;
-      // Cost basis in USD: prefer qty * avg_cost_usd (TC at purchase) which is the most
-      // accurate. If not set, fall back to initial_investment_usd.
-      // NOTE: initial_investment_usd may be stored as GBP face value instead of USD equiv
-      // (a data entry error), so avg_cost_usd * qty is the more reliable calculation.
-      const qty       = Number(pos.qty);
-      const avgCostUSD = Number(pos.avg_cost_usd);   // TC en USD/GBP al momento de compra
-      const initUSD    = Number(pos.initial_investment_usd);
-      const costUSD    = (avgCostUSD && qty) ? qty * avgCostUSD : initUSD;
-      if (!costUSD) return;
-      fiatGBPContribUSD += valueUSD - costUSD;
+      const inv = Number(pos.initial_investment_usd);
+      if (!inv) return;
+      fiatGBPContribUSD += valueUSD - inv;
       hasFiatGBP = true;
       return;
     }
@@ -5581,49 +5844,28 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    const _p = window._aiProfile || {};
-    const _name          = _p.name          || 'Julián';
-    const _monthlyExp    = _p.monthlyExp    || '£4000';
-    const _savingsRange  = _p.savingsRange  || '£900-1000/mo';
-    const _bonusRange    = _p.bonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)';
-    const _rsuRange      = _p.rsuRange      || 'META quarterly ~£2000 net/vest';
-    const _emergencyFund = _p.emergencyFund || '£2500';
-    const _cashAvailable = _p.cashAvailable || '£500 aprox';
-    const _goals         = _p.goals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
-    const _salaryRange   = _p.salaryRange   || '£20k-22k';
-    const _annualInvest  = _p.annualInvest  || '£31k-34k/yr';
-
-    const _todayStr = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-    // Read live values from positions data
-    const _emergencyAsset = liveData && liveData.assets && liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
-    const _gbpLiquidAsset = liveData && liveData.assets && liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
-    const _emergencyQty   = _emergencyAsset ? Math.round(Number(_emergencyAsset.pos.qty)) : (_emergencyFund || '?');
-    const _gbpLiquidQty   = _gbpLiquidAsset ? Math.round(Number(_gbpLiquidAsset.pos.qty)) : (_cashAvailable || '?');
-
-    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Cuando saludes, usá siempre el nombre ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
-Hoy es ${_todayStr}.
+    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
-savings: ${_savingsRange} | bonus_net: ${_bonusRange} | rsu: ${_rsuRange}
-emergency_fund: £${_emergencyQty} (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
-cash_available: GBP_LIQUID = excedente para invertir (actualmente £${_gbpLiquidQty})
+location: London, UK | currency: GBP | monthly_expenses: £4000
+savings: £900-1000/mo | bonus_net: £9000-10000/yr (Mar+Sep, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
+emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
+cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: ${_goals}
+goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
 
 CASHFLOW_ANALYSIS
-annual_investable: ~${_salaryRange} salary+bonus + ~£11k-12k RSUs = ${_annualInvest}
+annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: último día hábil de Mar+Sep (bonus), quarterly (RSU vest)
+key_dates: Mar+Sep (bonus), quarterly (RSU vest)
 
 RULES
 - ${fxLine}
-- META concentration risk: RSUs + held shares = evaluate concentration, warn only if single-stock exposure is high relative to total portfolio
+- META concentration risk: RSUs + held shares = largest single exposure
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
-- Último día hábil de Mar/Sep = key investment decision points (bonus)
+- Bonus months (Mar/Sep) = key investment decision points
 - Promotion delta should go to investing, not expenses
 - Use all provided data (fundamentals, macro, watchlist) for analysis
 
@@ -5680,39 +5922,6 @@ async function getAnthropicKey() {
   window._anthropicKey = cfg.anthropicKey;
   return window._anthropicKey;
 }
-
-// Load Railway env config on page start — fills MC inputs + stores AI profile overrides
-async function loadAppConfig() {
-  try {
-    const res = await fetch('/api/config');
-    const cfg = await res.json();
-    window._anthropicKey = cfg.anthropicKey; // cache for AI chat
-    // Monte Carlo inputs
-    if (cfg.mcMonthly != null) { const el = document.getElementById('mc-p-monthly'); if (el) el.value = cfg.mcMonthly; }
-    if (cfg.mcBonus   != null) { const el = document.getElementById('mc-p-bonus');   if (el) el.value = cfg.mcBonus;   }
-    if (cfg.mcRsu     != null) { const el = document.getElementById('mc-p-rsu');     if (el) el.value = cfg.mcRsu;     }
-    // AI system prompt profile (stored globally, used when building systemPrompt)
-    window._aiProfile = {
-      name:          cfg.aiName          || 'Julián',
-      monthlyExp:    cfg.aiMonthlyExp    || '£4000',
-      savingsRange:  cfg.aiSavingsRange  || '£900-1000/mo',
-      bonusRange:    cfg.aiBonusRange    || '£9000-10000/yr (Mar+Sep, 50/50)',
-      rsuRange:      cfg.aiRsuRange      || 'META quarterly ~£2000 net/vest',
-      emergencyFund: cfg.aiEmergencyFund || '£2500',
-      cashAvailable: cfg.aiCashAvailable || '£500 aprox',
-      goals:         cfg.aiGoals         || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)',
-      salaryRange:   cfg.aiSalaryRange   || '£20k-22k',
-      annualInvest:  cfg.aiAnnualInvest  || '£31k-34k/yr',
-    };
-    // Update all DOM elements that display the user's name
-    const name = window._aiProfile.name;
-    const welcomeEl = document.getElementById('aiWelcomeMsg');
-    if (welcomeEl) welcomeEl.textContent = 'Hola ' + name + ' 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?';
-    const topbarH1 = document.querySelector('.topbar-left h1');
-    if (topbarH1) topbarH1.textContent = 'Good morning, ' + name + ' 👋';
-  } catch(e) { console.warn('[config] failed to load app config:', e.message); }
-}
-loadAppConfig();
 
 function aiRenderMarkdown(text) {
   // Escape HTML first
@@ -6073,7 +6282,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (950 * 12) + 9500 + (2000 * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -6631,7 +6840,7 @@ function mcRun() {
     const cashVol  = _n('mc-p-cash-vol',    1);
     const monthly  = _n('mc-p-monthly',950);
     const bonus    = _n('mc-p-bonus',  9500);
-    const rsu      = _n('mc-p-rsu',    2000);
+    const rsu      = _n('mc-p-rsu',    2650);
     const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
     const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
     const startInvested = _n('mc-p-invested', mcGetPortfolioInvested());
@@ -6899,6 +7108,277 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   })();
 });
+
+// ── Transaction Panel ────────────────────────────────────────────────────────
+
+const TX_DEFAULTS = {
+  broker:    'Trading212',
+  exchange:  'NASDAQ',
+  feeLocal:  '0.15',
+};
+
+const TX_TICKER_META = {
+  'MELI':    { assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'SPY':     { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'BRK.B':   { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'NU':      { assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'MSFT':    { assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'META':    { assetClass: 'rsu',      exchange: 'NASDAQ', pricing: 'USD' },
+  'VWRP.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'GBP' },
+  'ARKK.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'NDIA.L': { assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'BTC':     { assetClass: 'cripto',   exchange: '',       pricing: 'USD' },
+};
+
+function openTxPanel() {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('txDate').value = today;
+  setTxStatus('', '');
+  document.getElementById('txOverlay').classList.add('open');
+  document.getElementById('txPanel').classList.add('open');
+}
+
+function closeTxPanel() {
+  document.getElementById('txOverlay').classList.remove('open');
+  document.getElementById('txPanel').classList.remove('open');
+}
+
+function setTxStatus(msg, type) {
+  const el = document.getElementById('txStatus');
+  el.textContent = msg;
+  el.className = 'tx-status' + (type ? ' ' + type : '');
+}
+
+function onTxTickerBlur() {
+  const ticker = document.getElementById('txTicker').value.trim().toUpperCase();
+  if (!ticker) return;
+  const meta = TX_TICKER_META[ticker];
+  if (meta) {
+    document.getElementById('txAssetClass').value = meta.assetClass;
+    document.getElementById('txExchange').value   = meta.exchange;
+    if (ticker === 'META') {
+      document.getElementById('txType').value     = 'RSU_VEST';
+      document.getElementById('txBroker').value   = 'Schwab';
+      document.getElementById('txFeeLocal').value = '0.00';
+    }
+  }
+}
+
+function onTxTypeChange() {
+  const type = document.getElementById('txType').value;
+  if (type === 'RSU_VEST') {
+    document.getElementById('txBroker').value   = 'Schwab';
+    document.getElementById('txFeeLocal').value = '0.00';
+  } else {
+    document.getElementById('txBroker').value   = 'Trading212';
+    document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
+  }
+}
+
+async function fetchTxPrice() {
+  const ticker = document.getElementById('txTicker').value.trim().toUpperCase();
+  if (!ticker) { setTxStatus('Ingresá un ticker primero', 'err'); return; }
+  const btn = document.getElementById('txFetchBtn');
+  btn.disabled = true; btn.textContent = '...';
+  setTxStatus('Buscando precio...', '');
+  const YAHOO_MAP = { 'BRK.B': 'BRK-B', 'BTC': 'BTC-USD' };
+  const yahooTicker = YAHOO_MAP[ticker] || ticker;
+  try {
+    const res  = await fetch(`/api/market-data?tickers=${encodeURIComponent(yahooTicker)}`);
+    const json = await res.json();
+    const data = json.data?.[yahooTicker];
+    if (data?.regularMarketPrice) {
+      document.getElementById('txPriceUsd').value = data.regularMarketPrice.toFixed(4);
+      onTxPriceChange();
+      setTxStatus(`Precio: $${data.regularMarketPrice.toFixed(2)}`, 'ok');
+    } else {
+      setTxStatus('No se encontró precio', 'err');
+    }
+  } catch(e) {
+    setTxStatus('Error al buscar precio', 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ Live';
+  }
+}
+
+function getTxNum(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function onTxPriceChange() {
+  const priceUsd = getTxNum('txPriceUsd');
+  const fx       = getTxNum('txFxRate');
+  if (priceUsd && fx) document.getElementById('txPriceLocal').value = (priceUsd / fx).toFixed(4);
+  const qty = getTxNum('txQty');
+  if (qty && priceUsd) {
+    document.getElementById('txAmountUsd').value   = (qty * priceUsd).toFixed(4);
+    if (fx) document.getElementById('txAmountLocal').value = (qty * priceUsd / fx).toFixed(4);
+  }
+}
+
+function onTxPriceLocalChange() {
+  const priceLoc = getTxNum('txPriceLocal');
+  const priceUsd = getTxNum('txPriceUsd');
+  if (priceLoc && priceUsd) document.getElementById('txFxRate').value = (priceUsd / priceLoc).toFixed(5);
+  const amtLocal = getTxNum('txAmountLocal');
+  const fx       = getTxNum('txFxRate');
+  if (amtLocal && fx) document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
+}
+
+function onTxFxChange() {
+  const fx       = getTxNum('txFxRate');
+  const priceUsd = getTxNum('txPriceUsd');
+  if (fx && priceUsd) document.getElementById('txPriceLocal').value = (priceUsd / fx).toFixed(4);
+  const amtLocal = getTxNum('txAmountLocal');
+  if (amtLocal && fx) document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
+}
+
+function onTxQtyChange() {
+  const qty      = getTxNum('txQty');
+  const priceUsd = getTxNum('txPriceUsd');
+  const fx       = getTxNum('txFxRate');
+  if (qty && priceUsd) {
+    document.getElementById('txAmountUsd').value   = (qty * priceUsd).toFixed(4);
+    if (fx) document.getElementById('txAmountLocal').value = (qty * priceUsd / fx).toFixed(4);
+  }
+}
+
+function onTxAmountLocalChange() {
+  const amtLocal = getTxNum('txAmountLocal');
+  const fx       = getTxNum('txFxRate');
+  const priceUsd = getTxNum('txPriceUsd');
+  if (amtLocal && fx) {
+    document.getElementById('txAmountUsd').value = (amtLocal * fx).toFixed(4);
+    if (priceUsd) document.getElementById('txQty').value = (amtLocal * fx / priceUsd).toFixed(8);
+  }
+}
+
+async function submitTransaction() {
+  const ticker      = document.getElementById('txTicker').value.trim().toUpperCase();
+  const type        = document.getElementById('txType').value;
+  const assetClass  = document.getElementById('txAssetClass').value;
+  const date        = document.getElementById('txDate').value;
+  const qty         = parseFloat(document.getElementById('txQty').value);
+  const priceUsd    = parseFloat(document.getElementById('txPriceUsd').value)   || null;
+  const priceLocal  = parseFloat(document.getElementById('txPriceLocal').value) || null;
+  const amountUsd   = parseFloat(document.getElementById('txAmountUsd').value);
+  const amountLocal = parseFloat(document.getElementById('txAmountLocal').value);
+  const feeLocal    = parseFloat(document.getElementById('txFeeLocal').value)   || 0;
+  const fxRate      = parseFloat(document.getElementById('txFxRate').value)     || null;
+  const broker      = document.getElementById('txBroker').value;
+  const exchange    = document.getElementById('txExchange').value || null;
+  const notes       = document.getElementById('txNotes').value.trim() || null;
+  const meta        = TX_TICKER_META[ticker];
+  const pricingCurrency = meta?.pricing || 'USD';
+
+  if (!ticker)               { setTxStatus('Ticker requerido', 'err'); return; }
+  if (!date)                 { setTxStatus('Fecha requerida', 'err'); return; }
+  if (!qty || isNaN(qty))    { setTxStatus('Qty requerida', 'err'); return; }
+  if (!amountUsd || isNaN(amountUsd))     { setTxStatus('Amount USD requerido', 'err'); return; }
+  if (!amountLocal || isNaN(amountLocal)) { setTxStatus('Amount GBP requerido', 'err'); return; }
+
+  const btn = document.getElementById('txSubmitBtn');
+  btn.disabled = true;
+  setTxStatus('Guardando...', '');
+
+  const payload = {
+    date, ticker, type,
+    asset_class:      assetClass,
+    qty:              qty.toString(),
+    price_usd:        priceUsd,
+    price_local:      priceLocal,
+    amount_usd:       amountUsd,
+    amount_local:     amountLocal,
+    fee_local:        feeLocal,
+    fx_rate_to_usd:   fxRate,
+    local_currency:   'GBP',
+    pricing_currency: pricingCurrency,
+    exchange,
+    broker,
+    notes,
+  };
+
+  try {
+    const insertRes = await fetch('/api/db/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!insertRes.ok) {
+      const err = await insertRes.text();
+      setTxStatus('Error: ' + err.slice(0, 80), 'err');
+      btn.disabled = false;
+      return;
+    }
+
+    setTxStatus('Guardado. Recalculando posiciones...', '');
+
+    const recalcRes = await fetch('/api/recalculate-positions', { method: 'POST' });
+    const recalc    = await recalcRes.json();
+
+    if (recalc.ok) {
+      const n = (recalc.updated?.length || 0) + (recalc.inserted?.length || 0);
+      setTxStatus(`✓ Listo — ${n} posición(es) actualizadas`, 'ok');
+    } else {
+      setTxStatus('Guardado, error en recálculo: ' + (recalc.error || ''), 'err');
+    }
+
+    if (document.getElementById('txHistoryBody').classList.contains('open')) loadTxHistory();
+
+    ['txQty','txPriceUsd','txPriceLocal','txAmountUsd','txAmountLocal','txFxRate','txNotes'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
+
+  } catch(e) {
+    setTxStatus('Error inesperado: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function toggleTxHistory() {
+  const toggle = document.getElementById('txHistToggle');
+  const body   = document.getElementById('txHistoryBody');
+  const isOpen = body.classList.contains('open');
+  toggle.classList.toggle('open', !isOpen);
+  body.classList.toggle('open', !isOpen);
+  if (!isOpen) loadTxHistory();
+}
+
+async function loadTxHistory() {
+  const container = document.getElementById('txHistoryContent');
+  container.innerHTML = '<span style="color:var(--muted)">Cargando...</span>';
+  try {
+    const res  = await fetch('/api/db/transactions?order=date.desc&limit=30');
+    const rows = await res.json();
+    if (!rows?.length) {
+      container.innerHTML = '<span style="color:var(--muted);font-size:13px">Sin transacciones</span>';
+      return;
+    }
+    const fmt     = v  => v != null ? Number(v).toLocaleString('es-AR', { maximumFractionDigits: 4 }) : '—';
+    const fmtDate = d  => d ? d.slice(5).replace('-', '/') : '—';
+    container.innerHTML = `
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="tx-hist-table">
+          <thead><tr>
+            <th>Fecha</th><th>Ticker</th><th>Tipo</th><th>Qty</th><th>£ Total</th><th>Fee</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>
+              <td>${fmtDate(r.date)}</td>
+              <td style="font-weight:700">${r.ticker}</td>
+              <td><span class="tx-hist-badge ${r.type}">${r.type}</span></td>
+              <td>${fmt(r.qty)}</td>
+              <td>${fmt(r.amount_local)}</td>
+              <td>${fmt(r.fee_local)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    container.innerHTML = '<span style="color:var(--accent2)">Error al cargar historial</span>';
+  }
+}
 </script>
 </body>
 </html>

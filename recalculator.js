@@ -177,7 +177,7 @@ async function recalculatePositions() {
 
   // 3. Leer posiciones actuales (solo managed_by = 'transactions') para comparar
   const { data: existing, error: posError } = await supabase
-    .from('positions_dev')
+    .from('positions')
     .select('*')
     .eq('managed_by', 'transactions');
 
@@ -232,7 +232,7 @@ async function recalculatePositions() {
   }
 
   const { error: upsertError } = await supabase
-    .from('positions_dev')
+    .from('positions')
     .upsert(toUpsert, { onConflict: 'ticker' });
 
   if (upsertError) {
