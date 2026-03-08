@@ -7504,7 +7504,7 @@ async function handleTxImage(event) {
     const json = await res.json();
 
     if (!json.ok || !json.transaction) {
-      setTxStatus('No se pudo leer el screenshot: ' + (json.error || ''), 'err');
+      setTxStatus('Error: ' + (json.error || JSON.stringify(json)), 'err');
       return;
     }
 
