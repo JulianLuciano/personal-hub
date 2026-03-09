@@ -379,19 +379,30 @@ app.post('/api/ocr-transaction', async (req, res) => {
 
 CRITICAL - always extract these fields exactly as shown in the image:
 - price_usd: the exact fill/execution price in USD (e.g. from "1 SPY5 = $672.33" -> 672.33)
-- price_local: the exact fill price in GBP if shown (e.g. "1 VWRP = £128.92" -> 128.92)
+- price_local: the exact fill price in GBP if shown (e.g. "1 VWRP = £128.92" -> 128.92, or from Kraken "Precio: 49861.52 GBP" -> 49861.52)
 - fx_rate_to_usd: USD per 1 GBP (e.g. from "£1 = $1.33365998" -> 1.33365998). NEVER leave null if shown in image.
-- qty: exact filled quantity with all decimals (e.g. "0.19806635")
-- fee_local: FX FEE or Comision in GBP (0 if not shown)
-- amount_local: TOTAL in GBP shown in image
+- qty: exact filled quantity with all decimals (e.g. "0.19806635" or Kraken "Cantidad: 0.0019857 BTC" -> 0.0019857)
+- fee_local: FX FEE or Comisión in GBP (0 if not shown)
+- amount_local: the net amount that went into the asset = TOTAL_GBP - fee_local
 
-BROKERS:
-1. Trading212 (dark UI):
-   - USD stock: header "Market Buy {qty} {ticker}", FILL PRICE "1 X = \${usd}", EXCHANGE RATE "£1 = \${fx}", FX FEE £{fee}, TOTAL £{amount}
-   - GBP stock (VWRP): FILL PRICE "1 X = £{gbp}", no exchange rate, no fee, pricing_currency=GBP, exchange=LSE
-2. Kraken (Spanish): "BTC comprados £{total}", Cantidad/Precio/Comision/Total, amount_local = total_gbp - fee, broker=Kraken
+BROKER DETECTION - identify by visual appearance:
+1. Trading212 (dark UI, English, "Market Buy", "FILLED QUANTITY", "FILL PRICE", "EXCHANGE RATE"):
+   - USD stock: FILL PRICE "1 X = \${usd}", EXCHANGE RATE "£1 = \${fx}", FX FEE £{fee}
+   - GBP stock (VWRP etc): FILL PRICE "1 X = £{gbp}", no exchange rate, no fee, pricing_currency=GBP, exchange=LSE
+   - broker="Trading212"
 
-TICKER MAP: SPY5->SPY, VWRP->VWRP.L, ARKK->ARKK.L, NDIA->NDIA.L
+2. Kraken (dark UI, Spanish, orange Bitcoin logo or crypto icons, fields: "Cantidad", "Precio", "Comisión", "Total", "Pagado con", "Tipo de orden", "Fecha"):
+   - ALL Kraken transactions are crypto: asset_class="cripto", broker="Kraken", exchange=null
+   - ticker: extract from header e.g. "BTC comprados" -> BTC, "ADA comprados" -> ADA, "ETH comprados" -> ETH
+   - price_local: from "Precio: {X} GBP" field
+   - fee_local: from "Comisión: {X} GBP"
+   - amount_local = Total_GBP - fee_local (e.g. £100 total - £0.99 fee = £99.01)
+   - amount_usd: from "≈\${X}" shown next to total if visible
+   - pricing_currency="GBP"
+
+3. Schwab: extract what you can, broker="Schwab"
+
+TICKER MAP: SPY5->SPY, VWRP->VWRP.L, ARKK->ARKK.L, NDIA->NDIA.L. All others keep as-is (ADA, BTC, ETH, SOL, etc.)
 DATE: YYYY-MM-DD format
 
 Return this JSON structure:

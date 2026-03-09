@@ -7564,8 +7564,8 @@ function fillFormFromOcr(tx) {
   // Type
   if (tx.type) document.getElementById('txType').value = tx.type;
 
-  // Asset class
-  const ac = ASSET_CLASS_MAP[tx.asset_class] || tx.asset_class || 'acciones';
+  // Asset class — Kraken siempre es cripto independientemente de lo que diga el OCR
+  const ac = tx.broker === 'Kraken' ? 'cripto' : (ASSET_CLASS_MAP[tx.asset_class] || tx.asset_class || 'acciones');
   document.getElementById('txAssetClass').value = ac;
 
   // Date
