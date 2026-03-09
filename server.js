@@ -21,7 +21,7 @@ app.get('/api/config', (req, res) => {
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || '';
 
-app.get('/api/db/*', async (req, res) => {
+app.all('/api/db/*', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return res.status(500).json({ error: 'Supabase not configured' });
   }
@@ -32,21 +32,19 @@ app.get('/api/db/*', async (req, res) => {
 
   try {
     const sbRes = await fetch(supaUrl, {
+      method: req.method,
       headers: {
         'apikey': SUPABASE_KEY,
         'Authorization': `Bearer ${SUPABASE_KEY}`,
         'Accept': 'application/json',
-      }
+        'Content-Type': 'application/json'
+      },
+      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined
     });
 
-    if (!sbRes.ok) {
-      const errText = await sbRes.text();
-      console.error(`[db-proxy] ${sbRes.status} for ${subPath}:`, errText.slice(0, 300));
-      return res.status(sbRes.status).json({ error: errText.slice(0, 300) });
-    }
+    const text = await sbRes.text();
+    res.status(sbRes.status).send(text);
 
-    const data = await sbRes.json();
-    res.json(data);
   } catch (e) {
     console.error('[db-proxy] fetch error:', e.message);
     res.status(502).json({ error: 'Supabase unreachable' });
