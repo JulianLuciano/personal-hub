@@ -2027,17 +2027,17 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Ahorro mensual</span>
-            <input class="mc-p-inp" id="mc-p-monthly" type="number" inputmode="numeric" step="50" value="950" data-mc-env="mcMonthlySaving" data-mc-fallback="950">
+            <input class="mc-p-inp" id="mc-p-monthly" type="number" inputmode="numeric" step="50" value="950">
             <span class="mc-p-unit">£ / mes</span>
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">Bono anual</span>
-            <input class="mc-p-inp" id="mc-p-bonus" type="number" inputmode="numeric" step="500" value="9500" data-mc-env="mcAnnualBonus" data-mc-fallback="9500">
+            <input class="mc-p-inp" id="mc-p-bonus" type="number" inputmode="numeric" step="500" value="9500">
             <span class="mc-p-unit">£ neto total</span>
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">RSUs por vest</span>
-            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2100" data-mc-env="mcRsuPerVest" data-mc-fallback="2100">
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
             <span class="mc-p-unit">£ / trimestre</span>
           </div>
           <div class="mc-p-item">
@@ -5619,7 +5619,7 @@ function buildHealthContext() {
   ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
   ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
   ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
-  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | includes_all_assets (rent+emergency=GBP)\n`;
+  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | GBP=fiat_gbp+pricing_currency_gbp(VWRP)+emergency+rent | score penalises only USD>70%\n`;
   ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
   ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
   ctx += `sectors: ${sectors}\n`;
@@ -5923,10 +5923,9 @@ async function aiSendMsg() {
     if (liveData && liveData.totalUSD > 0) {
       const usdAssets = liveData.assets.filter(a => {
         const pos = a.pos;
-        if (pos.category === 'fiat') return pos.currency === 'USD';
-        // LSE tickers that actually hold USD-priced assets
-        const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
-        return pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker);
+        const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
+          || (pos.pricing_currency === 'GBP');
+        return !isGBPAsset;
       });
       const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
       usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
@@ -5935,55 +5934,31 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    // ── Load profile from env vars (Railway) with hardcoded fallbacks ──
-    const _cfg            = await getAppConfig();
-    const _name           = _cfg.aiProfileName       || 'Julián';
-    const _monthlyExp     = _cfg.aiMonthlyExpenses    || '£4000';
-    const _savingsRange   = _cfg.aiSavingsRange       || '£900-1000/mo';
-    const _bonusRange     = _cfg.aiBonusRange         || '£9000-10000/yr (fin de marzo + fin de septiembre, 50/50)';
-    const _rsuRange       = _cfg.aiRsuRange           || 'META quarterly ~£2100 net/vest';
-    const _emergencyMin   = _cfg.aiEmergencyFund      || '2500';
-    const _goals          = _cfg.aiGoals              || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
-    const _salaryRange    = _cfg.aiSalaryRange        || '~£20k-22k';
-    const _annualInvest   = _cfg.aiAnnualInvestable   || '~£20k-22k salary+bonus + ~£8k-9k RSUs = £28k-31k/yr';
-    const _todayStr       = new Date().toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
 
-    // ── Extract live values from Supabase positions ──
-    let _gbpLiquidQty   = '?';
-    let _emergencyQty   = '?';
-    if (liveData && liveData.assets) {
-      const gbpLiqAsset = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
-      const efAsset     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
-      if (gbpLiqAsset) _gbpLiquidQty = Math.round(gbpLiqAsset.pos.qty || gbpLiqAsset.valueUSD * FX_RATE).toLocaleString('es-AR');
-      if (efAsset)     _emergencyQty = Math.round(efAsset.pos.qty     || efAsset.valueUSD     * FX_RATE).toLocaleString('es-AR');
-    }
-
-    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
-
-TODAY: ${_todayStr}
+TODAY: \${new Date().toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'})}
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
-savings: ${_savingsRange} | bonus_net: ${_bonusRange} | rsu: ${_rsuRange}
-emergency_fund: £${_emergencyQty} actual (EMERGENCY_FUND position, separate from GBP_LIQUID) | min_threshold: £${_emergencyMin} — INTOCABLE, máxima prioridad mantenerlo cubierto
-cash_available: GBP_LIQUID = excedente para invertir (actualmente £${_gbpLiquidQty})
+location: London, UK | currency: GBP | monthly_expenses: £4000
+savings: £900-1000/mo | bonus_net: £9000-10000/yr (fin de marzo + fin de septiembre, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
+emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
+cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: ${_goals}
+goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
 
 CASHFLOW_ANALYSIS
-annual_investable: ${_annualInvest}
+annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
 key_dates: fin de marzo + fin de septiembre (bonus), quarterly (RSU vest)
 
 RULES
 - ${fxLine}
-- META concentration risk: RSUs + held shares = largest single exposure — warn if single-stock exposure is high relative to total portfolio
+- META concentration risk: RSUs + held shares = largest single exposure
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
 - Bonus months (Mar/Sep) = key investment decision points
 - Promotion delta should go to investing, not expenses
-- Si emergency_fund < £${_emergencyMin}, prioridad absoluta es reponerlo antes de invertir
 - Use all provided data (fundamentals, macro, watchlist) for analysis
 
 ${buildPortfolioContext()}
@@ -6031,27 +6006,13 @@ ${watchlistSection ? '\n' + watchlistSection : ''}`;
   }
 }
 
-async function getAppConfig() {
-  if (window._appConfig) return window._appConfig;
-  try {
-    const res = await fetch('/api/config');
-    const cfg = await res.json();
-    window._appConfig = cfg;
-  } catch(e) {
-    window._appConfig = {};
-  }
-  return window._appConfig;
-}
-
 async function getAnthropicKey() {
-  const cfg = await getAppConfig();
-  return cfg.anthropicKey;
-}
-
-// Helper: get env var with fallback
-async function getEnvVar(key, fallback) {
-  const cfg = await getAppConfig();
-  return (cfg[key] !== undefined && cfg[key] !== '') ? cfg[key] : fallback;
+  // Fetch from server endpoint (keeps key out of frontend code)
+  if (window._anthropicKey) return window._anthropicKey;
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  window._anthropicKey = cfg.anthropicKey;
+  return window._anthropicKey;
 }
 
 function aiRenderMarkdown(text) {
@@ -6369,13 +6330,19 @@ function computeHealthData() {
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
   // ── Currency Exposure (includes RENT_DEPOSIT + EMERGENCY_FUND — real GBP reducing FX risk) ──
+  // GBP assets = fiat GBP positions + positions with pricing_currency = 'GBP' (e.g. VWRP.L)
+  // USD assets = everything else (stocks, crypto, RSUs, USD fiat)
+  // Score logic: since expenses are in GBP, more GBP is neutral/good up to a point.
+  // Ideal = 30-70% GBP range. Penalise only if >90% USD (overexposed to FX risk).
   const currencyAssets = assets.filter(a => a.valueUSD > 0.5); // ALL assets for FX calc
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
   let usdPct = 0;
   currencyAssets.forEach(a => {
     const pos = a.pos;
-    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
-    if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) {
+    // GBP: fiat in GBP, or any position with pricing_currency = 'GBP' (e.g. VWRP.L, NDIA.L)
+    const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
+      || (pos.pricing_currency === 'GBP');
+    if (!isGBPAsset) {
       usdPct += a.valueUSD / currencyTotalUSD;
     }
   });
@@ -6413,7 +6380,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (_n('mc-p-monthly', 950) * 12) + _n('mc-p-bonus', 9500) + (_n('mc-p-rsu', 2100) * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -6429,7 +6396,12 @@ function computeHealthData() {
   const riskAlignScore = clamp(100 - (portfolioBeta - 0.8) / (1.6 - 0.8) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
-  const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
+  // Currency score: penalise only USD overexposure (>70% USD = FX risk).
+  // Having lots of GBP is fine/good since expenses are in GBP.
+  // 0-70% USD = score 100→60 (mild penalty as USD rises), >70% USD = steep penalty.
+  const currencyScore = usdPct <= 0.70
+    ? clamp(100 - (usdPct / 0.70) * 40)          // 0%→100, 70%→60
+    : clamp(60 - ((usdPct - 0.70) / 0.30) * 60); // 70%→60, 100%→0
   // Single stock: only broad ETFs (SPY, VWRP) exempt; thematic ETFs (NDIA, ARKK) penalize
   const singleStockW = topNonBroadETF.w * 100;
   const singleStockScore = clamp(100 - (singleStockW - 10) / (30 - 10) * 100);
@@ -6669,15 +6641,17 @@ function openHealthDetail(type) {
     title = 'Exposición por moneda';
     // Include ALL assets (including rent deposit for FX calc)
     const allAssets = liveData.assets.filter(a => a.valueUSD > 0.5);
-    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
     const usdAssets = [], gbpAssets = [];
     allAssets.forEach(a => {
       const pos = a.pos;
       const displayTicker = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
       const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
       const entry = { ticker: displayTicker, name: meta.name, valueUSD: a.valueUSD, valueGBP: a.valueUSD * FX_RATE, pct: a.valueUSD / data.currencyTotalUSD };
-      if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) usdAssets.push(entry);
-      else gbpAssets.push(entry);
+      // GBP: fiat in GBP, or pricing_currency = 'GBP' (e.g. VWRP.L)
+      const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
+        || (pos.pricing_currency === 'GBP');
+      if (isGBPAsset) gbpAssets.push(entry);
+      else usdAssets.push(entry);
     });
     usdAssets.sort((a, b) => b.valueUSD - a.valueUSD);
     gbpAssets.sort((a, b) => b.valueUSD - a.valueUSD);
@@ -6703,7 +6677,7 @@ function openHealthDetail(type) {
     { name: 'Diversificación', text: 'Usa el HHI Normalizado (Herfindahl-Hirschman). Mide qué tan concentrado está tu portfolio relativo a la distribución óptima (todas las posiciones iguales). HHI* = 0% = perfectamente diversificado, 100% = todo en una posición. Score = 100 × (1 - HHI*). Se auto-calibra al número de posiciones.' },
     { name: 'Alineación al riesgo', text: 'Basado en el beta ponderado del portfolio. Beta < 1 = amortigua caídas del mercado, Beta > 1 = amplifica. Escala: beta 0.8 = score 100 (defensivo), beta 1.6 = score 0 (muy agresivo). Se complementa con las estimaciones de corrección (SPY -14%) y bear market (SPY -34%).' },
     { name: 'Valuación', text: 'Forward P/E ponderado del portfolio vs benchmark S&P ~21x. Un P/E bajo significa que pagás menos por cada peso de ganancia futura — más "margin of safety". Escala: 16x = score 100, 35x = score 0. Datos de Yahoo Finance.' },
-    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT y EMERGENCY_FUND como GBP.' },
+    { name: 'Balance cambiario', text: 'Mide la exposición a riesgo cambiario USD/GBP. Como vivís y gastás en GBP, tener más GBP es neutral o positivo — no se penaliza. Se penaliza sólo si >70% del portfolio está en USD (alta exposición a movimientos GBP/USD). Los activos GBP incluyen: cash GBP, EMERGENCY_FUND, RENT_DEPOSIT, y posiciones con pricing_currency=GBP (ej. VWRP.L). Todo lo demás (acciones USD, cripto, RSUs) cuenta como USD.' },
     { name: 'Concentración individual', text: 'La posición individual (no-ETF broad) más grande como % del portfolio. ETFs diversificados (SPY, VWRP) no penalizan; ETFs temáticos (NDIA, ARKK) sí. Escala: <10% = score 100, >30% = score 0.' },
     { name: 'Income momentum', text: 'Flujo anual de cash nuevo (ahorro + bono + RSUs) como % del portfolio. Mientras más alto, menos dependés del rendimiento del mercado para crecer. Score = ratio / 50% × 100, capped a 100.' },
   ];
@@ -7088,17 +7062,6 @@ function mcRun() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
-  // Load MC defaults from env vars (Railway) with fallbacks
-  getAppConfig().then(cfg => {
-    document.querySelectorAll('[data-mc-env]').forEach(el => {
-      const key      = el.dataset.mcEnv;
-      const fallback = el.dataset.mcFallback;
-      const val      = cfg[key];
-      if (val !== undefined && val !== '') el.value = val;
-      else if (fallback !== undefined)     el.value = fallback;
-    });
-  });
-
   // Scenario buttons
   document.querySelectorAll('.mc-scen-btn').forEach(btn => {
     btn.addEventListener('click', () => {

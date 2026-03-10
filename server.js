@@ -11,7 +11,21 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Exposes config from environment variables — never stored in code
 app.get('/api/config', (req, res) => {
   res.json({
-    anthropicKey: process.env.ANTHROPIC_API_KEY || ''
+    anthropicKey:      process.env.ANTHROPIC_API_KEY || '',
+    // AI profile (system prompt)
+    aiProfileName:     process.env.AI_PROFILE_NAME       || '',
+    aiMonthlyExpenses: process.env.AI_MONTHLY_EXPENSES   || '',
+    aiSavingsRange:    process.env.AI_SAVINGS_RANGE       || '',
+    aiBonusRange:      process.env.AI_BONUS_RANGE         || '',
+    aiRsuRange:        process.env.AI_RSU_RANGE           || '',
+    aiEmergencyFund:   process.env.AI_EMERGENCY_FUND      || '',
+    aiGoals:           process.env.AI_GOALS               || '',
+    aiSalaryRange:     process.env.AI_SALARY_RANGE        || '',
+    aiAnnualInvestable:process.env.AI_ANNUAL_INVESTABLE   || '',
+    // Monte Carlo defaults
+    mcMonthlySaving:   process.env.MC_MONTHLY_SAVING      || '',
+    mcAnnualBonus:     process.env.MC_ANNUAL_BONUS        || '',
+    mcRsuPerVest:      process.env.MC_RSU_PER_VEST        || '',
   });
 });
 
