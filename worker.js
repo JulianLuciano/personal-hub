@@ -9,6 +9,7 @@ const supabase = createClient(
 const YAHOO_TICKER_MAP = {
   'BRK.B':    'BRK-B',
   'BTC':      'BTC-USD',
+  'ADA':      'ADA-USD',
   'RSU_META': 'META',
 };
 
