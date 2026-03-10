@@ -2037,7 +2037,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">RSUs por vest</span>
-            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2100">
             <span class="mc-p-unit">£ / trimestre</span>
           </div>
           <div class="mc-p-item">
@@ -5988,30 +5988,73 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
+    // ── Profile from Railway env vars with hardcoded fallbacks ──
+    const _cfg          = await getAppConfig();
+    const _name         = _cfg.aiProfileName       || 'Julián';
+    const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
+    const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
+    const _bonusRange   = _cfg.aiBonusRange        || '£9000-10000/yr';
+    const _rsuRange     = _cfg.aiRsuRange          || 'META quarterly ~£2100 net/vest';
+    const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
+    const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
+    const _annualInvest = _cfg.aiAnnualInvestable  || '~£20k-22k salary+bonus + ~£8k-9k RSUs = £28k-31k/yr';
 
-TODAY: \${new Date().toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'})}
+    // ── Live values from Supabase positions ──
+    let _gbpLiquidQty = '?', _emergencyQty = '?';
+    if (liveData && liveData.assets) {
+      const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
+      const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
+      if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
+      if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
+    }
+
+    // ── Today + next bonus date ──
+    const _now        = new Date();
+    const _todayStr   = _now.toLocaleDateString('es-AR', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    const _todayISO   = _now.toISOString().slice(0,10);
+
+    // Last business day of March and September
+    function lastBizDay(year, month0) { // month0: 2=Mar, 8=Sep
+      let d = new Date(Date.UTC(year, month0 + 1, 0)); // last day of month
+      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0,10);
+    }
+    const yr = _now.getUTCFullYear();
+    const bonusDates = [
+      lastBizDay(yr, 2),       // Mar this year
+      lastBizDay(yr, 8),       // Sep this year
+      lastBizDay(yr + 1, 2),   // Mar next year
+    ].filter(d => d >= _todayISO);
+    const _nextBonus  = bonusDates[0] || lastBizDay(yr + 1, 2);
+    const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
+
+    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
+
+TODAY: ${_todayStr} (${_todayISO})
+NEXT_BONUS: ${_nextBonus} (en ${_daysToBonus} días) — 50% del bono anual neto
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: £4000
-savings: £900-1000/mo | bonus_net: £9000-10000/yr (fin de marzo + fin de septiembre, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
-emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
-cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
+location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
+savings: ${_savingsRange} | bonus_net: ${_bonusRange} en DOS TRAMOS: 50% último día hábil de marzo + 50% último día hábil de septiembre
+rsu: ${_rsuRange} | vest trimestral (ene/abr/jul/oct)
+emergency_fund: actual £${_emergencyQty} (EMERGENCY_FUND position) | min_threshold: £${_emergencyMin} — INTOCABLE, prioridad máxima
+cash_available: GBP_LIQUID = £${_gbpLiquidQty} (excedente para invertir)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
+goals: ${_goals}
 
 CASHFLOW_ANALYSIS
-annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
+annual_investable: ${_annualInvest}
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: fin de marzo + fin de septiembre (bonus), quarterly (RSU vest)
+key_dates: último día hábil de mar (50% bonus) | último día hábil de sep (50% bonus) | trim ene/abr/jul/oct (RSU vest)
 
 RULES
 - ${fxLine}
-- META concentration risk: RSUs + held shares = largest single exposure
+- day_change en GBP incluye efecto de movimiento del tipo de cambio USD/GBP intradía (no solo precios)
+- META concentration risk: RSUs + held shares = largest single exposure — warn if high relative to total portfolio
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
-- Bonus months (Mar/Sep) = key investment decision points
+- Si emergency_fund < £${_emergencyMin}, prioridad absoluta reponerlo antes de invertir
 - Promotion delta should go to investing, not expenses
 - Use all provided data (fundamentals, macro, watchlist) for analysis
 
@@ -6060,13 +6103,16 @@ ${watchlistSection ? '\n' + watchlistSection : ''}`;
   }
 }
 
+async function getAppConfig() {
+  if (window._appConfig) return window._appConfig;
+  try {
+    const res = await fetch('/api/config');
+    window._appConfig = await res.json();
+  } catch(e) { window._appConfig = {}; }
+  return window._appConfig;
+}
 async function getAnthropicKey() {
-  // Fetch from server endpoint (keeps key out of frontend code)
-  if (window._anthropicKey) return window._anthropicKey;
-  const res = await fetch('/api/config');
-  const cfg = await res.json();
-  window._anthropicKey = cfg.anthropicKey;
-  return window._anthropicKey;
+  return (await getAppConfig()).anthropicKey;
 }
 
 function aiRenderMarkdown(text) {
@@ -7117,6 +7163,14 @@ function mcRun() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  // Load MC defaults from Railway env vars
+  getAppConfig().then(cfg => {
+    const MC_MAP = { 'mc-p-monthly': cfg.mcMonthlySaving, 'mc-p-bonus': cfg.mcAnnualBonus, 'mc-p-rsu': cfg.mcRsuPerVest };
+    Object.entries(MC_MAP).forEach(([id, val]) => {
+      if (val !== undefined && val !== '') { const el = document.getElementById(id); if (el) el.value = val; }
+    });
+  });
+
   // Scenario buttons
   document.querySelectorAll('.mc-scen-btn').forEach(btn => {
     btn.addEventListener('click', () => {
