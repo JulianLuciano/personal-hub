@@ -7202,7 +7202,7 @@ function recalcDerivedPrice() {
   const fx   = getTxNum('txFxRate');
   if (!main || !fx) return;
   const derived = _txPricingCurrency === 'USD' ? (main / fx) : (main * fx);
-  document.getElementById('txPriceDerived').value = derived.toFixed(4);
+  document.getElementById('txPriceDerived').value = derived;
 }
 
 function getPriceUsd() {
@@ -7286,7 +7286,7 @@ async function fetchTxPrice() {
   const btn = document.getElementById('txFetchBtn');
   btn.disabled = true; btn.textContent = '...';
   setTxStatus('Buscando precio y FX...', '');
-  const YAHOO_MAP = { 'BRK.B': 'BRK-B', 'BTC': 'BTC-USD' };
+  const YAHOO_MAP = { 'BRK.B': 'BRK-B', 'BTC': 'BTC-USD', 'ADA': 'ADA-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD' };
   const yahooTicker = YAHOO_MAP[ticker] || ticker;
   try {
     const [mktRes, fxRes] = await Promise.all([
@@ -7303,9 +7303,9 @@ async function fetchTxPrice() {
       msgs.push(`FX: ${fxData.regularMarketPrice.toFixed(4)}`);
     }
     if (data?.regularMarketPrice) {
-      document.getElementById('txPriceMain').value = data.regularMarketPrice.toFixed(4);
+      document.getElementById('txPriceMain').value = data.regularMarketPrice;
       onTxPriceMainChange();
-      msgs.push(`Precio: $${data.regularMarketPrice.toFixed(2)}`);
+      msgs.push(`Precio: $${data.regularMarketPrice}`);
     } else {
       setTxStatus('No se encontró precio', 'err');
     }
