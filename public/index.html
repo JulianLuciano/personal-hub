@@ -7324,8 +7324,8 @@ function recalcAmounts() {
   const fx       = getTxNum('txFxRate');
   const qty      = getTxNum('txQty');
   if (qty && priceUsd) {
-    document.getElementById('txAmountUsd').value   = (qty * priceUsd).toFixed(4);
-    if (fx) document.getElementById('txAmountLocal').value = (qty * priceUsd / fx).toFixed(4);
+    document.getElementById('txAmountUsd').value   = qty * priceUsd;
+    if (fx) document.getElementById('txAmountLocal').value = qty * priceUsd / fx;
   }
 }
 
