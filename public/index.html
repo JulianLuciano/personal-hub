@@ -2739,6 +2739,7 @@ async function sbFetch(path) {
 
 // Live portfolio data (filled by loadPortfolio)
 let liveData = null;
+let portfolioSnaps = [];
 let lastSnapshotAt = null;
 let _lastUpdatedTimer = null;
 
@@ -2936,7 +2937,8 @@ async function loadPortfolio() {
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
     // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
-    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
+    portfolioSnaps = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
+    const snapData = portfolioSnaps;
     if (snapData.length > 0) {
       FX_RATE = snapData[0].fx_rate;
       lastSnapshotAt = new Date(snapData[0].captured_at);
@@ -5617,7 +5619,7 @@ function buildHealthContext() {
   ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
   ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
   ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
-  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | includes_all_assets (rent+emergency=GBP)\n`;
+  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | target 15-50% GBP (expenses in GBP) | GBP=fiat_gbp+VWRP.L only\n`;
   ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
   ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
   ctx += `sectors: ${sectors}\n`;
@@ -5745,6 +5747,48 @@ function buildPortfolioContext() {
       ctx += '\nVEST_HISTORY\n';
       vested.forEach(v => ctx += `${v.date}: ${v.units} units (vested)\n`);
     }
+  }
+
+  // Historical performance (last 7 and 30 days)
+  if (portfolioSnaps && portfolioSnaps.length > 1) {
+    const latest = portfolioSnaps[0];
+    const latestGBP = latest.total_gbp || (latest.total_usd * (latest.fx_rate || FX_RATE));
+
+    // Find snap ~7 days ago and ~30 days ago
+    const msDay = 86400000;
+    const now = new Date(latest.captured_at).getTime();
+    const snap7  = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
+    const snap30 = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
+
+    ctx += '\nHISTORICAL_PERFORMANCE\n';
+    if (snap7) {
+      const gbp7  = snap7.total_gbp  || (snap7.total_usd  * (snap7.fx_rate  || FX_RATE));
+      const chg7  = latest.total_usd - snap7.total_usd;
+      const chgG7 = latestGBP - gbp7;
+      const pct7  = snap7.total_usd > 0 ? (chg7 / snap7.total_usd * 100) : 0;
+      ctx += `7d: ${chg7 >= 0 ? '+' : ''}${fU(chg7)} (${chgG7 >= 0 ? '+' : ''}${fG(chgG7)}) ${pct7 >= 0 ? '+' : ''}${pct7.toFixed(2)}%\n`;
+    }
+    if (snap30) {
+      const gbp30  = snap30.total_gbp  || (snap30.total_usd  * (snap30.fx_rate  || FX_RATE));
+      const chg30  = latest.total_usd - snap30.total_usd;
+      const chgG30 = latestGBP - gbp30;
+      const pct30  = snap30.total_usd > 0 ? (chg30 / snap30.total_usd * 100) : 0;
+      ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fG(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
+    }
+  }
+
+  // Total P&L vs invested
+  const totalInvestedUSD = assets.filter(a => a.pos.initial_investment_usd)
+    .reduce((s, a) => s + Number(a.pos.initial_investment_usd), 0);
+  const totalInvestedGBP = assets.filter(a => a.pos.initial_investment_gbp)
+    .reduce((s, a) => s + Number(a.pos.initial_investment_gbp), 0);
+  const investedPositionsUSD = assets.filter(a => a.pos.category !== 'fiat' && a.valueUSD > 0)
+    .reduce((s, a) => s + a.valueUSD, 0);
+  if (totalInvestedUSD > 0) {
+    const pnlUSD = investedPositionsUSD - totalInvestedUSD;
+    const pnlGBP = investedPositionsUSD * FX_RATE - totalInvestedGBP;
+    const pnlPct = totalInvestedUSD > 0 ? (pnlUSD / totalInvestedUSD * 100) : 0;
+    ctx += `\nPNL_VS_INVESTED\ntotal_invested: ${fU(totalInvestedUSD)} (£${Math.round(totalInvestedGBP).toLocaleString('es-AR')})\npnl: ${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)} (${pnlGBP >= 0 ? '+' : ''}${fG(pnlGBP)}) ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n`;
   }
 
   return ctx.trim();
@@ -6289,16 +6333,18 @@ function computeHealthData() {
   });
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
-  // ── Currency Exposure (includes RENT_DEPOSIT + EMERGENCY_FUND — real GBP reducing FX risk) ──
-  const currencyAssets = assets.filter(a => a.valueUSD > 0.5); // ALL assets for FX calc
+  // ── Currency Exposure ──
+  // GBP exposure = only assets that genuinely hedge GBP liabilities:
+  //   • fiat with currency='GBP' (cash, emergency, rent deposit, receivables)
+  //   • VWRP.L (priced in GBP on LSE)
+  // Everything else (USD stocks, RSUs, crypto, LSE ETFs priced in USD) = USD exposure
+  const currencyAssets = assets.filter(a => a.valueUSD > 0.5);
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
   let usdPct = 0;
   currencyAssets.forEach(a => {
     const pos = a.pos;
-    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
-    if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) {
-      usdPct += a.valueUSD / currencyTotalUSD;
-    }
+    const isGBPExposure = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.ticker === 'VWRP.L';
+    if (!isGBPExposure) usdPct += a.valueUSD / currencyTotalUSD;
   });
   const gbpPct = 1 - usdPct;
 
@@ -6350,7 +6396,14 @@ function computeHealthData() {
   const riskAlignScore = clamp(100 - (portfolioBeta - 0.8) / (1.6 - 0.8) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
-  const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
+  // Target: 15-50% GBP is healthy (expenses in GBP, growth assets in USD)
+  // Score 100 in target range, linear penalty outside
+  const gbpTarget = gbpPct >= 0.15 && gbpPct <= 0.50;
+  const currencyScore = gbpTarget
+    ? clamp(100 - Math.abs(gbpPct - 0.30) / 0.20 * 20)  // small nudge toward 30%, never below 80
+    : gbpPct < 0.15
+      ? clamp((gbpPct / 0.15) * 70)                        // below 15% GBP → risky FX, 0-70
+      : clamp(100 - (gbpPct - 0.50) / 0.30 * 100);        // above 50% GBP → too conservative
   // Single stock: only broad ETFs (SPY, VWRP) exempt; thematic ETFs (NDIA, ARKK) penalize
   const singleStockW = topNonBroadETF.w * 100;
   const singleStockScore = clamp(100 - (singleStockW - 10) / (30 - 10) * 100);
@@ -6419,7 +6472,7 @@ function computeHealthData() {
         detail: portfolioPE ? `Forward P/E ${portfolioPE.toFixed(1)}x vs S&P ~21x` : 'Sin datos de P/E',
         color: valuationScore > 66 ? 'var(--accent3)' : valuationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Balance cambiario', score: currencyScore, icon: '◇',
-        detail: `USD ${(usdPct*100).toFixed(0)}% · GBP ${(gbpPct*100).toFixed(0)}%`,
+        detail: `USD ${(usdPct*100).toFixed(0)}% · GBP ${(gbpPct*100).toFixed(0)}% (objetivo 15-50% GBP)`,
         color: currencyScore > 66 ? 'var(--accent3)' : currencyScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Concentración individual', score: singleStockScore, icon: '◉',
         detail: `Top stock: ${topNonBroadETFTicker} (${(topNonBroadETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonBroadETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
