@@ -5682,39 +5682,76 @@ function buildMarketContext() {
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, changeUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
   const rate = FX_RATE;
   const fG = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
+  const fGn = v => '£' + Math.round(v).toLocaleString('es-AR'); // already in GBP
   const fU = v => '$' + Math.round(v).toLocaleString('en-US');
 
-  const chgPct = totalUSD > 0 && changeUSD !== 0 ? (changeUSD / (totalUSD - changeUSD) * 100) : 0;
+  // Day change % — use yesterday total as denominator (total - change = yesterday)
+  const yesterdayUSD = totalUSD - changeUSD;
+  const chgPctUSD = yesterdayUSD > 0 ? (changeUSD / yesterdayUSD * 100) : 0;
+  const yesterdayGBP = totalUSD * rate - changeGBP;
+  const chgPctGBP = yesterdayGBP > 0 ? (changeGBP / yesterdayGBP * 100) : 0;
 
-  let ctx = `PORTFOLIO\ntotal: ${fU(totalUSD)} (${fG(totalUSD)}) | day_change: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${changeUSD >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)\nfx: 1 USD = ${rate.toFixed(4)} GBP\n\n`;
+  const totalGBP = totalUSD * rate;
 
-  ctx += 'ALLOCATION\n';
+  let ctx = `PORTFOLIO\n`;
+  ctx += `total: ${fU(totalUSD)} / £${Math.round(totalGBP).toLocaleString('es-AR')}\n`;
+  ctx += `day_change_usd: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${chgPctUSD >= 0 ? '+' : ''}${chgPctUSD.toFixed(2)}%)\n`;
+  ctx += `day_change_gbp: ${changeGBP >= 0 ? '+' : ''}${fGn(changeGBP)} (${chgPctGBP >= 0 ? '+' : ''}${chgPctGBP.toFixed(2)}%)\n`;
+  ctx += `fx: 1 USD = ${rate.toFixed(4)} GBP\n`;
+
+  // Cost basis total
+  if (costBasisUSD > 0) {
+    const pnlTotalUSD = totalUSD - costBasisUSD;
+    const pnlTotalGBP = totalGBP - costBasisGBP;
+    const pnlTotalPct = costBasisUSD > 0 ? (pnlTotalUSD / costBasisUSD * 100) : 0;
+    ctx += `cost_basis: ${fU(costBasisUSD)} / £${Math.round(costBasisGBP).toLocaleString('es-AR')}\n`;
+    ctx += `total_pnl: ${pnlTotalUSD >= 0 ? '+' : ''}${fU(pnlTotalUSD)} / ${pnlTotalGBP >= 0 ? '+' : ''}${fGn(pnlTotalGBP)} (${pnlTotalPct >= 0 ? '+' : ''}${pnlTotalPct.toFixed(2)}%)\n`;
+  }
+
+  // Allocation — full portfolio
+  ctx += '\nALLOCATION_TOTAL\n';
   const cats = [
     ['acciones', breakdown.acciones],
-    ['cripto', breakdown.cripto],
-    ['rsu', breakdown.rsu],
+    ['cripto',   breakdown.cripto],
+    ['rsu',      breakdown.rsu],
     ['cash_liquid', breakdown.fiat_liquid],
     ['cash_locked', breakdown.fiat_locked],
   ];
   cats.forEach(([k, v]) => {
-    if (v) ctx += `${k}: ${fU(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
+    if (v) ctx += `${k}: ${fU(v)} / ${fG(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
   });
 
-  ctx += '\nPOSITIONS\nticker|name|weight%|value|qty|price|avg_cost|invested|pnl_usd%|pnl_gbp%|pnl_abs|day%\n';
+  // Allocation — equity only (excl fiat), for pie chart context
+  const equityUSD = (breakdown.acciones || 0) + (breakdown.cripto || 0) + (breakdown.rsu || 0);
+  if (equityUSD > 0) {
+    ctx += '\nALLOCATION_EQUITY_ONLY (excl cash)\n';
+    [['acciones', breakdown.acciones], ['cripto', breakdown.cripto], ['rsu', breakdown.rsu]].forEach(([k, v]) => {
+      if (v) ctx += `${k}: ${(v/equityUSD*100).toFixed(1)}%\n`;
+    });
+  }
+
+  ctx += '\nPOSITIONS\nticker|name|weight%|value_usd|value_gbp|qty|price|avg_cost_usd|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|pnl_abs_usd|pnl_abs_gbp|day%\n';
   assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
     const w = totalUSD > 0 ? (valueUSD / totalUSD * 100).toFixed(1) : '—';
-    const pnlAbs = pctUSD !== null && pos.initial_investment_usd ? fU(valueUSD - Number(pos.initial_investment_usd)) : '';
-    ctx += [pos.ticker, meta.name, w, fU(valueUSD), pos.qty,
+    const valueGBP = valueUSD * rate;
+    const invUSD = pos.initial_investment_usd ? Number(pos.initial_investment_usd) : null;
+    const invGBP = pos.initial_investment_gbp ? Number(pos.initial_investment_gbp) : null;
+    const pnlAbsUSD = pctUSD !== null && invUSD ? fU(valueUSD - invUSD) : '';
+    const pnlAbsGBP = invGBP ? fGn(valueGBP - invGBP) : (invUSD ? fG(valueUSD - invUSD) : '');
+    ctx += [pos.ticker, meta.name, w,
+      fU(valueUSD), fGn(Math.round(valueGBP)),
+      pos.qty,
       priceUSD ? '$' + priceUSD.toFixed(2) : '',
       pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '',
-      pos.initial_investment_usd ? fU(Number(pos.initial_investment_usd)) : '',
+      invUSD ? fU(invUSD) : '',
+      invGBP ? fGn(invGBP) : '',
       pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '',
       pctGBP !== null ? (pctGBP >= 0 ? '+' : '') + pctGBP.toFixed(2) + '%' : '',
-      pnlAbs,
+      pnlAbsUSD, pnlAbsGBP,
       dayPct !== null ? (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '%' : ''
     ].join('|') + '\n';
   });
@@ -5774,16 +5811,33 @@ function buildPortfolioContext() {
     }
   }
 
-  // P&L vs invested — only non-fiat positions
+  // P&L attribution — per category, non-fiat only
   const investedAssets = assets.filter(a => a.pos.category !== 'fiat' && a.pos.initial_investment_usd && a.valueUSD > 0);
-  const totalInvestedUSD = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_usd), 0);
-  const totalInvestedGBP = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_gbp || 0), 0);
-  const investedPositionsUSD = investedAssets.reduce((s, a) => s + a.valueUSD, 0);
-  if (totalInvestedUSD > 0) {
-    const pnlUSD = investedPositionsUSD - totalInvestedUSD;
-    const pnlGBP = investedPositionsUSD * FX_RATE - totalInvestedGBP;
-    const pnlPct = pnlUSD / totalInvestedUSD * 100;
-    ctx += `\nPNL_VS_INVESTED\ntotal_invested: ${fU(totalInvestedUSD)} (\xA3${Math.round(totalInvestedGBP).toLocaleString('es-AR')})\npnl: ${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)} (${pnlGBP >= 0 ? '+' : ''}${fG(pnlGBP)}) ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n`;
+  if (investedAssets.length > 0) {
+    const byCategory = {};
+    investedAssets.forEach(a => {
+      const cat = a.pos.category;
+      if (!byCategory[cat]) byCategory[cat] = { valueUSD: 0, investedUSD: 0, investedGBP: 0 };
+      byCategory[cat].valueUSD   += a.valueUSD;
+      byCategory[cat].investedUSD += Number(a.pos.initial_investment_usd);
+      byCategory[cat].investedGBP += Number(a.pos.initial_investment_gbp || 0);
+    });
+    ctx += '\nPNL_ATTRIBUTION\ncategory|invested_usd|invested_gbp|current_usd|pnl_usd|pnl_gbp|pnl%\n';
+    Object.entries(byCategory).forEach(([cat, d]) => {
+      const pnlUSD = d.valueUSD - d.investedUSD;
+      const pnlGBP = d.valueUSD * rate - d.investedGBP;
+      const pnlPct = d.investedUSD > 0 ? (pnlUSD / d.investedUSD * 100) : 0;
+      ctx += `${cat}|${fU(d.investedUSD)}|${fGn(Math.round(d.investedGBP))}|${fU(d.valueUSD)}|${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)}|${pnlGBP >= 0 ? '+' : ''}${fGn(Math.round(pnlGBP))}|${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n`;
+    });
+    // Totals
+    const totInvUSD = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_usd), 0);
+    const totInvGBP = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_gbp || 0), 0);
+    const totCurUSD = investedAssets.reduce((s, a) => s + a.valueUSD, 0);
+    const totPnlUSD = totCurUSD - totInvUSD;
+    const totPnlGBP = totCurUSD * rate - totInvGBP;
+    const totPnlPct = totInvUSD > 0 ? (totPnlUSD / totInvUSD * 100) : 0;
+    ctx += `TOTAL|${fU(totInvUSD)}|${fGn(Math.round(totInvGBP))}|${fU(totCurUSD)}|${totPnlUSD >= 0 ? '+' : ''}${fU(totPnlUSD)}|${totPnlGBP >= 0 ? '+' : ''}${fGn(Math.round(totPnlGBP))}|${totPnlPct >= 0 ? '+' : ''}${totPnlPct.toFixed(2)}%\n`;
+    ctx += `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase) for GBP positions; USD positions converted at today's FX — this matches what the app displays\n`;
   }
 
   return ctx.trim();
