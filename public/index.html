@@ -6380,7 +6380,8 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (_n('mc-p-monthly', 950) * 12) + _n('mc-p-bonus', 9500) + (_n('mc-p-rsu', 2100) * 4); // savings + bonus + RSUs in GBP
+  const _readMC = (id, fb) => { const el = document.getElementById(id); if (!el) return fb; const v = parseFloat(el.value); return isNaN(v) ? fb : v; };
+  const annualFlow = (_readMC('mc-p-monthly', 950) * 12) + _readMC('mc-p-bonus', 9500) + (_readMC('mc-p-rsu', 2100) * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
