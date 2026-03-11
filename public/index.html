@@ -5628,24 +5628,30 @@ function buildWatchlistBase() {
   const { HEADER, rowFor } = _wlHelpers();
 
   const BASE = [
+    // Broad benchmarks
     ['Benchmark', 'SPY'],
+    ['Benchmark', 'VWRP.L'],
     ['Benchmark', 'QQQ'],
     ['Benchmark', 'DIA'],
     ['Benchmark', 'IWM'],
+    // Value / quality reference
+    ['Core',      'BRK-B'],
+    // Key megacap references
     ['MegaTech',  'NVDA'],
     ['MegaTech',  'GOOGL'],
+    ['MegaTech',  'TSLA'],
+    // Macro / risk references
     ['Bonds',     'TLT'],
     ['Commod',    'GLD'],
     ['Defensive', 'WMT'],
     ['EM',        'EEM'],
-    ['MegaTech',  'TSLA'],
     ['Crypto',    'BTC-USD'],
   ];
 
   let tsv = 'WATCHLIST_BASE\n' + HEADER + '\n';
   let count = 0;
   BASE.forEach(([group, t]) => {
-    if (skip.has(t)) return;
+    if (skip.has(t)) return; // already in MARKET_FUNDAMENTALS, skip to avoid duplication
     const d = wl[t];
     if (!d) return;
     tsv += rowFor(group, t, d, false);
@@ -5662,23 +5668,24 @@ function buildWatchlistExtended() {
   const skip = getPortfolioTickers();
   const { HEADER, rowFor } = _wlHelpers();
 
-  // Skip tickers already shown in base
+  // Skip tickers already shown in base or portfolio
   const BASE_SET = new Set([
-    'SPY','QQQ','DIA','IWM','NVDA','GOOGL','TLT','GLD','WMT','EEM','TSLA','BTC-USD'
+    'SPY','VWRP.L','QQQ','DIA','IWM','BRK-B',
+    'NVDA','GOOGL','TSLA','TLT','GLD','WMT','EEM','BTC-USD'
   ]);
 
   const EXTENDED_GROUPS = {
-    'MegaTech':  ['AAPL','AMZN','TSM','MSFT'],
-    'Defensive': ['KO','MCD','JNJ','XOM'],
+    'MegaTech':  ['AAPL','AMZN','TSM'],        // MSFT removed — in portfolio; NVDA/GOOGL/TSLA in base
+    'Defensive': ['KO','MCD','JNJ','XOM'],      // WMT in base
     'ETF_US':    ['VNQ','XLK','XLF','XLE','SOXX','ICLN'],
     'Dividend':  ['VIG','SCHD'],
-    'EM':        ['INDA','EWZ','ARGT','ILF'],
+    'EM':        ['INDA','EWZ','ARGT','ILF'],   // EEM in base
     'China':     ['FXI','KWEB','BABA'],
     'Latam':     ['YPF','PBR','GGAL'],
-    'Bonds':     ['IEF','HYG'],
+    'Bonds':     ['IEF','HYG'],                 // TLT in base
     'UK':        ['IGLT.L','VUKE.L'],
-    'Commod':    ['SLV','USO','PDBC'],
-    'Crypto':    ['ETH-USD','ADA-USD','SOL-USD'],
+    'Commod':    ['SLV','USO','PDBC'],          // GLD in base
+    'Crypto':    ['ETH-USD','ADA-USD','SOL-USD'], // BTC-USD in base
   };
 
   let tsv = 'WATCHLIST_EXTENDED\n' + HEADER + '|cap\n';
