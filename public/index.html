@@ -1128,6 +1128,118 @@
 }
 .tx-panel.open { transform: translateX(0); }
 
+.tx-panel-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.tx-panel-tab {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  letter-spacing: 0.2px;
+}
+.tx-panel-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Saldos panel */
+.saldo-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+.saldo-card.editing {
+  border-color: var(--accent);
+}
+.saldo-logo {
+  font-size: 22px;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.saldo-info { flex: 1; min-width: 0; }
+.saldo-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.saldo-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.saldo-value {
+  text-align: right;
+  flex-shrink: 0;
+}
+.saldo-amount {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: var(--font-num);
+  color: var(--text);
+}
+.saldo-amount-secondary {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-num);
+}
+.saldo-edit-row {
+  display: none;
+  margin-top: 10px;
+  gap: 8px;
+  align-items: center;
+}
+.saldo-card.editing .saldo-edit-row { display: flex; }
+.saldo-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-num);
+  padding: 8px 10px;
+  outline: none;
+  -webkit-appearance: none;
+}
+.saldo-save-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.saldo-cancel-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .tx-panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 20px 12px;
@@ -2037,7 +2149,7 @@
           </div>
           <div class="mc-p-item">
             <span class="mc-p-lbl">RSUs por vest</span>
-            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2100">
+            <input class="mc-p-inp" id="mc-p-rsu" type="number" inputmode="numeric" step="100" value="2650">
             <span class="mc-p-unit">£ / trimestre</span>
           </div>
           <div class="mc-p-item">
@@ -2371,7 +2483,7 @@
 
   <div class="tx-panel" id="txPanel">
     <div class="tx-panel-header">
-      <h2>Nueva transacción</h2>
+      <h2 id="txPanelTitle">Nueva transacción</h2>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="txOcrBtn" onclick="document.getElementById('txImageInput').click()" title="Leer screenshot automáticamente"
           style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:20px;border:none;background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(108,99,255,0.4)">
@@ -2381,6 +2493,13 @@
       </div>
       <input type="file" id="txImageInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style="display:none" onchange="handleTxImage(event)">
     </div>
+
+    <!-- Tab switcher -->
+    <div class="tx-panel-tabs">
+      <div class="tx-panel-tab active" id="tabTx" onclick="switchTxTab('tx')">Transacción</div>
+      <div class="tx-panel-tab" id="tabSaldos" onclick="switchTxTab('saldos')">Saldos</div>
+    </div>
+
     <div class="tx-panel-body">
 
       <!-- FORM -->
@@ -2543,8 +2662,21 @@
         </div>
       </div>
 
+    </div><!-- /tx-form-pane -->
+
+    <!-- SALDOS PANEL -->
+    <div id="saldosPane" style="display:none;padding:16px">
+      <p style="font-size:12px;color:var(--muted);margin:0 0 14px">
+        Posiciones manuales — editá el saldo actual en GBP (o USD para activos USD).
+      </p>
+      <div id="saldosList" style="display:flex;flex-direction:column;gap:10px">
+        <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>
+      </div>
+      <div id="saldosStatus" style="margin-top:14px;font-size:13px;text-align:center;min-height:18px"></div>
     </div>
+
   </div>
+</div>
 
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
@@ -2739,7 +2871,6 @@ async function sbFetch(path) {
 
 // Live portfolio data (filled by loadPortfolio)
 let liveData = null;
-let portfolioSnaps = [];
 let lastSnapshotAt = null;
 let _lastUpdatedTimer = null;
 
@@ -2937,8 +3068,7 @@ async function loadPortfolio() {
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
     // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
-    portfolioSnaps = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
-    const snapData = portfolioSnaps;
+    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
     if (snapData.length > 0) {
       FX_RATE = snapData[0].fx_rate;
       lastSnapshotAt = new Date(snapData[0].captured_at);
@@ -5561,169 +5691,46 @@ function buildMacroContext() {
   return tsv.trim();
 }
 
-// Tickers already covered in MARKET_FUNDAMENTALS (portfolio positions).
-// Excluded from watchlist to avoid duplication.
-function getPortfolioTickers() {
-  if (!liveData || !liveData.assets) return new Set();
-  return new Set(
-    liveData.assets
-      .filter(a => a.valueUSD > 0.5 && a.pos.category !== 'fiat')
-      .map(a => a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker)
-  );
-}
-
-// Shared helpers and row builder used by both watchlist functions
-function _wlHelpers() {
-  const RL    = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
-  const f2    = v => (v != null && v !== '') ? Number(v).toFixed(2) : '';
-  const fCap  = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
-  const rPos  = (p, lo, hi) => (!p || !lo || !hi || hi === lo)
-    ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
-  const fDist = (a, b) => (a && b) ? ((a / b - 1) * 100).toFixed(1) + '%' : '';
-  const fUp   = (target, price) => (target && price)
-    ? (((target / price) - 1) * 100).toFixed(1) + '%' : '';
-  const maSig = (price, ma50, ma200) => {
-    if (!price || !ma50 || !ma200) return '';
-    const above50  = price > ma50;
-    const above200 = price > ma200;
-    const diff = (ma50 - ma200) / ma200;
-    if ( above50 &&  above200 && diff >  0.015) return 'golden_cross';
-    if (!above50 && !above200 && diff < -0.015) return 'death_cross';
-    if ( above50 &&  above200)                  return 'above_both';
-    if (!above50 && !above200)                  return 'below_both';
-    return 'between';
-  };
-
-  const HEADER = 'group|ticker|name|β|fwdPE|pos52w|dist_52hi|price|dist_ma200|ma_signal|target|upside|consensus|nAnalysts|earnings';
-
-  const rowFor = (group, t, d, withCap = false) => {
-    const p    = d.regularMarketPrice  ?? null;
-    const lo52 = d.fiftyTwoWeekLow     ?? null;
-    const hi52 = d.fiftyTwoWeekHigh    ?? null;
-    const ma50  = d.fiftyDayAvg        ?? null;
-    const ma200 = d.twoHundredDayAvg   ?? null;
-    const rating = d.analystRating != null
-      ? (RL[Math.round(d.analystRating)] || f2(d.analystRating)) : '';
-    const cols = [
-      group, t, (d.name || '').replace(/,.*/, ''),
-      f2(d.beta), f2(d.forwardPE),
-      rPos(p, lo52, hi52), fDist(p, hi52),
-      f2(p), fDist(p, ma200), maSig(p, ma50, ma200),
-      f2(d.analystTarget), fUp(d.analystTarget, p),
-      rating, d.numberOfAnalysts || '', d.nextEarningsDate || '',
-    ];
-    if (withCap) cols.push(fCap(d.marketCap));
-    return cols.join('|') + '\n';
-  };
-
-  return { HEADER, rowFor };
-}
-
-// BASE watchlist — always included, ~12 high-signal market reference tickers.
-// Independent of portfolio. Portfolio tickers already in MARKET_FUNDAMENTALS are skipped.
-function buildWatchlistBase() {
-  const wl   = window._watchlistMeta || {};
+function buildWatchlistContext() {
+  const wl = window._watchlistMeta || {};
   if (!Object.keys(wl).length) return null;
-  const skip = getPortfolioTickers();
-  const { HEADER, rowFor } = _wlHelpers();
 
-  const BASE = [
-    // Broad benchmarks
-    ['Benchmark', 'SPY'],
-    ['Benchmark', 'VWRP.L'],
-    ['Benchmark', 'QQQ'],
-    ['Benchmark', 'DIA'],
-    ['Benchmark', 'IWM'],
-    // Value / quality reference
-    ['Core',      'BRK-B'],
-    // Key megacap references
-    ['MegaTech',  'NVDA'],
-    ['MegaTech',  'GOOGL'],
-    ['MegaTech',  'TSLA'],
-    // Macro / risk references
-    ['Bonds',     'TLT'],
-    ['Commod',    'GLD'],
-    ['Defensive', 'WMT'],
-    ['EM',        'EEM'],
-    ['Crypto',    'BTC-USD'],
-  ];
+  const f2   = v => (v != null) ? Number(v).toFixed(2) : '';
+  const fPct = v => (v != null) ? (Number(v) * 100).toFixed(2) + '%' : '';
+  const fCap = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
+  const rPos = (p, lo, hi) => (!p || !lo || !hi || hi === lo) ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
+  const RL = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
 
-  let tsv = 'WATCHLIST_BASE\n' + HEADER + '\n';
-  let count = 0;
-  BASE.forEach(([group, t]) => {
-    if (skip.has(t)) return; // already in MARKET_FUNDAMENTALS, skip to avoid duplication
-    const d = wl[t];
-    if (!d) return;
-    tsv += rowFor(group, t, d, false);
-    count++;
-  });
-  return count > 0 ? tsv.trim() : null;
-}
-
-// EXTENDED watchlist — only added when user message triggers keywords.
-// Grouped by theme. Includes cap column for less-known tickers.
-function buildWatchlistExtended() {
-  const wl   = window._watchlistMeta || {};
-  if (!Object.keys(wl).length) return null;
-  const skip = getPortfolioTickers();
-  const { HEADER, rowFor } = _wlHelpers();
-
-  // Skip tickers already shown in base or portfolio
-  const BASE_SET = new Set([
-    'SPY','VWRP.L','QQQ','DIA','IWM','BRK-B',
-    'NVDA','GOOGL','TSLA','TLT','GLD','WMT','EEM','BTC-USD'
-  ]);
-
-  const EXTENDED_GROUPS = {
-    'MegaTech':  ['AAPL','AMZN','TSM'],        // MSFT removed — in portfolio; NVDA/GOOGL/TSLA in base
-    'Defensive': ['KO','MCD','JNJ','XOM'],      // WMT in base
-    'ETF_US':    ['VNQ','XLK','XLF','XLE','SOXX','ICLN'],
+  const GROUPS = {
+    'Core':      ['SPY','MELI','NU','BRK-B','VWRP.L'],
+    'MegaTech':  ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN','TSM'],
+    'Defensive': ['KO','MCD','WMT','JNJ','XOM'],
+    'ETF_US':    ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE','SOXX','ICLN'],
     'Dividend':  ['VIG','SCHD'],
-    'EM':        ['INDA','EWZ','ARGT','ILF'],   // EEM in base
+    'EM':        ['EEM','INDA','EWZ','ARGT','ILF'],
     'China':     ['FXI','KWEB','BABA'],
     'Latam':     ['YPF','PBR','GGAL'],
-    'Bonds':     ['IEF','HYG'],                 // TLT in base
+    'Bonds':     ['TLT','IEF','HYG'],
     'UK':        ['IGLT.L','VUKE.L'],
-    'Commod':    ['SLV','USO','PDBC'],          // GLD in base
-    'Crypto':    ['ETH-USD','ADA-USD','SOL-USD'], // BTC-USD in base
+    'Commod':    ['GLD','SLV','USO','PDBC'],
+    'Crypto':    ['BTC-USD','ETH-USD','ADA-USD','SOL-USD'],
   };
 
-  let tsv = 'WATCHLIST_EXTENDED\n' + HEADER + '|cap\n';
-  let count = 0;
-  Object.entries(EXTENDED_GROUPS).forEach(([group, tickers]) => {
+  let tsv = 'WATCHLIST\ngroup|ticker|name|β|PE|fwdPE|yield|52wLo|52wHi|pos52w|target|consensus|nAnalysts|earnings|cap\n';
+  Object.entries(GROUPS).forEach(([group, tickers]) => {
     tickers.forEach(t => {
-      if (skip.has(t) || BASE_SET.has(t)) return;
       const d = wl[t];
       if (!d) return;
-      tsv += rowFor(group, t, d, true);
-      count++;
+      const p = d.regularMarketPrice;
+      tsv += [group, t, (d.name||'').replace(/,.*/, ''),
+        f2(d.beta), f2(d.trailingPE), f2(d.forwardPE), fPct(d.dividendYield),
+        f2(d.fiftyTwoWeekLow), f2(d.fiftyTwoWeekHigh), rPos(p, d.fiftyTwoWeekLow, d.fiftyTwoWeekHigh),
+        f2(d.analystTarget), d.analystRating != null ? (RL[Math.round(d.analystRating)] || f2(d.analystRating)) : '',
+        d.numberOfAnalysts || '', d.nextEarningsDate || '', fCap(d.marketCap)
+      ].join('|') + '\n';
     });
   });
-  return count > 0 ? tsv.trim() : null;
-}
-
-// Returns true only when the USER's message (not assistant history) references
-// watchlist-relevant intent or specific extended tickers/themes.
-function needsExtendedWatchlist(userMsg) {
-  const m = userMsg.toLowerCase();
-  const keywords = [
-    // intent
-    'watchlist','comprar','agregar','comparar','busco','oportunidad',
-    'qué está barato','que esta barato','análisis','analisis',
-    'fundamentals','fwd pe','forward pe','compro','screener',
-    'qué comprarías','que comprarias','dónde metería','donde meteria',
-    'alternativa','diversificar','rotar','rotación','rotacion',
-    // themes
-    'latam','argentina','brasil','china','emergentes','bonos','bond',
-    'commodities','defensivo','defensivas','dividendo','dividendos',
-    'uk','cripto','crypto','india',
-    // extended tickers (any mention pulls the full extended block)
-    'aapl','amzn','tsm','ko','mcd','jnj','xom','vnq','xlk','xlf','xle',
-    'soxx','icln','vig','schd','inda','ewz','argt','ilf','fxi','kweb',
-    'baba','ief','hyg','iglt','vuke','slv','uso','pdbc','eth','sol',
-    'ypf','pbr','ggal',
-  ];
-  return keywords.some(k => m.includes(k));
+  return tsv.trim();
 }
 
 function buildHealthContext() {
@@ -5742,7 +5749,7 @@ function buildHealthContext() {
   ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
   ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
   ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
-  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | GBP=fiat_gbp+pricing_currency_gbp(VWRP)+emergency+rent | score penalises only USD>70%\n`;
+  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | includes_all_assets (rent+emergency=GBP)\n`;
   ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
   ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
   ctx += `sectors: ${sectors}\n`;
@@ -5753,64 +5760,49 @@ function buildHealthContext() {
 function buildMarketContext() {
   const mm = window._marketMeta || {};
 
-  // Fallbacks only supply beta (no trailing PE — we use fwdPE only)
   const FALLBACK = {
-    'META':    { beta: 1.3 },
-    'SPY':     { beta: 1.0 },
-    'VWRP.L':  { beta: 0.95 },
-    'BRK-B':   { beta: 0.9 },
+    'META':    { beta: 1.3,  trailingPE: 25 },
+    'SPY':     { beta: 1.0,  trailingPE: 22, dividendYield: 0.013 },
+    'VWRP.L':  { beta: 0.95, trailingPE: 18 },
+    'BRK-B':   { beta: 0.9,  trailingPE: 22 },
     'BTC-USD': { beta: 1.8 },
-    'MELI':    { beta: 1.6 },
-    'NU':      { beta: 1.5 },
+    'MELI':    { beta: 1.6,  trailingPE: 55 },
+    'NU':      { beta: 1.5,  trailingPE: 40 },
     'ARKK':    { beta: 1.4 },
     'ARKK.L':  { beta: 1.4 },
   };
 
-  const RL    = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
-  const f2    = v => (v != null && v !== '') ? Number(v).toFixed(2) : '';
-  const fCap  = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
-  const rPos  = (p, lo, hi) => (!p || !lo || !hi || hi === lo)
-    ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
-  const fDist = (a, b) => (a && b) ? ((a / b - 1) * 100).toFixed(1) + '%' : '';
-  const fUp   = (target, price) => (target && price)
-    ? (((target / price) - 1) * 100).toFixed(1) + '%' : '';
-  const maSig = (price, ma50, ma200) => {
-    if (!price || !ma50 || !ma200) return '';
-    const above50  = price > ma50;
-    const above200 = price > ma200;
-    const diff = (ma50 - ma200) / ma200;
-    if ( above50 &&  above200 && diff >  0.015) return 'golden_cross';
-    if (!above50 && !above200 && diff < -0.015) return 'death_cross';
-    if ( above50 &&  above200)                  return 'above_both';
-    if (!above50 && !above200)                  return 'below_both';
-    return 'between';
-  };
+  const f2   = v => (v != null) ? Number(v).toFixed(2) : '';
+  const fPct = v => (v != null) ? (Number(v) * 100).toFixed(2) + '%' : '';
+  const fCap = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
+  const rPos = (p, lo, hi) => (!p || !lo || !hi || hi === lo) ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
+  const RL = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
 
-  const liveTickers = Object.keys(mm);
-  const allTickers  = [...new Set([...liveTickers, ...Object.keys(FALLBACK)])];
-  const tickers     = allTickers.filter(t => mm[t] || FALLBACK[t]);
+  const liveTickers  = Object.keys(mm);
+  const allTickers   = [...new Set([...liveTickers, ...Object.keys(FALLBACK)])];
+  const tickers      = allTickers.filter(t => mm[t] || FALLBACK[t]);
 
   let tsv = 'MARKET_FUNDAMENTALS\nsource: ' + (liveTickers.length > 0 ? 'Yahoo Finance live' : 'static fallbacks') + '\n';
-  tsv += 'ticker|β|fwdPE|pos52w|dist_52hi|price|dist_ma200|ma_signal|target|upside|consensus|nAnalysts|earnings|cap\n';
+  tsv += 'ticker|β|PE|fwdPE|P/B|yield|52wLo|52wHi|pos52w|MA50|MA200|price|target|consensus|nAnalysts|earnings|cap|shortRatio\n';
 
   tickers.forEach(t => {
-    const live  = mm[t] || {};
-    const fb    = FALLBACK[t] || {};
+    const live = mm[t] || {};
+    const fb   = FALLBACK[t] || {};
     const price = live.regularMarketPrice ?? null;
-    const lo52  = live.fiftyTwoWeekLow    ?? null;
-    const hi52  = live.fiftyTwoWeekHigh   ?? null;
-    const ma50  = live.fiftyDayAvg        ?? null;
-    const ma200 = live.twoHundredDayAvg   ?? null;
-    const rating = live.analystRating != null
-      ? (RL[Math.round(live.analystRating)] || f2(live.analystRating)) : '';
+    const lo52  = live.fiftyTwoWeekLow ?? null;
+    const hi52  = live.fiftyTwoWeekHigh ?? null;
+    // BRK.B P/B from Yahoo is a known data error
+    const ptb   = (t === 'BRK.B' || t === 'BRK-B') ? null : (live.priceToBook ?? null);
 
     tsv += [t,
-      f2(live.beta ?? fb.beta), f2(live.forwardPE),
-      rPos(price, lo52, hi52), fDist(price, hi52),
-      f2(price), fDist(price, ma200), maSig(price, ma50, ma200),
-      f2(live.analystTarget), fUp(live.analystTarget, price),
-      rating, live.numberOfAnalysts || '', live.nextEarningsDate || '',
-      fCap(live.marketCap),
+      f2(live.beta ?? fb.beta), f2(live.trailingPE ?? fb.trailingPE), f2(live.forwardPE),
+      f2(ptb), fPct(live.dividendYield ?? fb.dividendYield),
+      f2(lo52), f2(hi52), rPos(price, lo52, hi52),
+      f2(live.fiftyDayAvg), f2(live.twoHundredDayAvg), f2(price),
+      f2(live.analystTarget),
+      live.analystRating != null ? (RL[Math.round(live.analystRating)] || f2(live.analystRating)) : '',
+      live.numberOfAnalysts || '', live.nextEarningsDate || '', fCap(live.marketCap),
+      f2(live.shortRatio)
     ].join('|') + '\n';
   });
 
@@ -5820,76 +5812,39 @@ function buildMarketContext() {
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
+  const { totalUSD, changeUSD, breakdown, assets } = liveData;
   const rate = FX_RATE;
   const fG = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
-  const fGn = v => '£' + Math.round(v).toLocaleString('es-AR'); // already in GBP
   const fU = v => '$' + Math.round(v).toLocaleString('en-US');
 
-  // Day change % — use yesterday total as denominator (total - change = yesterday)
-  const yesterdayUSD = totalUSD - changeUSD;
-  const chgPctUSD = yesterdayUSD > 0 ? (changeUSD / yesterdayUSD * 100) : 0;
-  const yesterdayGBP = totalUSD * rate - changeGBP;
-  const chgPctGBP = yesterdayGBP > 0 ? (changeGBP / yesterdayGBP * 100) : 0;
+  const chgPct = totalUSD > 0 && changeUSD !== 0 ? (changeUSD / (totalUSD - changeUSD) * 100) : 0;
 
-  const totalGBP = totalUSD * rate;
+  let ctx = `PORTFOLIO\ntotal: ${fU(totalUSD)} (${fG(totalUSD)}) | day_change: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${changeUSD >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)\nfx: 1 USD = ${rate.toFixed(4)} GBP\n\n`;
 
-  let ctx = `PORTFOLIO\n`;
-  ctx += `total: ${fU(totalUSD)} / £${Math.round(totalGBP).toLocaleString('es-AR')}\n`;
-  ctx += `day_change_usd: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${chgPctUSD >= 0 ? '+' : ''}${chgPctUSD.toFixed(2)}%)\n`;
-  ctx += `day_change_gbp: ${changeGBP >= 0 ? '+' : ''}${fGn(changeGBP)} (${chgPctGBP >= 0 ? '+' : ''}${chgPctGBP.toFixed(2)}%)\n`;
-  ctx += `fx: 1 USD = ${rate.toFixed(4)} GBP\n`;
-
-  // Cost basis total
-  if (costBasisUSD > 0) {
-    const pnlTotalUSD = totalUSD - costBasisUSD;
-    const pnlTotalGBP = totalGBP - costBasisGBP;
-    const pnlTotalPct = costBasisUSD > 0 ? (pnlTotalUSD / costBasisUSD * 100) : 0;
-    ctx += `cost_basis: ${fU(costBasisUSD)} / £${Math.round(costBasisGBP).toLocaleString('es-AR')}\n`;
-    ctx += `total_pnl: ${pnlTotalUSD >= 0 ? '+' : ''}${fU(pnlTotalUSD)} / ${pnlTotalGBP >= 0 ? '+' : ''}${fGn(pnlTotalGBP)} (${pnlTotalPct >= 0 ? '+' : ''}${pnlTotalPct.toFixed(2)}%)\n`;
-  }
-
-  // Allocation — full portfolio
-  ctx += '\nALLOCATION_TOTAL\n';
+  ctx += 'ALLOCATION\n';
   const cats = [
     ['acciones', breakdown.acciones],
-    ['cripto',   breakdown.cripto],
-    ['rsu',      breakdown.rsu],
+    ['cripto', breakdown.cripto],
+    ['rsu', breakdown.rsu],
     ['cash_liquid', breakdown.fiat_liquid],
     ['cash_locked', breakdown.fiat_locked],
   ];
   cats.forEach(([k, v]) => {
-    if (v) ctx += `${k}: ${fU(v)} / ${fG(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
+    if (v) ctx += `${k}: ${fU(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
   });
 
-  // Allocation — equity only (excl fiat), for pie chart context
-  const equityUSD = (breakdown.acciones || 0) + (breakdown.cripto || 0) + (breakdown.rsu || 0);
-  if (equityUSD > 0) {
-    ctx += '\nALLOCATION_EQUITY_ONLY (excl cash)\n';
-    [['acciones', breakdown.acciones], ['cripto', breakdown.cripto], ['rsu', breakdown.rsu]].forEach(([k, v]) => {
-      if (v) ctx += `${k}: ${(v/equityUSD*100).toFixed(1)}%\n`;
-    });
-  }
-
-  ctx += '\nPOSITIONS\nticker|name|weight%|value_usd|value_gbp|qty|price|avg_cost_usd|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|pnl_abs_usd|pnl_abs_gbp|day%\n';
+  ctx += '\nPOSITIONS\nticker|name|weight%|value|qty|price|avg_cost|invested|pnl_usd%|pnl_gbp%|pnl_abs|day%\n';
   assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
     const w = totalUSD > 0 ? (valueUSD / totalUSD * 100).toFixed(1) : '—';
-    const valueGBP = valueUSD * rate;
-    const invUSD = pos.initial_investment_usd ? Number(pos.initial_investment_usd) : null;
-    const invGBP = pos.initial_investment_gbp ? Number(pos.initial_investment_gbp) : null;
-    const pnlAbsUSD = pctUSD !== null && invUSD ? fU(valueUSD - invUSD) : '';
-    const pnlAbsGBP = invGBP ? fGn(valueGBP - invGBP) : (invUSD ? fG(valueUSD - invUSD) : '');
-    ctx += [pos.ticker, meta.name, w,
-      fU(valueUSD), fGn(Math.round(valueGBP)),
-      pos.qty,
+    const pnlAbs = pctUSD !== null && pos.initial_investment_usd ? fU(valueUSD - Number(pos.initial_investment_usd)) : '';
+    ctx += [pos.ticker, meta.name, w, fU(valueUSD), pos.qty,
       priceUSD ? '$' + priceUSD.toFixed(2) : '',
       pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '',
-      invUSD ? fU(invUSD) : '',
-      invGBP ? fGn(invGBP) : '',
+      pos.initial_investment_usd ? fU(Number(pos.initial_investment_usd)) : '',
       pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '',
       pctGBP !== null ? (pctGBP >= 0 ? '+' : '') + pctGBP.toFixed(2) + '%' : '',
-      pnlAbsUSD, pnlAbsGBP,
+      pnlAbs,
       dayPct !== null ? (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '%' : ''
     ].join('|') + '\n';
   });
@@ -5922,60 +5877,6 @@ function buildPortfolioContext() {
       ctx += '\nVEST_HISTORY\n';
       vested.forEach(v => ctx += `${v.date}: ${v.units} units (vested)\n`);
     }
-  }
-
-  // Historical performance (7d and 30d)
-  if (portfolioSnaps && portfolioSnaps.length > 1) {
-    const latest = portfolioSnaps[0];
-    const latestGBP = latest.total_gbp || (latest.total_usd * (latest.fx_rate || FX_RATE));
-    const msDay = 86400000;
-    const now = new Date(latest.captured_at).getTime();
-    const snap7  = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
-    const snap30 = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
-    ctx += '\nHISTORICAL_PERFORMANCE\n';
-    if (snap7) {
-      const gbp7 = snap7.total_gbp || (snap7.total_usd * (snap7.fx_rate || FX_RATE));
-      const chg7 = latest.total_usd - snap7.total_usd;
-      const chgG7 = latestGBP - gbp7;
-      const pct7 = snap7.total_usd > 0 ? (chg7 / snap7.total_usd * 100) : 0;
-      ctx += `7d: ${chg7 >= 0 ? '+' : ''}${fU(chg7)} (${chgG7 >= 0 ? '+' : ''}${fG(chgG7)}) ${pct7 >= 0 ? '+' : ''}${pct7.toFixed(2)}%\n`;
-    }
-    if (snap30) {
-      const gbp30 = snap30.total_gbp || (snap30.total_usd * (snap30.fx_rate || FX_RATE));
-      const chg30 = latest.total_usd - snap30.total_usd;
-      const chgG30 = latestGBP - gbp30;
-      const pct30 = snap30.total_usd > 0 ? (chg30 / snap30.total_usd * 100) : 0;
-      ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fG(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
-    }
-  }
-
-  // P&L attribution — per category, non-fiat only
-  const investedAssets = assets.filter(a => a.pos.category !== 'fiat' && a.pos.initial_investment_usd && a.valueUSD > 0);
-  if (investedAssets.length > 0) {
-    const byCategory = {};
-    investedAssets.forEach(a => {
-      const cat = a.pos.category;
-      if (!byCategory[cat]) byCategory[cat] = { valueUSD: 0, investedUSD: 0, investedGBP: 0 };
-      byCategory[cat].valueUSD   += a.valueUSD;
-      byCategory[cat].investedUSD += Number(a.pos.initial_investment_usd);
-      byCategory[cat].investedGBP += Number(a.pos.initial_investment_gbp || 0);
-    });
-    ctx += '\nPNL_ATTRIBUTION\ncategory|invested_usd|invested_gbp|current_usd|pnl_usd|pnl_gbp|pnl%\n';
-    Object.entries(byCategory).forEach(([cat, d]) => {
-      const pnlUSD = d.valueUSD - d.investedUSD;
-      const pnlGBP = d.valueUSD * rate - d.investedGBP;
-      const pnlPct = d.investedUSD > 0 ? (pnlUSD / d.investedUSD * 100) : 0;
-      ctx += `${cat}|${fU(d.investedUSD)}|${fGn(Math.round(d.investedGBP))}|${fU(d.valueUSD)}|${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)}|${pnlGBP >= 0 ? '+' : ''}${fGn(Math.round(pnlGBP))}|${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n`;
-    });
-    // Totals
-    const totInvUSD = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_usd), 0);
-    const totInvGBP = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_gbp || 0), 0);
-    const totCurUSD = investedAssets.reduce((s, a) => s + a.valueUSD, 0);
-    const totPnlUSD = totCurUSD - totInvUSD;
-    const totPnlGBP = totCurUSD * rate - totInvGBP;
-    const totPnlPct = totInvUSD > 0 ? (totPnlUSD / totInvUSD * 100) : 0;
-    ctx += `TOTAL|${fU(totInvUSD)}|${fGn(Math.round(totInvGBP))}|${fU(totCurUSD)}|${totPnlUSD >= 0 ? '+' : ''}${fU(totPnlUSD)}|${totPnlGBP >= 0 ? '+' : ''}${fGn(Math.round(totPnlGBP))}|${totPnlPct >= 0 ? '+' : ''}${totPnlPct.toFixed(2)}%\n`;
-    ctx += `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase) for GBP positions; USD positions converted at today's FX — this matches what the app displays\n`;
   }
 
   return ctx.trim();
@@ -6107,18 +6008,18 @@ async function aiSendMsg() {
   thinkingEl._tmInterval = tmInterval;
 
   try {
-    const wlBase     = buildWatchlistBase();
-    const wlExtended = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
-    const macroSection = buildMacroContext();
+    const watchlistSection = buildWatchlistContext();
+    const macroSection     = buildMacroContext();
 
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
     if (liveData && liveData.totalUSD > 0) {
       const usdAssets = liveData.assets.filter(a => {
         const pos = a.pos;
-        const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
-          || (pos.pricing_currency === 'GBP');
-        return !isGBPAsset;
+        if (pos.category === 'fiat') return pos.currency === 'USD';
+        // LSE tickers that actually hold USD-priced assets
+        const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
+        return pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker);
       });
       const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
       usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
@@ -6127,73 +6028,28 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    // ── Profile from Railway env vars with hardcoded fallbacks ──
-    const _cfg          = await getAppConfig();
-    const _name         = _cfg.aiProfileName       || 'Julián';
-    const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
-    const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
-    const _bonusRange   = _cfg.aiBonusRange        || '£9000-10000/yr';
-    const _rsuRange     = _cfg.aiRsuRange          || 'META quarterly ~£2100 net/vest';
-    const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
-    const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
-    const _annualInvest = _cfg.aiAnnualInvestable  || '~£20k-22k salary+bonus + ~£8k-9k RSUs = £28k-31k/yr';
-
-    // ── Live values from Supabase positions ──
-    let _gbpLiquidQty = '?', _emergencyQty = '?';
-    if (liveData && liveData.assets) {
-      const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
-      const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
-      if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
-      if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
-    }
-
-    // ── Today + next bonus date ──
-    const _now        = new Date();
-    const _todayStr   = _now.toLocaleDateString('es-AR', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
-    const _todayISO   = _now.toISOString().slice(0,10);
-
-    // Last business day of March and September
-    function lastBizDay(year, month0) { // month0: 2=Mar, 8=Sep
-      let d = new Date(Date.UTC(year, month0 + 1, 0)); // last day of month
-      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
-      return d.toISOString().slice(0,10);
-    }
-    const yr = _now.getUTCFullYear();
-    const bonusDates = [
-      lastBizDay(yr, 2),       // Mar this year
-      lastBizDay(yr, 8),       // Sep this year
-      lastBizDay(yr + 1, 2),   // Mar next year
-    ].filter(d => d >= _todayISO);
-    const _nextBonus  = bonusDates[0] || lastBizDay(yr + 1, 2);
-    const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
-
-    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
-
-TODAY: ${_todayStr} (${_todayISO})
-NEXT_BONUS: ${_nextBonus} (en ${_daysToBonus} días) — 50% del bono anual neto
+    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
-savings: ${_savingsRange} | bonus_net: ${_bonusRange} en DOS TRAMOS: 50% último día hábil de marzo + 50% último día hábil de septiembre
-rsu: ${_rsuRange} | vest trimestral (ene/abr/jul/oct)
-emergency_fund: actual £${_emergencyQty} (EMERGENCY_FUND position) | min_threshold: £${_emergencyMin} — INTOCABLE, prioridad máxima
-cash_available: GBP_LIQUID = £${_gbpLiquidQty} (excedente para invertir)
+location: London, UK | currency: GBP | monthly_expenses: £4000
+savings: £900-1000/mo | bonus_net: £9000-10000/yr (Mar+Sep, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
+emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
+cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: ${_goals}
+goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
 
 CASHFLOW_ANALYSIS
-annual_investable: ${_annualInvest}
+annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: último día hábil de mar (50% bonus) | último día hábil de sep (50% bonus) | trim ene/abr/jul/oct (RSU vest)
+key_dates: Mar+Sep (bonus), quarterly (RSU vest)
 
 RULES
 - ${fxLine}
-- day_change en GBP incluye efecto de movimiento del tipo de cambio USD/GBP intradía (no solo precios)
-- META concentration risk: RSUs + held shares = largest single exposure — warn if high relative to total portfolio
+- META concentration risk: RSUs + held shares = largest single exposure
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
-- Si emergency_fund < £${_emergencyMin}, prioridad absoluta reponerlo antes de invertir
+- Bonus months (Mar/Sep) = key investment decision points
 - Promotion delta should go to investing, not expenses
 - Use all provided data (fundamentals, macro, watchlist) for analysis
 
@@ -6201,9 +6057,8 @@ ${buildPortfolioContext()}
 
 ${buildHealthContext()}
 ${buildMarketContext()}
-${macroSection ? '\n' + macroSection : ''}
-${wlBase       ? '\n' + wlBase       : ''}
-${wlExtended   ? '\n' + wlExtended   : ''}`;
+${macroSection     ? '\n' + macroSection     : ''}
+${watchlistSection ? '\n' + watchlistSection : ''}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -6243,16 +6098,13 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
   }
 }
 
-async function getAppConfig() {
-  if (window._appConfig) return window._appConfig;
-  try {
-    const res = await fetch('/api/config');
-    window._appConfig = await res.json();
-  } catch(e) { window._appConfig = {}; }
-  return window._appConfig;
-}
 async function getAnthropicKey() {
-  return (await getAppConfig()).anthropicKey;
+  // Fetch from server endpoint (keeps key out of frontend code)
+  if (window._anthropicKey) return window._anthropicKey;
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  window._anthropicKey = cfg.anthropicKey;
+  return window._anthropicKey;
 }
 
 function aiRenderMarkdown(text) {
@@ -6570,19 +6422,13 @@ function computeHealthData() {
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
   // ── Currency Exposure (includes RENT_DEPOSIT + EMERGENCY_FUND — real GBP reducing FX risk) ──
-  // GBP assets = fiat GBP positions + positions with pricing_currency = 'GBP' (e.g. VWRP.L)
-  // USD assets = everything else (stocks, crypto, RSUs, USD fiat)
-  // Score logic: since expenses are in GBP, more GBP is neutral/good up to a point.
-  // Ideal = 30-70% GBP range. Penalise only if >90% USD (overexposed to FX risk).
   const currencyAssets = assets.filter(a => a.valueUSD > 0.5); // ALL assets for FX calc
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
   let usdPct = 0;
   currencyAssets.forEach(a => {
     const pos = a.pos;
-    // GBP: fiat in GBP, or any position with pricing_currency = 'GBP' (e.g. VWRP.L, NDIA.L)
-    const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
-      || (pos.pricing_currency === 'GBP');
-    if (!isGBPAsset) {
+    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
+    if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) {
       usdPct += a.valueUSD / currencyTotalUSD;
     }
   });
@@ -6620,8 +6466,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const _readMC = (id, fb) => { const el = document.getElementById(id); if (!el) return fb; const v = parseFloat(el.value); return isNaN(v) ? fb : v; };
-  const annualFlow = (_readMC('mc-p-monthly', 950) * 12) + _readMC('mc-p-bonus', 9500) + (_readMC('mc-p-rsu', 2100) * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -6637,12 +6482,7 @@ function computeHealthData() {
   const riskAlignScore = clamp(100 - (portfolioBeta - 0.8) / (1.6 - 0.8) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
-  // Currency score: penalise only USD overexposure (>70% USD = FX risk).
-  // Having lots of GBP is fine/good since expenses are in GBP.
-  // 0-70% USD = score 100→60 (mild penalty as USD rises), >70% USD = steep penalty.
-  const currencyScore = usdPct <= 0.70
-    ? clamp(100 - (usdPct / 0.70) * 40)          // 0%→100, 70%→60
-    : clamp(60 - ((usdPct - 0.70) / 0.30) * 60); // 70%→60, 100%→0
+  const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
   // Single stock: only broad ETFs (SPY, VWRP) exempt; thematic ETFs (NDIA, ARKK) penalize
   const singleStockW = topNonBroadETF.w * 100;
   const singleStockScore = clamp(100 - (singleStockW - 10) / (30 - 10) * 100);
@@ -6882,17 +6722,15 @@ function openHealthDetail(type) {
     title = 'Exposición por moneda';
     // Include ALL assets (including rent deposit for FX calc)
     const allAssets = liveData.assets.filter(a => a.valueUSD > 0.5);
+    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
     const usdAssets = [], gbpAssets = [];
     allAssets.forEach(a => {
       const pos = a.pos;
       const displayTicker = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
       const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
       const entry = { ticker: displayTicker, name: meta.name, valueUSD: a.valueUSD, valueGBP: a.valueUSD * FX_RATE, pct: a.valueUSD / data.currencyTotalUSD };
-      // GBP: fiat in GBP, or pricing_currency = 'GBP' (e.g. VWRP.L)
-      const isGBPAsset = (pos.category === 'fiat' && pos.currency === 'GBP')
-        || (pos.pricing_currency === 'GBP');
-      if (isGBPAsset) gbpAssets.push(entry);
-      else usdAssets.push(entry);
+      if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) usdAssets.push(entry);
+      else gbpAssets.push(entry);
     });
     usdAssets.sort((a, b) => b.valueUSD - a.valueUSD);
     gbpAssets.sort((a, b) => b.valueUSD - a.valueUSD);
@@ -6918,7 +6756,7 @@ function openHealthDetail(type) {
     { name: 'Diversificación', text: 'Usa el HHI Normalizado (Herfindahl-Hirschman). Mide qué tan concentrado está tu portfolio relativo a la distribución óptima (todas las posiciones iguales). HHI* = 0% = perfectamente diversificado, 100% = todo en una posición. Score = 100 × (1 - HHI*). Se auto-calibra al número de posiciones.' },
     { name: 'Alineación al riesgo', text: 'Basado en el beta ponderado del portfolio. Beta < 1 = amortigua caídas del mercado, Beta > 1 = amplifica. Escala: beta 0.8 = score 100 (defensivo), beta 1.6 = score 0 (muy agresivo). Se complementa con las estimaciones de corrección (SPY -14%) y bear market (SPY -34%).' },
     { name: 'Valuación', text: 'Forward P/E ponderado del portfolio vs benchmark S&P ~21x. Un P/E bajo significa que pagás menos por cada peso de ganancia futura — más "margin of safety". Escala: 16x = score 100, 35x = score 0. Datos de Yahoo Finance.' },
-    { name: 'Balance cambiario', text: 'Mide la exposición a riesgo cambiario USD/GBP. Como vivís y gastás en GBP, tener más GBP es neutral o positivo — no se penaliza. Se penaliza sólo si >70% del portfolio está en USD (alta exposición a movimientos GBP/USD). Los activos GBP incluyen: cash GBP, EMERGENCY_FUND, RENT_DEPOSIT, y posiciones con pricing_currency=GBP (ej. VWRP.L). Todo lo demás (acciones USD, cripto, RSUs) cuenta como USD.' },
+    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT y EMERGENCY_FUND como GBP.' },
     { name: 'Concentración individual', text: 'La posición individual (no-ETF broad) más grande como % del portfolio. ETFs diversificados (SPY, VWRP) no penalizan; ETFs temáticos (NDIA, ARKK) sí. Escala: <10% = score 100, >30% = score 0.' },
     { name: 'Income momentum', text: 'Flujo anual de cash nuevo (ahorro + bono + RSUs) como % del portfolio. Mientras más alto, menos dependés del rendimiento del mercado para crecer. Score = ratio / 50% × 100, capped a 100.' },
   ];
@@ -7303,14 +7141,6 @@ function mcRun() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
-  // Load MC defaults from Railway env vars
-  getAppConfig().then(cfg => {
-    const MC_MAP = { 'mc-p-monthly': cfg.mcMonthlySaving, 'mc-p-bonus': cfg.mcAnnualBonus, 'mc-p-rsu': cfg.mcRsuPerVest };
-    Object.entries(MC_MAP).forEach(([id, val]) => {
-      if (val !== undefined && val !== '') { const el = document.getElementById(id); if (el) el.value = val; }
-    });
-  });
-
   // Scenario buttons
   document.querySelectorAll('.mc-scen-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -7497,7 +7327,150 @@ function setDbPricingCurrency(cur) {
   }
 }
 
-function openTxPanel() {
+// ── Saldos / manual positions ──────────────────────────────────────────────
+
+let _saldosData = [];
+
+function switchTxTab(tab) {
+  const txPane     = document.getElementById('txForm').parentElement;
+  const saldosPane = document.getElementById('saldosPane');
+  const tabTx      = document.getElementById('tabTx');
+  const tabSaldos  = document.getElementById('tabSaldos');
+  const ocrBtn     = document.getElementById('txOcrBtn');
+  const title      = document.getElementById('txPanelTitle');
+
+  if (tab === 'saldos') {
+    txPane.style.display      = 'none';
+    saldosPane.style.display  = 'block';
+    tabTx.classList.remove('active');
+    tabSaldos.classList.add('active');
+    if (ocrBtn) ocrBtn.style.display = 'none';
+    title.textContent = 'Saldos';
+    loadSaldos();
+  } else {
+    txPane.style.display      = 'block';
+    saldosPane.style.display  = 'none';
+    tabTx.classList.add('active');
+    tabSaldos.classList.remove('active');
+    if (ocrBtn) ocrBtn.style.display = 'flex';
+    title.textContent = 'Nueva transacción';
+  }
+}
+
+async function loadSaldos() {
+  const listEl = document.getElementById('saldosList');
+  listEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
+  try {
+    const positions = await sbFetch('/rest/v1/positions?select=*&managed_by=eq.manual');
+    _saldosData = positions;
+    renderSaldos();
+  } catch (e) {
+    listEl.innerHTML = `<div style="color:var(--accent2);font-size:13px;text-align:center;padding:16px">${e.message}</div>`;
+  }
+}
+
+function renderSaldos() {
+  const listEl = document.getElementById('saldosList');
+  if (!_saldosData.length) {
+    listEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">No hay posiciones manuales.</div>';
+    return;
+  }
+
+  const rate = FX_RATE || 0.79;
+
+  listEl.innerHTML = _saldosData.map(pos => {
+    const meta = TICKER_META[pos.ticker] || { name: pos.name || pos.ticker, logo: '💰' };
+    const isGBP = pos.currency === 'GBP';
+    const qty = Number(pos.qty) || 0;
+    const valueUSD = isGBP ? qty / rate : qty;
+    const valueGBP = isGBP ? qty : qty * rate;
+    const currSymbol = isGBP ? '£' : '$';
+    const secondarySymbol = isGBP ? '$' : '£';
+    const secondaryVal = isGBP ? valueUSD : valueGBP;
+
+    const logoHtml = pos.ticker && TICKER_META[pos.ticker]?.logoUrl
+      ? `<img src="${TICKER_META[pos.ticker].logoUrl}" style="width:28px;height:28px;border-radius:50%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">`
+        + `<span style="display:none;font-size:22px">${meta.logo || '💰'}</span>`
+      : `<span style="font-size:22px">${meta.logo || '💰'}</span>`;
+
+    return `<div class="saldo-card" id="saldo-${pos.ticker}" onclick="toggleSaldoEdit('${pos.ticker}')">
+      <div class="saldo-logo">${logoHtml}</div>
+      <div class="saldo-info">
+        <div class="saldo-name">${meta.name || pos.name || pos.ticker}</div>
+        <div class="saldo-meta">${pos.ticker}${pos.notes ? ' · ' + pos.notes : ''}</div>
+      </div>
+      <div class="saldo-value">
+        <div class="saldo-amount">${currSymbol}${Math.round(qty).toLocaleString('es-AR')}</div>
+        <div class="saldo-amount-secondary">${secondarySymbol}${Math.round(secondaryVal).toLocaleString('es-AR')}</div>
+      </div>
+      <div class="saldo-edit-row" onclick="event.stopPropagation()">
+        <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
+          value="${qty}" step="${isGBP ? 100 : 1}"
+          placeholder="${currSymbol}0"
+          onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')"
+        >
+        <button class="saldo-cancel-btn" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
+        <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleSaldoEdit(ticker) {
+  const card = document.getElementById('saldo-' + ticker);
+  if (!card) return;
+  const isEditing = card.classList.contains('editing');
+  // Close all first
+  document.querySelectorAll('.saldo-card.editing').forEach(c => c.classList.remove('editing'));
+  if (!isEditing) {
+    card.classList.add('editing');
+    const inp = document.getElementById('saldo-input-' + ticker);
+    if (inp) setTimeout(() => { inp.focus(); inp.select(); }, 50);
+  }
+}
+
+async function saveSaldo(ticker) {
+  const statusEl = document.getElementById('saldosStatus');
+  const inp = document.getElementById('saldo-input-' + ticker);
+  if (!inp) return;
+  const newQty = parseFloat(inp.value);
+  if (isNaN(newQty) || newQty < 0) {
+    statusEl.style.color = 'var(--accent2)';
+    statusEl.textContent = 'Valor inválido.';
+    return;
+  }
+
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Guardando...';
+
+  try {
+    const res = await fetch('/api/positions/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, qty: newQty })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Error');
+
+    // Update local state
+    const pos = _saldosData.find(p => p.ticker === ticker);
+    if (pos) pos.qty = newQty;
+
+    statusEl.style.color = 'var(--accent3)';
+    statusEl.textContent = `✓ ${ticker} actualizado a ${newQty.toLocaleString('es-AR')}`;
+    renderSaldos();
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+
+    // Reload portfolio in background
+    loadPortfolio().catch(() => {});
+  } catch (e) {
+    statusEl.style.color = 'var(--accent2)';
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+}
+
+// ── Transaction panel open/close ───────────────────────────────────────────
+function openTxPanel(tab) {
   document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
   setTxStatus('', '');
   _txPricingCurrency = 'USD';
@@ -7505,6 +7478,7 @@ function openTxPanel() {
   setDbPricingCurrency('USD');
   document.getElementById('txOverlay').classList.add('open');
   document.getElementById('txPanel').classList.add('open');
+  switchTxTab(tab || 'tx');
 }
 
 function closeTxPanel() {
