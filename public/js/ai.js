@@ -16,46 +16,169 @@ function buildMacroContext() {
   return tsv.trim();
 }
 
-function buildWatchlistContext() {
-  const wl = window._watchlistMeta || {};
-  if (!Object.keys(wl).length) return null;
+// Tickers already covered in MARKET_FUNDAMENTALS (portfolio positions).
+// Excluded from watchlist to avoid duplication.
+function getPortfolioTickers() {
+  if (!liveData || !liveData.assets) return new Set();
+  return new Set(
+    liveData.assets
+      .filter(a => a.valueUSD > 0.5 && a.pos.category !== 'fiat')
+      .map(a => a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker)
+  );
+}
 
-  const f2   = v => (v != null) ? Number(v).toFixed(2) : '';
-  const fPct = v => (v != null) ? (Number(v) * 100).toFixed(2) + '%' : '';
-  const fCap = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
-  const rPos = (p, lo, hi) => (!p || !lo || !hi || hi === lo) ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
-  const RL = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
-
-  const GROUPS = {
-    'Core':      ['SPY','MELI','NU','BRK-B','VWRP.L'],
-    'MegaTech':  ['GOOGL','NVDA','AAPL','TSLA','MSFT','AMZN','TSM'],
-    'Defensive': ['KO','MCD','WMT','JNJ','XOM'],
-    'ETF_US':    ['QQQ','DIA','IWM','VNQ','XLK','XLF','XLE','SOXX','ICLN'],
-    'Dividend':  ['VIG','SCHD'],
-    'EM':        ['EEM','INDA','EWZ','ARGT','ILF'],
-    'China':     ['FXI','KWEB','BABA'],
-    'Latam':     ['YPF','PBR','GGAL'],
-    'Bonds':     ['TLT','IEF','HYG'],
-    'UK':        ['IGLT.L','VUKE.L'],
-    'Commod':    ['GLD','SLV','USO','PDBC'],
-    'Crypto':    ['BTC-USD','ETH-USD','ADA-USD','SOL-USD'],
+// Shared helpers and row builder used by both watchlist functions
+function _wlHelpers() {
+  const RL    = { 1:'StrongBuy', 2:'Buy', 3:'Hold', 4:'Underperf', 5:'Sell' };
+  const f2    = v => (v != null && v !== '') ? Number(v).toFixed(2) : '';
+  const fCap  = v => v ? '$' + (v / 1e9).toFixed(1) + 'B' : '';
+  const rPos  = (p, lo, hi) => (!p || !lo || !hi || hi === lo)
+    ? '' : ((p - lo) / (hi - lo) * 100).toFixed(0) + '%';
+  const fDist = (a, b) => (a && b) ? ((a / b - 1) * 100).toFixed(1) + '%' : '';
+  const fUp   = (target, price) => (target && price)
+    ? (((target / price) - 1) * 100).toFixed(1) + '%' : '';
+  const maSig = (price, ma50, ma200) => {
+    if (!price || !ma50 || !ma200) return '';
+    const above50  = price > ma50;
+    const above200 = price > ma200;
+    const diff = (ma50 - ma200) / ma200;
+    if ( above50 &&  above200 && diff >  0.015) return 'golden_cross';
+    if (!above50 && !above200 && diff < -0.015) return 'death_cross';
+    if ( above50 &&  above200)                  return 'above_both';
+    if (!above50 && !above200)                  return 'below_both';
+    return 'between';
   };
 
-  let tsv = 'WATCHLIST\ngroup|ticker|name|β|PE|fwdPE|yield|52wLo|52wHi|pos52w|target|consensus|nAnalysts|earnings|cap\n';
-  Object.entries(GROUPS).forEach(([group, tickers]) => {
+  const HEADER = 'group|ticker|name|β|fwdPE|pos52w|dist_52hi|price|dist_ma200|ma_signal|target|upside|consensus|nAnalysts|earnings';
+
+  const rowFor = (group, t, d, withCap = false) => {
+    const p    = d.regularMarketPrice  ?? null;
+    const lo52 = d.fiftyTwoWeekLow     ?? null;
+    const hi52 = d.fiftyTwoWeekHigh    ?? null;
+    const ma50  = d.fiftyDayAvg        ?? null;
+    const ma200 = d.twoHundredDayAvg   ?? null;
+    const rating = d.analystRating != null
+      ? (RL[Math.round(d.analystRating)] || f2(d.analystRating)) : '';
+    const cols = [
+      group, t, (d.name || '').replace(/,.*/, ''),
+      f2(d.beta), f2(d.forwardPE),
+      rPos(p, lo52, hi52), fDist(p, hi52),
+      f2(p), fDist(p, ma200), maSig(p, ma50, ma200),
+      f2(d.analystTarget), fUp(d.analystTarget, p),
+      rating, d.numberOfAnalysts || '', d.nextEarningsDate || '',
+    ];
+    if (withCap) cols.push(fCap(d.marketCap));
+    return cols.join('|') + '\n';
+  };
+
+  return { HEADER, rowFor };
+}
+
+// BASE watchlist — always included, ~14 high-signal market reference tickers.
+// Independent of portfolio. Portfolio tickers already in MARKET_FUNDAMENTALS are skipped.
+function buildWatchlistBase() {
+  const wl   = window._watchlistMeta || {};
+  if (!Object.keys(wl).length) return null;
+  const skip = getPortfolioTickers();
+  const { HEADER, rowFor } = _wlHelpers();
+
+  const BASE = [
+    // Broad benchmarks
+    ['Benchmark', 'SPY'],
+    ['Benchmark', 'VWRP.L'],
+    ['Benchmark', 'QQQ'],
+    ['Benchmark', 'DIA'],
+    ['Benchmark', 'IWM'],
+    // Value / quality reference
+    ['Core',      'BRK-B'],
+    // Key megacap references
+    ['MegaTech',  'NVDA'],
+    ['MegaTech',  'GOOGL'],
+    ['MegaTech',  'TSLA'],
+    // Macro / risk references
+    ['Bonds',     'TLT'],
+    ['Commod',    'GLD'],
+    ['Defensive', 'WMT'],
+    ['EM',        'EEM'],
+    ['Crypto',    'BTC-USD'],
+  ];
+
+  let tsv = 'WATCHLIST_BASE\n' + HEADER + '\n';
+  let count = 0;
+  BASE.forEach(([group, t]) => {
+    if (skip.has(t)) return; // already in MARKET_FUNDAMENTALS, skip to avoid duplication
+    const d = wl[t];
+    if (!d) return;
+    tsv += rowFor(group, t, d, false);
+    count++;
+  });
+  return count > 0 ? tsv.trim() : null;
+}
+
+// EXTENDED watchlist — only added when user message triggers keywords.
+// Grouped by theme. Includes cap column for less-known tickers.
+function buildWatchlistExtended() {
+  const wl   = window._watchlistMeta || {};
+  if (!Object.keys(wl).length) return null;
+  const skip = getPortfolioTickers();
+  const { HEADER, rowFor } = _wlHelpers();
+
+  // Skip tickers already shown in base or portfolio
+  const BASE_SET = new Set([
+    'SPY','VWRP.L','QQQ','DIA','IWM','BRK-B',
+    'NVDA','GOOGL','TSLA','TLT','GLD','WMT','EEM','BTC-USD'
+  ]);
+
+  const EXTENDED_GROUPS = {
+    'MegaTech':  ['AAPL','AMZN','TSM'],        // MSFT removed — in portfolio; NVDA/GOOGL/TSLA in base
+    'Defensive': ['KO','MCD','JNJ','XOM'],      // WMT in base
+    'ETF_US':    ['VNQ','XLK','XLF','XLE','SOXX','ICLN'],
+    'Dividend':  ['VIG','SCHD'],
+    'EM':        ['INDA','EWZ','ARGT','ILF'],   // EEM in base
+    'China':     ['FXI','KWEB','BABA'],
+    'Latam':     ['YPF','PBR','GGAL'],
+    'Bonds':     ['IEF','HYG'],                 // TLT in base
+    'UK':        ['IGLT.L','VUKE.L'],
+    'Commod':    ['SLV','USO','PDBC'],          // GLD in base
+    'Crypto':    ['ETH-USD','ADA-USD','SOL-USD'], // BTC-USD in base
+  };
+
+  let tsv = 'WATCHLIST_EXTENDED\n' + HEADER + '|cap\n';
+  let count = 0;
+  Object.entries(EXTENDED_GROUPS).forEach(([group, tickers]) => {
     tickers.forEach(t => {
+      if (skip.has(t) || BASE_SET.has(t)) return;
       const d = wl[t];
       if (!d) return;
-      const p = d.regularMarketPrice;
-      tsv += [group, t, (d.name||'').replace(/,.*/, ''),
-        f2(d.beta), f2(d.trailingPE), f2(d.forwardPE), fPct(d.dividendYield),
-        f2(d.fiftyTwoWeekLow), f2(d.fiftyTwoWeekHigh), rPos(p, d.fiftyTwoWeekLow, d.fiftyTwoWeekHigh),
-        f2(d.analystTarget), d.analystRating != null ? (RL[Math.round(d.analystRating)] || f2(d.analystRating)) : '',
-        d.numberOfAnalysts || '', d.nextEarningsDate || '', fCap(d.marketCap)
-      ].join('|') + '\n';
+      tsv += rowFor(group, t, d, true);
+      count++;
     });
   });
-  return tsv.trim();
+  return count > 0 ? tsv.trim() : null;
+}
+
+// Returns true only when the USER's message references watchlist-relevant intent
+// or specific extended tickers/themes — to avoid including extended on every turn.
+function needsExtendedWatchlist(userMsg) {
+  const m = userMsg.toLowerCase();
+  const keywords = [
+    // intent
+    'watchlist','comprar','agregar','comparar','busco','oportunidad',
+    'qué está barato','que esta barato','análisis','analisis',
+    'fundamentals','fwd pe','forward pe','compro','screener',
+    'qué comprarías','que comprarias','dónde metería','donde meteria',
+    'alternativa','diversificar','rotar','rotación','rotacion',
+    // themes
+    'latam','argentina','brasil','china','emergentes','bonos','bond',
+    'commodities','defensivo','defensivas','dividendo','dividendos',
+    'uk','cripto','crypto','india',
+    // extended tickers (any mention pulls the full extended block)
+    'aapl','amzn','tsm','ko','mcd','jnj','xom','vnq','xlk','xlf','xle',
+    'soxx','icln','vig','schd','inda','ewz','argt','ilf','fxi','kweb',
+    'baba','ief','hyg','iglt','vuke','slv','uso','pdbc','eth','sol',
+    'ypf','pbr','ggal',
+  ];
+  return keywords.some(k => m.includes(k));
 }
 
 function buildHealthContext() {
@@ -137,39 +260,76 @@ function buildMarketContext() {
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, changeUSD, breakdown, assets } = liveData;
+  const { totalUSD, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
   const rate = FX_RATE;
-  const fG = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
-  const fU = v => '$' + Math.round(v).toLocaleString('en-US');
+  const fG  = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
+  const fGn = v => '£' + Math.round(v).toLocaleString('es-AR'); // already in GBP
+  const fU  = v => '$' + Math.round(v).toLocaleString('en-US');
 
-  const chgPct = totalUSD > 0 && changeUSD !== 0 ? (changeUSD / (totalUSD - changeUSD) * 100) : 0;
+  // Day change % — use yesterday total as denominator (total - change = yesterday)
+  const yesterdayUSD = totalUSD - changeUSD;
+  const chgPctUSD = yesterdayUSD > 0 ? (changeUSD / yesterdayUSD * 100) : 0;
+  const yesterdayGBP = totalUSD * rate - (changeGBP || 0);
+  const chgPctGBP = yesterdayGBP > 0 && changeGBP ? (changeGBP / yesterdayGBP * 100) : 0;
 
-  let ctx = `PORTFOLIO\ntotal: ${fU(totalUSD)} (${fG(totalUSD)}) | day_change: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${changeUSD >= 0 ? '+' : ''}${chgPct.toFixed(2)}%)\nfx: 1 USD = ${rate.toFixed(4)} GBP\n\n`;
+  const totalGBP = totalUSD * rate;
 
-  ctx += 'ALLOCATION\n';
+  let ctx = `PORTFOLIO\n`;
+  ctx += `total: ${fU(totalUSD)} / £${Math.round(totalGBP).toLocaleString('es-AR')}\n`;
+  ctx += `day_change_usd: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${chgPctUSD >= 0 ? '+' : ''}${chgPctUSD.toFixed(2)}%)\n`;
+  if (changeGBP != null) ctx += `day_change_gbp: ${changeGBP >= 0 ? '+' : ''}${fGn(changeGBP)} (${chgPctGBP >= 0 ? '+' : ''}${chgPctGBP.toFixed(2)}%)\n`;
+  ctx += `fx: 1 USD = ${rate.toFixed(4)} GBP\n`;
+
+  // Cost basis total
+  if (costBasisUSD > 0) {
+    const pnlTotalUSD = totalUSD - costBasisUSD;
+    const pnlTotalGBP = totalGBP - (costBasisGBP || costBasisUSD * rate);
+    const pnlTotalPct = costBasisUSD > 0 ? (pnlTotalUSD / costBasisUSD * 100) : 0;
+    ctx += `cost_basis: ${fU(costBasisUSD)}${costBasisGBP ? ` / £${Math.round(costBasisGBP).toLocaleString('es-AR')}` : ''}\n`;
+    ctx += `total_pnl: ${pnlTotalUSD >= 0 ? '+' : ''}${fU(pnlTotalUSD)} / ${pnlTotalGBP >= 0 ? '+' : ''}${fGn(pnlTotalGBP)} (${pnlTotalPct >= 0 ? '+' : ''}${pnlTotalPct.toFixed(2)}%)\n`;
+  }
+
+  // Allocation — full portfolio
+  ctx += '\nALLOCATION_TOTAL\n';
   const cats = [
     ['acciones', breakdown.acciones],
-    ['cripto', breakdown.cripto],
-    ['rsu', breakdown.rsu],
+    ['cripto',   breakdown.cripto],
+    ['rsu',      breakdown.rsu],
     ['cash_liquid', breakdown.fiat_liquid],
     ['cash_locked', breakdown.fiat_locked],
   ];
   cats.forEach(([k, v]) => {
-    if (v) ctx += `${k}: ${fU(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
+    if (v) ctx += `${k}: ${fU(v)} / ${fG(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
   });
 
-  ctx += '\nPOSITIONS\nticker|name|weight%|value|qty|price|avg_cost|invested|pnl_usd%|pnl_gbp%|pnl_abs|day%\n';
+  // Allocation — equity only (excl fiat), for pie chart context
+  const equityUSD = (breakdown.acciones || 0) + (breakdown.cripto || 0) + (breakdown.rsu || 0);
+  if (equityUSD > 0) {
+    ctx += '\nALLOCATION_EQUITY_ONLY (excl cash)\n';
+    [['acciones', breakdown.acciones], ['cripto', breakdown.cripto], ['rsu', breakdown.rsu]].forEach(([k, v]) => {
+      if (v) ctx += `${k}: ${(v/equityUSD*100).toFixed(1)}%\n`;
+    });
+  }
+
+  ctx += '\nPOSITIONS\nticker|name|weight%|value_usd|value_gbp|qty|price|avg_cost_usd|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|pnl_abs_usd|pnl_abs_gbp|day%\n';
   assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
     const w = totalUSD > 0 ? (valueUSD / totalUSD * 100).toFixed(1) : '—';
-    const pnlAbs = pctUSD !== null && pos.initial_investment_usd ? fU(valueUSD - Number(pos.initial_investment_usd)) : '';
-    ctx += [pos.ticker, meta.name, w, fU(valueUSD), pos.qty,
+    const valueGBP = valueUSD * rate;
+    const invUSD = pos.initial_investment_usd ? Number(pos.initial_investment_usd) : null;
+    const invGBP = pos.initial_investment_gbp ? Number(pos.initial_investment_gbp) : null;
+    const pnlAbsUSD = pctUSD !== null && invUSD ? fU(valueUSD - invUSD) : '';
+    const pnlAbsGBP = invGBP ? fGn(valueGBP - invGBP) : (invUSD ? fG(valueUSD - invUSD) : '');
+    ctx += [pos.ticker, meta.name, w,
+      fU(valueUSD), fGn(Math.round(valueGBP)),
+      pos.qty,
       priceUSD ? '$' + priceUSD.toFixed(2) : '',
       pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '',
-      pos.initial_investment_usd ? fU(Number(pos.initial_investment_usd)) : '',
+      invUSD ? fU(invUSD) : '',
+      invGBP ? fGn(invGBP) : '',
       pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '',
       pctGBP !== null ? (pctGBP >= 0 ? '+' : '') + pctGBP.toFixed(2) + '%' : '',
-      pnlAbs,
+      pnlAbsUSD, pnlAbsGBP,
       dayPct !== null ? (dayPct >= 0 ? '+' : '') + dayPct.toFixed(2) + '%' : ''
     ].join('|') + '\n';
   });
@@ -202,6 +362,59 @@ function buildPortfolioContext() {
       ctx += '\nVEST_HISTORY\n';
       vested.forEach(v => ctx += `${v.date}: ${v.units} units (vested)\n`);
     }
+  }
+
+  // Historical performance (7d and 30d)
+  if (portfolioSnaps && portfolioSnaps.length > 1) {
+    const latest = portfolioSnaps[0];
+    const latestGBP = latest.total_gbp || (latest.total_usd * (latest.fx_rate || FX_RATE));
+    const msDay = 86400000;
+    const now = new Date(latest.captured_at).getTime();
+    const snap7  = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
+    const snap30 = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
+    ctx += '\nHISTORICAL_PERFORMANCE\n';
+    if (snap7) {
+      const gbp7 = snap7.total_gbp || (snap7.total_usd * (snap7.fx_rate || FX_RATE));
+      const chg7 = latest.total_usd - snap7.total_usd;
+      const chgG7 = latestGBP - gbp7;
+      const pct7 = snap7.total_usd > 0 ? (chg7 / snap7.total_usd * 100) : 0;
+      ctx += `7d: ${chg7 >= 0 ? '+' : ''}${fU(chg7)} (${chgG7 >= 0 ? '+' : ''}${fGn(chgG7)}) ${pct7 >= 0 ? '+' : ''}${pct7.toFixed(2)}%\n`;
+    }
+    if (snap30) {
+      const gbp30 = snap30.total_gbp || (snap30.total_usd * (snap30.fx_rate || FX_RATE));
+      const chg30 = latest.total_usd - snap30.total_usd;
+      const chgG30 = latestGBP - gbp30;
+      const pct30 = snap30.total_usd > 0 ? (chg30 / snap30.total_usd * 100) : 0;
+      ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fGn(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
+    }
+  }
+
+  // P&L attribution — per category, non-fiat only
+  const investedAssets = assets.filter(a => a.pos.category !== 'fiat' && a.pos.initial_investment_usd && a.valueUSD > 0);
+  if (investedAssets.length > 0) {
+    const byCategory = {};
+    investedAssets.forEach(a => {
+      const cat = a.pos.category;
+      if (!byCategory[cat]) byCategory[cat] = { valueUSD: 0, investedUSD: 0, investedGBP: 0 };
+      byCategory[cat].valueUSD   += a.valueUSD;
+      byCategory[cat].investedUSD += Number(a.pos.initial_investment_usd);
+      byCategory[cat].investedGBP += Number(a.pos.initial_investment_gbp || 0);
+    });
+    ctx += '\nPNL_ATTRIBUTION\ncategory|invested_usd|invested_gbp|current_usd|pnl_usd|pnl_gbp|pnl%\n';
+    Object.entries(byCategory).forEach(([cat, d]) => {
+      const pnlUSD = d.valueUSD - d.investedUSD;
+      const pnlGBP = d.valueUSD * rate - d.investedGBP;
+      const pnlPct = d.investedUSD > 0 ? (pnlUSD / d.investedUSD * 100) : 0;
+      ctx += `${cat}|${fU(d.investedUSD)}|${fGn(Math.round(d.investedGBP))}|${fU(d.valueUSD)}|${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)}|${pnlGBP >= 0 ? '+' : ''}${fGn(Math.round(pnlGBP))}|${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n`;
+    });
+    const totInvUSD = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_usd), 0);
+    const totInvGBP = investedAssets.reduce((s, a) => s + Number(a.pos.initial_investment_gbp || 0), 0);
+    const totCurUSD = investedAssets.reduce((s, a) => s + a.valueUSD, 0);
+    const totPnlUSD = totCurUSD - totInvUSD;
+    const totPnlGBP = totCurUSD * rate - totInvGBP;
+    const totPnlPct = totInvUSD > 0 ? (totPnlUSD / totInvUSD * 100) : 0;
+    ctx += `TOTAL|${fU(totInvUSD)}|${fGn(Math.round(totInvGBP))}|${fU(totCurUSD)}|${totPnlUSD >= 0 ? '+' : ''}${fU(totPnlUSD)}|${totPnlGBP >= 0 ? '+' : ''}${fGn(Math.round(totPnlGBP))}|${totPnlPct >= 0 ? '+' : ''}${totPnlPct.toFixed(2)}%\n`;
+    ctx += `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase) for GBP positions; USD positions converted at today's FX — this matches what the app displays\n`;
   }
 
   return ctx.trim();
@@ -333,8 +546,9 @@ async function aiSendMsg() {
   thinkingEl._tmInterval = tmInterval;
 
   try {
-    const watchlistSection = buildWatchlistContext();
-    const macroSection     = buildMacroContext();
+    const wlBase     = buildWatchlistBase();
+    const wlExtended = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
+    const macroSection = buildMacroContext();
 
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
@@ -351,28 +565,73 @@ async function aiSendMsg() {
       ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
       : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
 
-    const systemPrompt = `Sos el asesor financiero personal de Julián. Respondé en español, directo y conciso. No uses markdown excesivo.
+    // ── Profile from Railway env vars with hardcoded fallbacks ──
+    const _cfg          = await getAppConfig();
+    const _name         = _cfg.aiProfileName       || 'Julián';
+    const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
+    const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
+    const _bonusRange   = _cfg.aiBonusRange        || '£9000-10000/yr';
+    const _rsuRange     = _cfg.aiRsuRange          || 'META quarterly ~£2100 net/vest';
+    const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
+    const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
+    const _annualInvest = _cfg.aiAnnualInvestable  || '~£20k-22k salary+bonus + ~£8k-9k RSUs = £28k-31k/yr';
+
+    // ── Live values from Supabase positions ──
+    let _gbpLiquidQty = '?', _emergencyQty = '?';
+    if (liveData && liveData.assets) {
+      const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
+      const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
+      if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
+      if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
+    }
+
+    // ── Today + next bonus date ──
+    const _now      = new Date();
+    const _todayStr = _now.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    const _todayISO = _now.toISOString().slice(0,10);
+
+    // Last business day of March (month0=2) and September (month0=8)
+    function lastBizDay(year, month0) {
+      let d = new Date(Date.UTC(year, month0 + 1, 0)); // last day of month
+      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0,10);
+    }
+    const yr = _now.getUTCFullYear();
+    const bonusDates = [
+      lastBizDay(yr, 2),
+      lastBizDay(yr, 8),
+      lastBizDay(yr + 1, 2),
+    ].filter(d => d >= _todayISO);
+    const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
+    const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
+
+    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
+
+TODAY: ${_todayStr} (${_todayISO})
+NEXT_BONUS: ${_nextBonus} (en ${_daysToBonus} días) — 50% del bono anual neto
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: £4000
-savings: £900-1000/mo | bonus_net: £9000-10000/yr (Mar+Sep, 50/50) | rsu: META quarterly ~£2500-2800 net/vest
-emergency_fund: £2500 (EMERGENCY_FUND position, separate from GBP_LIQUID), intocable
-cash_available: GBP_LIQUID = excedente para invertir (actualmente £500 aprox)
+location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
+savings: ${_savingsRange} | bonus_net: ${_bonusRange} en DOS TRAMOS: 50% último día hábil de marzo + 50% último día hábil de septiembre
+rsu: ${_rsuRange} | vest trimestral (ene/abr/jul/oct)
+emergency_fund: actual £${_emergencyQty} (EMERGENCY_FUND position) | min_threshold: £${_emergencyMin} — INTOCABLE, prioridad máxima
+cash_available: GBP_LIQUID = £${_gbpLiquidQty} (excedente para invertir)
 horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
-goals: £30k (end 2026) | £100k (end 2028) | £200k (end 2030)
+goals: ${_goals}
 
 CASHFLOW_ANALYSIS
-annual_investable: ~£20k-22k salary+bonus + ~£11k-12k RSUs = £31k-34k/yr
+annual_investable: ${_annualInvest}
 promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: Mar+Sep (bonus), quarterly (RSU vest)
+key_dates: último día hábil de mar (50% bonus) | último día hábil de sep (50% bonus) | trim ene/abr/jul/oct (RSU vest)
 
 RULES
 - ${fxLine}
-- META concentration risk: RSUs + held shares = largest single exposure
+- day_change en GBP incluye efecto de movimiento del tipo de cambio USD/GBP intradía (no solo precios)
+- META concentration risk: RSUs + held shares = largest single exposure — warn if high relative to total portfolio
 - VIX >30=panic, >20=elevated, <15=calm
 - US10Y rising = pressure on growth + long bonds
 - GBP/USD up = USD portfolio worth less in GBP
-- Bonus months (Mar/Sep) = key investment decision points
+- Si emergency_fund < £${_emergencyMin}, prioridad absoluta reponerlo antes de invertir
 - Promotion delta should go to investing, not expenses
 - Use all provided data (fundamentals, macro, watchlist) for analysis
 
@@ -380,8 +639,9 @@ ${buildPortfolioContext()}
 
 ${buildHealthContext()}
 ${buildMarketContext()}
-${macroSection     ? '\n' + macroSection     : ''}
-${watchlistSection ? '\n' + watchlistSection : ''}`;
+${macroSection ? '\n' + macroSection : ''}
+${wlBase       ? '\n' + wlBase       : ''}
+${wlExtended   ? '\n' + wlExtended   : ''}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -428,6 +688,17 @@ async function getAnthropicKey() {
   const cfg = await res.json();
   window._anthropicKey = cfg.anthropicKey;
   return window._anthropicKey;
+}
+
+async function getAppConfig() {
+  if (window._appConfig) return window._appConfig;
+  try {
+    const res = await fetch('/api/config');
+    window._appConfig = await res.json();
+    return window._appConfig;
+  } catch(e) {
+    return {};
+  }
 }
 
 function aiRenderMarkdown(text) {
