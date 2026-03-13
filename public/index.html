@@ -1130,7 +1130,6 @@
 
 .tx-panel-tabs {
   display: flex;
-  gap: 0;
   border-bottom: 1px solid var(--border);
   margin: 0 -16px;
   padding: 0 16px;
@@ -1145,62 +1144,39 @@
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
-  letter-spacing: 0.2px;
 }
 .tx-panel-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
-
-/* Saldos panel */
 .saldo-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  cursor: pointer;
   transition: border-color 0.15s;
 }
-.saldo-card.editing {
-  border-color: var(--accent);
+.saldo-card.editing { border-color: var(--accent); }
+.saldo-top-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-.saldo-logo {
-  font-size: 22px;
-  width: 36px;
-  text-align: center;
-  flex-shrink: 0;
-}
+.saldo-logo { font-size: 22px; width: 36px; text-align: center; flex-shrink: 0; }
 .saldo-info { flex: 1; min-width: 0; }
-.saldo-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 2px;
-}
-.saldo-meta {
-  font-size: 11px;
-  color: var(--muted);
-}
-.saldo-value {
-  text-align: right;
-  flex-shrink: 0;
-}
-.saldo-amount {
-  font-size: 16px;
-  font-weight: 800;
-  font-family: var(--font-num);
-  color: var(--text);
-}
-.saldo-amount-secondary {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: var(--font-num);
-}
+.saldo-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.saldo-meta { font-size: 11px; color: var(--muted); }
+.saldo-value { text-align: right; flex-shrink: 0; }
+.saldo-amount { font-size: 16px; font-weight: 800; font-family: var(--font-num); color: var(--text); }
+.saldo-amount-secondary { font-size: 11px; color: var(--muted); font-family: var(--font-num); }
 .saldo-edit-row {
   display: none;
-  margin-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
   gap: 8px;
   align-items: center;
 }
@@ -1239,7 +1215,6 @@
   cursor: pointer;
   flex-shrink: 0;
 }
-
 .tx-panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 20px 12px;
@@ -2493,13 +2468,10 @@
       </div>
       <input type="file" id="txImageInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style="display:none" onchange="handleTxImage(event)">
     </div>
-
-    <!-- Tab switcher -->
     <div class="tx-panel-tabs">
       <div class="tx-panel-tab active" id="tabTx" onclick="switchTxTab('tx')">Transacción</div>
       <div class="tx-panel-tab" id="tabSaldos" onclick="switchTxTab('saldos')">Saldos</div>
     </div>
-
     <div class="tx-panel-body">
 
       <!-- FORM -->
@@ -2662,12 +2634,12 @@
         </div>
       </div>
 
-    </div><!-- /tx-form-pane -->
+    </div>
 
-    <!-- SALDOS PANEL -->
-    <div id="saldosPane" style="display:none;padding:16px">
+    <!-- SALDOS PANE -->
+    <div id="saldosPane" style="display:none;padding:16px;overflow-y:auto">
       <p style="font-size:12px;color:var(--muted);margin:0 0 14px">
-        Posiciones manuales — editá el saldo actual en GBP (o USD para activos USD).
+        Tocá un saldo para editarlo.
       </p>
       <div id="saldosList" style="display:flex;flex-direction:column;gap:10px">
         <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>
@@ -2676,7 +2648,6 @@
     </div>
 
   </div>
-</div>
 
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
@@ -7327,29 +7298,27 @@ function setDbPricingCurrency(cur) {
   }
 }
 
-// ── Saldos / manual positions ──────────────────────────────────────────────
-
 let _saldosData = [];
+let portfolioSnaps = [];
 
 function switchTxTab(tab) {
-  const txPane     = document.getElementById('txForm').parentElement;
+  const txBody     = document.getElementById('txPanel').querySelector('.tx-panel-body');
   const saldosPane = document.getElementById('saldosPane');
   const tabTx      = document.getElementById('tabTx');
   const tabSaldos  = document.getElementById('tabSaldos');
   const ocrBtn     = document.getElementById('txOcrBtn');
   const title      = document.getElementById('txPanelTitle');
-
   if (tab === 'saldos') {
-    txPane.style.display      = 'none';
-    saldosPane.style.display  = 'block';
+    txBody.style.display     = 'none';
+    saldosPane.style.display = 'block';
     tabTx.classList.remove('active');
     tabSaldos.classList.add('active');
     if (ocrBtn) ocrBtn.style.display = 'none';
     title.textContent = 'Saldos';
     loadSaldos();
   } else {
-    txPane.style.display      = 'block';
-    saldosPane.style.display  = 'none';
+    txBody.style.display     = 'block';
+    saldosPane.style.display = 'none';
     tabTx.classList.add('active');
     tabSaldos.classList.remove('active');
     if (ocrBtn) ocrBtn.style.display = 'flex';
@@ -7364,53 +7333,49 @@ async function loadSaldos() {
     const positions = await sbFetch('/rest/v1/positions?select=*&managed_by=eq.manual');
     _saldosData = positions;
     renderSaldos();
-  } catch (e) {
-    listEl.innerHTML = `<div style="color:var(--accent2);font-size:13px;text-align:center;padding:16px">${e.message}</div>`;
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:var(--accent2);font-size:13px;padding:16px;text-align:center">${e.message}</div>`;
   }
 }
 
 function renderSaldos() {
   const listEl = document.getElementById('saldosList');
+  const rate = FX_RATE || 0.79;
   if (!_saldosData.length) {
     listEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">No hay posiciones manuales.</div>';
     return;
   }
-
-  const rate = FX_RATE || 0.79;
-
   listEl.innerHTML = _saldosData.map(pos => {
     const meta = TICKER_META[pos.ticker] || { name: pos.name || pos.ticker, logo: '💰' };
     const isGBP = pos.currency === 'GBP';
     const qty = Number(pos.qty) || 0;
     const valueUSD = isGBP ? qty / rate : qty;
     const valueGBP = isGBP ? qty : qty * rate;
-    const currSymbol = isGBP ? '£' : '$';
-    const secondarySymbol = isGBP ? '$' : '£';
-    const secondaryVal = isGBP ? valueUSD : valueGBP;
-
-    const logoHtml = pos.ticker && TICKER_META[pos.ticker]?.logoUrl
-      ? `<img src="${TICKER_META[pos.ticker].logoUrl}" style="width:28px;height:28px;border-radius:50%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">`
-        + `<span style="display:none;font-size:22px">${meta.logo || '💰'}</span>`
+    const sym  = isGBP ? '£' : '$';
+    const sym2 = isGBP ? '$' : '£';
+    const val2 = isGBP ? valueUSD : valueGBP;
+    const logoHtml = (TICKER_META[pos.ticker]?.logoUrl)
+      ? `<img src="${TICKER_META[pos.ticker].logoUrl}" style="width:28px;height:28px;border-radius:50%;object-fit:cover" onerror="this.style.display='none'">`
       : `<span style="font-size:22px">${meta.logo || '💰'}</span>`;
-
-    return `<div class="saldo-card" id="saldo-${pos.ticker}" onclick="toggleSaldoEdit('${pos.ticker}')">
-      <div class="saldo-logo">${logoHtml}</div>
-      <div class="saldo-info">
-        <div class="saldo-name">${meta.name || pos.name || pos.ticker}</div>
-        <div class="saldo-meta">${pos.ticker}${pos.notes ? ' · ' + pos.notes : ''}</div>
-      </div>
-      <div class="saldo-value">
-        <div class="saldo-amount">${currSymbol}${Math.round(qty).toLocaleString('es-AR')}</div>
-        <div class="saldo-amount-secondary">${secondarySymbol}${Math.round(secondaryVal).toLocaleString('es-AR')}</div>
+    return `
+    <div class="saldo-card" id="saldo-${pos.ticker}" onclick="toggleSaldoEdit('${pos.ticker}')">
+      <div class="saldo-top-row">
+        <div class="saldo-logo">${logoHtml}</div>
+        <div class="saldo-info">
+          <div class="saldo-name">${meta.name || pos.name || pos.ticker}</div>
+          <div class="saldo-meta">${pos.ticker}${pos.notes ? ' · ' + pos.notes : ''}</div>
+        </div>
+        <div class="saldo-value">
+          <div class="saldo-amount">${sym}${Math.round(qty).toLocaleString('es-AR')}</div>
+          <div class="saldo-amount-secondary">${sym2}${Math.round(val2).toLocaleString('es-AR')}</div>
+        </div>
       </div>
       <div class="saldo-edit-row" onclick="event.stopPropagation()">
         <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
-          value="${qty}" step="${isGBP ? 100 : 1}"
-          placeholder="${currSymbol}0"
-          onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')"
-        >
-        <button class="saldo-cancel-btn" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
-        <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
+          value="${qty}" step="${isGBP ? 100 : 1}" placeholder="${sym}0"
+          onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')">
+        <button class="saldo-cancel-btn" onclick="event.stopPropagation();toggleSaldoEdit('${pos.ticker}')">✕</button>
+        <button class="saldo-save-btn" onclick="event.stopPropagation();saveSaldo('${pos.ticker}')">Guardar</button>
       </div>
     </div>`;
   }).join('');
@@ -7419,10 +7384,9 @@ function renderSaldos() {
 function toggleSaldoEdit(ticker) {
   const card = document.getElementById('saldo-' + ticker);
   if (!card) return;
-  const isEditing = card.classList.contains('editing');
-  // Close all first
+  const wasOpen = card.classList.contains('editing');
   document.querySelectorAll('.saldo-card.editing').forEach(c => c.classList.remove('editing'));
-  if (!isEditing) {
+  if (!wasOpen) {
     card.classList.add('editing');
     const inp = document.getElementById('saldo-input-' + ticker);
     if (inp) setTimeout(() => { inp.focus(); inp.select(); }, 50);
@@ -7439,10 +7403,8 @@ async function saveSaldo(ticker) {
     statusEl.textContent = 'Valor inválido.';
     return;
   }
-
   statusEl.style.color = 'var(--muted)';
   statusEl.textContent = 'Guardando...';
-
   try {
     const res = await fetch('/api/positions/manual', {
       method: 'POST',
@@ -7451,25 +7413,19 @@ async function saveSaldo(ticker) {
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Error');
-
-    // Update local state
     const pos = _saldosData.find(p => p.ticker === ticker);
     if (pos) pos.qty = newQty;
-
     statusEl.style.color = 'var(--accent3)';
-    statusEl.textContent = `✓ ${ticker} actualizado a ${newQty.toLocaleString('es-AR')}`;
+    statusEl.textContent = '✓ Guardado';
     renderSaldos();
-    setTimeout(() => { statusEl.textContent = ''; }, 3000);
-
-    // Reload portfolio in background
+    setTimeout(() => { statusEl.textContent = ''; }, 2500);
     loadPortfolio().catch(() => {});
-  } catch (e) {
+  } catch(e) {
     statusEl.style.color = 'var(--accent2)';
     statusEl.textContent = 'Error: ' + e.message;
   }
 }
 
-// ── Transaction panel open/close ───────────────────────────────────────────
 function openTxPanel(tab) {
   document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
   setTxStatus('', '');
