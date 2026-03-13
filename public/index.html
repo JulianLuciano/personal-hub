@@ -5617,7 +5617,7 @@ function buildHealthContext() {
   ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
   ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
   ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
-  ctx += `currency: score ${d.subscores[3].score} | USD ${(d.usdPct*100).toFixed(0)}% GBP ${(d.gbpPct*100).toFixed(0)}% | includes_all_assets (rent+emergency=GBP)\n`;
+  ctx += `currency: score ${d.subscores[3].score} | GBP ${(d.gbpPct*100).toFixed(0)}% USD ${(d.usdPct*100).toFixed(0)}% | GBP=fiat_gbp+pricing_currency_GBP | USD=stocks+RSU+crypto\n`;
   ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
   ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
   ctx += `sectors: ${sectors}\n`;
@@ -5884,10 +5884,8 @@ async function aiSendMsg() {
     if (liveData && liveData.totalUSD > 0) {
       const usdAssets = liveData.assets.filter(a => {
         const pos = a.pos;
-        if (pos.category === 'fiat') return pos.currency === 'USD';
-        // LSE tickers that actually hold USD-priced assets
-        const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
-        return pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker);
+        const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
+        return !isGBP;
       });
       const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
       usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
@@ -6289,18 +6287,21 @@ function computeHealthData() {
   });
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
-  // ── Currency Exposure (includes RENT_DEPOSIT + EMERGENCY_FUND — real GBP reducing FX risk) ──
-  const currencyAssets = assets.filter(a => a.valueUSD > 0.5); // ALL assets for FX calc
+  // ── Currency Exposure ──
+  // GBP = fiat with currency='GBP' (cash/emergency/rent) + assets with pricing_currency='GBP' (VWRP.L etc)
+  // USD = everything else (stocks, RSUs, crypto — even if bought with GBP)
+  // Uses pricing_currency from DB, NOT the transaction currency
+  const currencyAssets = assets.filter(a => a.valueUSD > 0.5);
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
-  let usdPct = 0;
+  let gbpVal = 0;
   currencyAssets.forEach(a => {
     const pos = a.pos;
-    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
-    if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) {
-      usdPct += a.valueUSD / currencyTotalUSD;
-    }
+    const isGBPExposure = (pos.category === 'fiat' && pos.currency === 'GBP')
+                       || pos.pricing_currency === 'GBP';
+    if (isGBPExposure) gbpVal += a.valueUSD;
   });
-  const gbpPct = 1 - usdPct;
+  const gbpPct = currencyTotalUSD > 0 ? gbpVal / currencyTotalUSD : 0;
+  const usdPct = 1 - gbpPct;
 
   // ── Portfolio Beta (weighted over FULL health portfolio — cash has beta 0) ──
   // This correctly reflects that cash dampens portfolio volatility
@@ -6350,7 +6351,24 @@ function computeHealthData() {
   const riskAlignScore = clamp(100 - (portfolioBeta - 0.8) / (1.6 - 0.8) * 100);
   // Valuation: adjusted thresholds
   const valuationScore = portfolioPE ? clamp(100 - (portfolioPE - 16) / (35 - 16) * 100) : 50;
-  const currencyScore = clamp(100 - (Math.abs(usdPct - 0.5) - 0) / (0.4 - 0) * 100);
+  // Currency score: you live & spend in GBP, so GBP-heavy is healthy.
+  // Ideal range: 40–80% GBP (enough GBP to cover expenses, enough USD for growth).
+  // Score 100 at center (60% GBP), linear penalty outside the band.
+  // 100% GBP = score ~75 (fine, just opportunity cost), 100% USD = score 0.
+  const gbpIdeal = 0.60;
+  const gbpMin = 0.30; // below this: FX risk is real
+  const gbpMax = 1.00; // 100% GBP allowed but not optimal
+  let currencyScore;
+  if (gbpPct >= gbpMin && gbpPct <= 0.80) {
+    // In comfort zone: small penalty for distance from 60%
+    currencyScore = clamp(100 - Math.abs(gbpPct - gbpIdeal) / 0.20 * 25);
+  } else if (gbpPct < gbpMin) {
+    // Too USD-heavy: linearly worse from 30% down to 0%
+    currencyScore = clamp((gbpPct / gbpMin) * 75);
+  } else {
+    // >80% GBP: mild penalty (you're leaving USD growth on the table)
+    currencyScore = clamp(100 - (gbpPct - 0.80) / 0.20 * 25);
+  }
   // Single stock: only broad ETFs (SPY, VWRP) exempt; thematic ETFs (NDIA, ARKK) penalize
   const singleStockW = topNonBroadETF.w * 100;
   const singleStockScore = clamp(100 - (singleStockW - 10) / (30 - 10) * 100);
@@ -6419,7 +6437,7 @@ function computeHealthData() {
         detail: portfolioPE ? `Forward P/E ${portfolioPE.toFixed(1)}x vs S&P ~21x` : 'Sin datos de P/E',
         color: valuationScore > 66 ? 'var(--accent3)' : valuationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Balance cambiario', score: currencyScore, icon: '◇',
-        detail: `USD ${(usdPct*100).toFixed(0)}% · GBP ${(gbpPct*100).toFixed(0)}%`,
+        detail: `GBP ${(gbpPct*100).toFixed(0)}% · USD ${(usdPct*100).toFixed(0)}%`,
         color: currencyScore > 66 ? 'var(--accent3)' : currencyScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Concentración individual', score: singleStockScore, icon: '◉',
         detail: `Top stock: ${topNonBroadETFTicker} (${(topNonBroadETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonBroadETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
@@ -6588,17 +6606,16 @@ function openHealthDetail(type) {
 
   if (type === 'currency') {
     title = 'Exposición por moneda';
-    // Include ALL assets (including rent deposit for FX calc)
     const allAssets = liveData.assets.filter(a => a.valueUSD > 0.5);
-    const usdPricedLSE = ['ARKK.L', 'NDIA.L'];
     const usdAssets = [], gbpAssets = [];
     allAssets.forEach(a => {
       const pos = a.pos;
       const displayTicker = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
       const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
       const entry = { ticker: displayTicker, name: meta.name, valueUSD: a.valueUSD, valueGBP: a.valueUSD * FX_RATE, pct: a.valueUSD / data.currencyTotalUSD };
-      if (pos.currency === 'USD' || usdPricedLSE.includes(pos.ticker)) usdAssets.push(entry);
-      else gbpAssets.push(entry);
+      const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
+      if (isGBP) gbpAssets.push(entry);
+      else usdAssets.push(entry);
     });
     usdAssets.sort((a, b) => b.valueUSD - a.valueUSD);
     gbpAssets.sort((a, b) => b.valueUSD - a.valueUSD);
@@ -6624,7 +6641,7 @@ function openHealthDetail(type) {
     { name: 'Diversificación', text: 'Usa el HHI Normalizado (Herfindahl-Hirschman). Mide qué tan concentrado está tu portfolio relativo a la distribución óptima (todas las posiciones iguales). HHI* = 0% = perfectamente diversificado, 100% = todo en una posición. Score = 100 × (1 - HHI*). Se auto-calibra al número de posiciones.' },
     { name: 'Alineación al riesgo', text: 'Basado en el beta ponderado del portfolio. Beta < 1 = amortigua caídas del mercado, Beta > 1 = amplifica. Escala: beta 0.8 = score 100 (defensivo), beta 1.6 = score 0 (muy agresivo). Se complementa con las estimaciones de corrección (SPY -14%) y bear market (SPY -34%).' },
     { name: 'Valuación', text: 'Forward P/E ponderado del portfolio vs benchmark S&P ~21x. Un P/E bajo significa que pagás menos por cada peso de ganancia futura — más "margin of safety". Escala: 16x = score 100, 35x = score 0. Datos de Yahoo Finance.' },
-    { name: 'Balance cambiario', text: 'Mide qué tan equilibrada está tu exposición entre USD y GBP. Lo ideal es ~50/50 dado que vivís y gastás en GBP pero invertís en USD. >90% en una moneda = score bajo. Incluye RENT_DEPOSIT y EMERGENCY_FUND como GBP.' },
+    { name: 'Balance cambiario', text: 'Mide la exposición GBP vs USD. Vivís y gastás en GBP, por lo que tener mayoría en GBP es saludable. Zona ideal: 40–80% GBP (score máximo ~100 cerca del 60%). <30% GBP = riesgo FX alto (score bajo). >80% GBP = leve penalidad por oportunidad en USD. Clasificación: GBP = fiat en libras + activos con pricing_currency=GBP (ej. VWRP.L). USD = todo lo demás (acciones, RSUs, cripto).' },
     { name: 'Concentración individual', text: 'La posición individual (no-ETF broad) más grande como % del portfolio. ETFs diversificados (SPY, VWRP) no penalizan; ETFs temáticos (NDIA, ARKK) sí. Escala: <10% = score 100, >30% = score 0.' },
     { name: 'Income momentum', text: 'Flujo anual de cash nuevo (ahorro + bono + RSUs) como % del portfolio. Mientras más alto, menos dependés del rendimiento del mercado para crecer. Score = ratio / 50% × 100, capped a 100.' },
   ];
