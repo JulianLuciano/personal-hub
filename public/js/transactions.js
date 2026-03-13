@@ -1,0 +1,522 @@
+// ── Transaction Panel ────────────────────────────────────────────────────────
+
+const TX_DEFAULTS = { broker: 'Trading212', exchange: 'NASDAQ', feeLocal: '0.15' };
+
+const TX_TICKER_META = {
+  'MELI':    { name: 'Mercado Libre',       assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'SPY':     { name: 'S&P 500 ETF',         assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'BRK.B':   { name: 'Berkshire Hathaway',  assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'NU':      { name: 'Nu Holdings',         assetClass: 'acciones', exchange: 'NYSE',   pricing: 'USD' },
+  'MSFT':    { name: 'Microsoft',           assetClass: 'acciones', exchange: 'NASDAQ', pricing: 'USD' },
+  'META':    { name: 'Meta RSU',            assetClass: 'rsu',      exchange: 'NASDAQ', pricing: 'USD' },
+  'VWRP.L': { name: 'Vanguard All World',   assetClass: 'acciones', exchange: 'LSE',    pricing: 'GBP' },
+  'ARKK.L': { name: 'ARK Innovation ETF',  assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'NDIA.L': { name: 'India ETF',           assetClass: 'acciones', exchange: 'LSE',    pricing: 'USD' },
+  'BTC':     { name: 'Bitcoin',             assetClass: 'cripto',   exchange: '',       pricing: 'USD' },
+};
+
+let _txPricingCurrency = 'USD';
+let _txDbPricingCurrency = 'USD';
+
+function setDbPricingCurrency(cur) {
+  _txDbPricingCurrency = cur;
+  const usdBtn = document.getElementById('txPricingDbUSD');
+  const gbpBtn = document.getElementById('txPricingDbGBP');
+  if (!usdBtn || !gbpBtn) return;
+  if (cur === 'USD') {
+    usdBtn.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer';
+    gbpBtn.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:11px;font-weight:700;cursor:pointer';
+  } else {
+    gbpBtn.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer';
+    usdBtn.style.cssText = 'padding:3px 10px;border-radius:6px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:11px;font-weight:700;cursor:pointer';
+  }
+}
+
+function openTxPanel() {
+  document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
+  setTxStatus('', '');
+  _txPricingCurrency = 'USD';
+  setPricingCurrency('USD');
+  setDbPricingCurrency('USD');
+  document.getElementById('txOverlay').classList.add('open');
+  document.getElementById('txPanel').classList.add('open');
+}
+
+function closeTxPanel() {
+  document.getElementById('txOverlay').classList.remove('open');
+  document.getElementById('txPanel').classList.remove('open');
+}
+
+function setTxStatus(msg, type) {
+  const el = document.getElementById('txStatus');
+  el.textContent = msg;
+  el.className = 'tx-status' + (type ? ' ' + type : '');
+}
+
+function setPricingCurrency(cur) {
+  _txPricingCurrency = cur;
+  setDbPricingCurrency(cur);  // keep db toggle in sync by default
+  const usdBtn = document.getElementById('txPricingUSD');
+  const gbpBtn = document.getElementById('txPricingGBP');
+  const mainLabel    = document.getElementById('txPriceMainLabel');
+  const derivedLabel = document.getElementById('txPriceDerivedLabel');
+  if (cur === 'USD') {
+    usdBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer';
+    gbpBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer';
+    mainLabel.textContent    = 'Price USD';
+    derivedLabel.textContent = 'Price GBP';
+  } else {
+    gbpBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer';
+    usdBtn.style.cssText = 'flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:none;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer';
+    mainLabel.textContent    = 'Price GBP';
+    derivedLabel.textContent = 'Price USD';
+  }
+  recalcDerivedPrice();
+}
+
+function recalcDerivedPrice() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (!main || !fx) return;
+  const derived = _txPricingCurrency === 'USD' ? (main / fx) : (main * fx);
+  document.getElementById('txPriceDerived').value = derived;
+}
+
+function getPriceUsd() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (_txPricingCurrency === 'USD') return main;
+  return fx ? main * fx : 0;
+}
+
+function getPriceLocal() {
+  const main = getTxNum('txPriceMain');
+  const fx   = getTxNum('txFxRate');
+  if (_txPricingCurrency === 'GBP') return main;
+  return fx ? main / fx : 0;
+}
+
+async function onTxTickerBlur() {
+  const ticker = document.getElementById('txTicker').value.trim().toUpperCase();
+  if (!ticker) return;
+  const meta = TX_TICKER_META[ticker];
+  if (meta) {
+    document.getElementById('txName').value       = meta.name;
+    document.getElementById('txAssetClass').value = meta.assetClass;
+    document.getElementById('txExchange').value   = meta.exchange;
+    if (ticker === 'META') {
+      document.getElementById('txType').value     = 'RSU_VEST';
+      document.getElementById('txBroker').value   = 'Schwab';
+      document.getElementById('txFeeLocal').value = '0.00';
+    }
+    if (meta.pricing === 'GBP') setPricingCurrency('GBP');
+  } else {
+    try {
+      const res  = await fetch(`/api/db/positions?ticker=eq.${encodeURIComponent(ticker)}&select=name,category`);
+      const rows = await res.json();
+      if (rows?.[0]?.name) {
+        document.getElementById('txName').value       = rows[0].name;
+        document.getElementById('txAssetClass').value = rows[0].category || 'acciones';
+      }
+    } catch(e) {}
+  }
+}
+
+function onTxTypeChange() {
+  const type = document.getElementById('txType').value;
+  if (type === 'RSU_VEST') {
+    document.getElementById('txBroker').value     = 'Schwab';
+    document.getElementById('txFeeLocal').value   = '0.00';
+    document.getElementById('txAssetClass').value = 'rsu';
+  } else {
+    document.getElementById('txBroker').value   = 'Trading212';
+    document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
+  }
+}
+
+function onTxBrokerChange() {
+  document.getElementById('txBrokerOther').style.display =
+    document.getElementById('txBroker').value === '_other' ? 'block' : 'none';
+}
+
+function onTxExchangeChange() {
+  document.getElementById('txExchangeOther').style.display =
+    document.getElementById('txExchange').value === '_other' ? 'block' : 'none';
+}
+
+function getTxBrokerValue() {
+  const sel = document.getElementById('txBroker').value;
+  if (sel === '_other') return document.getElementById('txBrokerOther').value.trim() || null;
+  return sel;
+}
+
+function getTxExchangeValue() {
+  const sel = document.getElementById('txExchange').value;
+  if (sel === '_other') return document.getElementById('txExchangeOther').value.trim() || null;
+  if (sel === '') return null;
+  return sel;
+}
+
+async function fetchTxPrice() {
+  const ticker = document.getElementById('txTicker').value.trim().toUpperCase();
+  if (!ticker) { setTxStatus('Ingresá un ticker primero', 'err'); return; }
+  const btn = document.getElementById('txFetchBtn');
+  btn.disabled = true; btn.textContent = '...';
+  setTxStatus('Buscando precio y FX...', '');
+  const YAHOO_MAP = { 'BRK.B': 'BRK-B', 'BTC': 'BTC-USD', 'ADA': 'ADA-USD', 'ETH': 'ETH-USD', 'SOL': 'SOL-USD' };
+  const yahooTicker = YAHOO_MAP[ticker] || ticker;
+  try {
+    const [mktRes, fxRes] = await Promise.all([
+      fetch(`/api/market-data?tickers=${encodeURIComponent(yahooTicker)}`),
+      fetch(`/api/market-data?tickers=GBPUSD%3DX`),
+    ]);
+    const mktJson = await mktRes.json();
+    const fxJson  = await fxRes.json();
+    const data    = mktJson.data?.[yahooTicker];
+    const fxData  = fxJson.data?.['GBPUSD=X'];
+    const msgs    = [];
+    if (fxData?.regularMarketPrice) {
+      document.getElementById('txFxRate').value = fxData.regularMarketPrice.toFixed(5);
+      msgs.push(`FX: ${fxData.regularMarketPrice.toFixed(4)}`);
+    }
+    if (data?.regularMarketPrice) {
+      document.getElementById('txPriceMain').value = data.regularMarketPrice;
+      onTxPriceMainChange();
+      msgs.push(`Precio: $${data.regularMarketPrice}`);
+    } else {
+      setTxStatus('No se encontró precio', 'err');
+    }
+    if (msgs.length) setTxStatus(msgs.join(' · '), 'ok');
+  } catch(e) {
+    setTxStatus('Error al buscar precio', 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ Live';
+  }
+}
+
+function getTxNum(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function recalcAmounts() {
+  const priceUsd = getPriceUsd();
+  const fx       = getTxNum('txFxRate');
+  const qty      = getTxNum('txQty');
+  if (qty && priceUsd) {
+    document.getElementById('txAmountUsd').value   = qty * priceUsd;
+    if (fx) document.getElementById('txAmountLocal').value = qty * priceUsd / fx;
+  }
+}
+
+function onTxPriceMainChange() {
+  recalcDerivedPrice();
+  recalcAmounts();
+}
+
+function onTxFxChange() {
+  recalcDerivedPrice();
+  recalcAmounts();
+}
+
+function onTxQtyChange() {
+  recalcAmounts();
+}
+
+async function submitTransaction() {
+  const ticker      = document.getElementById('txTicker').value.trim().toUpperCase();
+  const name        = document.getElementById('txName').value.trim() || ticker;
+  const type        = document.getElementById('txType').value;
+  const assetClass  = document.getElementById('txAssetClass').value;
+  const date        = document.getElementById('txDate').value;
+  const qty         = parseFloat(document.getElementById('txQty').value);
+  const amountUsd   = parseFloat(document.getElementById('txAmountUsd').value);
+  const amountLocal = parseFloat(document.getElementById('txAmountLocal').value);
+  const feeLocal    = parseFloat(document.getElementById('txFeeLocal').value) || 0;
+  const fxRate      = parseFloat(document.getElementById('txFxRate').value)   || null;
+  const broker      = getTxBrokerValue();
+  const exchange    = getTxExchangeValue();
+  const notes       = document.getElementById('txNotes').value.trim() || null;
+  const priceUsd    = getPriceUsd() || null;
+  const priceLocal  = getPriceLocal() || null;
+  const meta        = TX_TICKER_META[ticker];
+  const pricingCurrency = _txDbPricingCurrency;
+
+  if (!ticker)             { setTxStatus('Ticker requerido', 'err'); return; }
+  if (!date)               { setTxStatus('Fecha requerida', 'err'); return; }
+  if (!qty || isNaN(qty))  { setTxStatus('Qty requerida', 'err'); return; }
+  if (!amountUsd  || isNaN(amountUsd))   { setTxStatus('Amount USD requerido', 'err'); return; }
+  if (!amountLocal || isNaN(amountLocal)){ setTxStatus('Amount GBP requerido', 'err'); return; }
+
+  const btn = document.getElementById('txSubmitBtn');
+  btn.disabled = true;
+  setTxStatus('Guardando...', '');
+
+  const payload = {
+    date, ticker, name, type,
+    asset_class:      assetClass,
+    qty:              qty.toString(),
+    price_usd:        priceUsd,
+    price_local:      priceLocal,
+    amount_usd:       amountUsd,
+    amount_local:     amountLocal,
+    fee_local:        feeLocal,
+    fx_rate_to_usd:   fxRate,
+    local_currency:   'GBP',
+    pricing_currency: pricingCurrency,
+    exchange,
+    broker,
+    notes,
+  };
+
+  try {
+    const insertRes = await fetch('/api/db/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(payload),
+    });
+    if (!insertRes.ok) {
+      const err = await insertRes.text();
+      setTxStatus('Error: ' + err.slice(0, 80), 'err');
+      btn.disabled = false;
+      return;
+    }
+    setTxStatus('Guardado. Recalculando...', '');
+    const recalcRes = await fetch('/api/recalculate-positions', { method: 'POST' });
+    const recalc    = await recalcRes.json();
+    if (recalc.ok) {
+      const n = (recalc.updated?.length || 0) + (recalc.inserted?.length || 0);
+      setTxStatus(`✓ Listo — ${n} posición(es) actualizadas`, 'ok');
+    } else {
+      setTxStatus('Guardado, error en recálculo: ' + (recalc.error || ''), 'err');
+    }
+    if (document.getElementById('txHistoryBody').classList.contains('open')) loadTxHistory();
+    ['txQty','txPriceMain','txPriceDerived','txAmountUsd','txAmountLocal','txFxRate','txNotes'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
+  } catch(e) {
+    setTxStatus('Error inesperado: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function toggleTxHistory() {
+  const toggle = document.getElementById('txHistToggle');
+  const body   = document.getElementById('txHistoryBody');
+  const isOpen = body.classList.contains('open');
+  toggle.classList.toggle('open', !isOpen);
+  body.classList.toggle('open', !isOpen);
+  if (!isOpen) loadTxHistory();
+}
+
+async function loadTxHistory() {
+  const container = document.getElementById('txHistoryContent');
+  container.innerHTML = '<span style="color:var(--muted)">Cargando...</span>';
+  try {
+    const res  = await fetch('/api/db/transactions?order=date.desc&limit=30');
+    const rows = await res.json();
+    if (!rows?.length) {
+      container.innerHTML = '<span style="color:var(--muted);font-size:13px">Sin transacciones</span>';
+      return;
+    }
+    const fmt      = v => v != null ? Number(v).toLocaleString('es-AR', { maximumFractionDigits: 4 }) : '—';
+    const fmtDate  = d => d ? d.slice(5).replace('-', '/') : '—';
+    const typeLabel = { BUY: 'Compra', SELL: 'Venta', RSU_VEST: 'RSU', FX_CONVERSION: 'FX' };
+    container.innerHTML = `
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="tx-hist-table">
+          <thead><tr>
+            <th>Fecha</th><th>Ticker</th><th>Tipo</th><th>Qty</th><th>£ Total</th><th>Fee</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>
+              <td>${fmtDate(r.date)}</td>
+              <td style="font-weight:700">${r.ticker}</td>
+              <td><span class="tx-hist-badge ${r.type}">${typeLabel[r.type] || r.type}</span></td>
+              <td>${fmt(r.qty)}</td>
+              <td>${fmt(r.amount_local)}</td>
+              <td>${fmt(r.fee_local)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    container.innerHTML = '<span style="color:var(--accent2)">Error al cargar historial</span>';
+  }
+}
+
+// ── OCR ───────────────────────────────────────────────────────────────────────
+
+async function handleTxImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const btn = document.getElementById('txOcrBtn');
+  btn.innerHTML = '⏳ <span>Leyendo...</span>';
+  btn.disabled = true;
+  setTxStatus('Procesando imagen...', '');
+
+  try {
+    // Comprimir imagen a max 1200px y calidad 0.85 — suficiente para OCR, reduce tamaño ~80%
+    const base64 = await compressImageToBase64(file, 1200, 0.85);
+    const mediaType = 'image/jpeg'; // canvas siempre exporta jpeg
+
+    setTxStatus('Leyendo screenshot...', '');
+
+    const res = await fetch('/api/ocr-transaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64, mediaType }),
+    });
+
+    const json = await res.json();
+
+    if (!json.ok || !json.transaction) {
+      setTxStatus('Error: ' + (json.error || JSON.stringify(json)), 'err');
+      return;
+    }
+
+    fillFormFromOcr(json.transaction);
+    const conf = json.transaction.confidence;
+    setTxStatus(
+      conf === 'high'   ? '✓ Screenshot leído correctamente' :
+      conf === 'medium' ? '✓ Leído — verificá precio y qty' :
+                          '⚠ Leído con baja confianza — revisá todo',
+      conf === 'high' ? 'ok' : ''
+    );
+    // Botón verde por 3 segundos
+    btn.innerHTML = '✅ <span>Leído</span>';
+    btn.style.background = 'linear-gradient(135deg,#22c55e,#16a34a)';
+    setTimeout(() => {
+      btn.innerHTML = '📷 <span>Leer screen</span>';
+      btn.style.background = 'linear-gradient(135deg,var(--accent),#a78bfa)';
+    }, 3000);
+
+  } catch(e) {
+    setTxStatus('Error: ' + e.message, 'err');
+  } finally {
+    btn.innerHTML = '📷 <span>Leer screen</span>';
+    btn.disabled = false;
+    event.target.value = '';
+  }
+}
+
+function compressImageToBase64(file, maxWidth, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      // Calcular dimensiones manteniendo aspect ratio
+      let w = img.width;
+      let h = img.height;
+      if (w > maxWidth) {
+        h = Math.round(h * maxWidth / w);
+        w = maxWidth;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      // Exportar como JPEG base64 (sin el prefijo data:...)
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo cargar la imagen')); };
+    img.src = url;
+  });
+}
+
+function fillFormFromOcr(tx) {
+  const ASSET_CLASS_MAP  = { stock: 'acciones', cripto: 'cripto', rsu: 'rsu', fiat: 'fiat' };
+  const KNOWN_EXCHANGES  = ['NASDAQ', 'NYSE', 'LSE', ''];
+
+  // Ticker
+  if (tx.ticker) document.getElementById('txTicker').value = tx.ticker;
+
+  // Name — usa TX_TICKER_META como fallback si OCR no trajo nombre
+  const metaName = TX_TICKER_META[tx.ticker]?.name;
+  document.getElementById('txName').value = tx.name || metaName || '';
+
+  // Type
+  if (tx.type) document.getElementById('txType').value = tx.type;
+
+  // Asset class — Kraken siempre es cripto independientemente de lo que diga el OCR
+  const ac = tx.broker === 'Kraken' ? 'cripto' : (ASSET_CLASS_MAP[tx.asset_class] || tx.asset_class || 'acciones');
+  document.getElementById('txAssetClass').value = ac;
+
+  // Date
+  if (tx.date) document.getElementById('txDate').value = tx.date;
+
+  // Pricing currency toggle
+  const pricing = tx.pricing_currency || 'USD';
+  setPricingCurrency(pricing);
+  // Kraken: precio en GBP pero el activo cotiza en USD
+  if (tx.broker === 'Kraken') setDbPricingCurrency('USD');
+
+  // Price
+  if (pricing === 'GBP' && tx.price_local) {
+    document.getElementById('txPriceMain').value = tx.price_local;
+  } else if (pricing === 'USD' && tx.price_usd) {
+    document.getElementById('txPriceMain').value = tx.price_usd;
+  }
+
+  // FX rate
+  if (tx.fx_rate_to_usd) document.getElementById('txFxRate').value = tx.fx_rate_to_usd;
+
+  recalcDerivedPrice();
+
+  // Qty
+  if (tx.qty) document.getElementById('txQty').value = tx.qty;
+
+  // Amounts — calcular con lógica consistente
+  const feeVal      = parseFloat(tx.fee_local) || 0;
+  const amtLocalRaw = parseFloat(tx.amount_local) || 0;
+  const fxVal       = parseFloat(tx.fx_rate_to_usd) || 0;
+
+  // amount_local siempre = total_gbp - fee (aplica a Trading212 y Kraken)
+  const amtLocal = amtLocalRaw - feeVal;
+
+  // amount_usd = amount_local * fx_rate (si hay fx rate)
+  const amtUsd = tx.amount_usd
+    ? parseFloat(tx.amount_usd)
+    : (fxVal ? amtLocal * fxVal : 0);
+
+  if (amtLocal) document.getElementById('txAmountLocal').value = amtLocal;
+  if (amtUsd)   document.getElementById('txAmountUsd').value   = amtUsd;
+
+  // Fee
+  document.getElementById('txFeeLocal').value = tx.fee_local ?? 0;
+
+  // Broker
+  const brokerSel  = document.getElementById('txBroker');
+  const brokerOpts = Array.from(brokerSel.options).map(o => o.value);
+  if (tx.broker && brokerOpts.includes(tx.broker)) {
+    brokerSel.value = tx.broker;
+    document.getElementById('txBrokerOther').style.display = 'none';
+  } else if (tx.broker) {
+    brokerSel.value = '_other';
+    document.getElementById('txBrokerOther').style.display = 'block';
+    document.getElementById('txBrokerOther').value = tx.broker;
+  }
+
+  // Exchange — OCR primero, luego TX_TICKER_META como fallback
+  const exchFromMeta = TX_TICKER_META[tx.ticker]?.exchange ?? null;
+  const exchVal      = tx.exchange !== undefined ? tx.exchange : exchFromMeta;
+  const exchSel      = document.getElementById('txExchange');
+
+  if (exchVal === null || exchVal === '') {
+    exchSel.value = '';
+    document.getElementById('txExchangeOther').style.display = 'none';
+  } else if (KNOWN_EXCHANGES.includes(exchVal)) {
+    exchSel.value = exchVal;
+    document.getElementById('txExchangeOther').style.display = 'none';
+  } else {
+    exchSel.value = '_other';
+    document.getElementById('txExchangeOther').style.display = 'block';
+    document.getElementById('txExchangeOther').value = exchVal;
+  }
+
+  // Notes
+  if (tx.notes) document.getElementById('txNotes').value = tx.notes;
+}
