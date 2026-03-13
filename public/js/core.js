@@ -1,10 +1,13 @@
-// Generate heatmap
-const hm = document.getElementById('heatmap');
-for (let i = 0; i < 91; i++) {
-  const cell = document.createElement('div');
-  const r = Math.random();
-  cell.className = 'hm-cell ' + (r < 0.2 ? '' : r < 0.4 ? 'l1' : r < 0.65 ? 'l2' : r < 0.85 ? 'l3' : 'l4');
-  hm.appendChild(cell);
+// Generate heatmap — must run after DOM is ready
+function renderHeatmap() {
+  const hm = document.getElementById('heatmap');
+  if (!hm) return;
+  for (let i = 0; i < 91; i++) {
+    const cell = document.createElement('div');
+    const r = Math.random();
+    cell.className = 'hm-cell ' + (r < 0.2 ? '' : r < 0.4 ? 'l1' : r < 0.65 ? 'l2' : r < 0.85 ? 'l3' : 'l4');
+    hm.appendChild(cell);
+  }
 }
 
 let isDark = true;
@@ -374,13 +377,9 @@ document.addEventListener('DOMContentLoaded', initAllModals);
 
 // ── App init — load data on startup ──
 document.addEventListener('DOMContentLoaded', function() {
+  renderHeatmap();
   loadPortfolio();
   loadRSUVests();
 });
 
-// ── PORTFOLIO HEALTH ENGINE ──────────────────────────────────────────────────
 
-let mcParamsCollapsed = true;
-function toggleMcParams() {
-  mcParamsCollapsed = !mcParamsCollapsed;
-  const body = document.getElementById('mcParamsBody');

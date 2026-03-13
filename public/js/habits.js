@@ -1,5 +1,5 @@
 // ── HABITS MODULE ──────────────────────────────────────────────────────────────
-// Responsabilidad: datos de hábitos, renderizado, toggle, progress ring, heatmap
+// Responsabilidad: datos de hábitos, renderizado, toggle, progress ring
 // Para iterar: pasá solo habits.js
 
 const HABITS_DATA = [
@@ -55,19 +55,4 @@ function updateProgress() {
   }
 }
 
-function renderHeatmap() {
-  const hm = document.getElementById('heatmap');
-  if (!hm) return;
-  hm.innerHTML = '';
-  for (let i = 0; i < 91; i++) {
-    const cell = document.createElement('div');
-    const r = Math.random();
-    cell.className = 'hm-cell ' + (r < 0.2 ? '' : r < 0.4 ? 'l1' : r < 0.65 ? 'l2' : r < 0.85 ? 'l3' : 'l4');
-    hm.appendChild(cell);
-  }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  renderHeatmap();
-  renderHabits();
-});
+document.addEventListener('DOMContentLoaded', renderHabits);
