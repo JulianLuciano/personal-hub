@@ -141,7 +141,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (950 * 12) + 9500 + (2650 * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (950 * 12) + 9500 + (2100 * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -715,7 +715,7 @@ function mcRun() {
     const cashVol  = _n('mc-p-cash-vol',    1);
     const monthly  = _n('mc-p-monthly',950);
     const bonus    = _n('mc-p-bonus',  9500);
-    const rsu      = _n('mc-p-rsu',    2650);
+    const rsu      = _n('mc-p-rsu',    2100);
     const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
     const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
     const startInvested = _n('mc-p-invested', mcGetPortfolioInvested());
@@ -832,6 +832,22 @@ function mcRun() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  // Pre-fill Monte Carlo inputs from Railway env vars via /api/config
+  if (typeof getAppConfig === 'function') {
+    getAppConfig().then(cfg => {
+      const MC_MAP = {
+        'mc-p-monthly': cfg.mcMonthlySaving,
+        'mc-p-bonus':   cfg.mcAnnualBonus,
+        'mc-p-rsu':     cfg.mcRsuPerVest,
+      };
+      Object.entries(MC_MAP).forEach(([id, val]) => {
+        if (val) {
+          const el = document.getElementById(id);
+          if (el) el.value = val;
+        }
+      });
+    }).catch(() => {}); // silently ignore if config unavailable
+  }
   // Scenario buttons
   document.querySelectorAll('.mc-scen-btn').forEach(btn => {
     btn.addEventListener('click', () => {
