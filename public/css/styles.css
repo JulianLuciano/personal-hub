@@ -1253,3 +1253,127 @@
 }
 .tx-hist-badge.RSU_VEST { background: rgba(67,233,123,0.15); color: var(--accent3); }
 .tx-hist-badge.SELL     { background: rgba(255,101,132,0.15); color: var(--accent2); }
+
+/* ── Transaction panel tabs ─────────────────────────────────────── */
+.tx-panel-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.tx-panel-tab {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  letter-spacing: 0.2px;
+}
+.tx-panel-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Saldos cards ───────────────────────────────────────────────── */
+.saldo-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  gap: 0;
+  transition: border-color 0.15s;
+}
+.saldo-card.editing {
+  border-color: var(--accent);
+}
+.saldo-main-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.saldo-logo {
+  font-size: 22px;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.saldo-info {
+  flex: 1;
+  min-width: 0;
+}
+.saldo-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.saldo-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.saldo-value {
+  text-align: right;
+  flex-shrink: 0;
+}
+.saldo-amount {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: var(--font-num);
+  color: var(--text);
+}
+.saldo-amount-secondary {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-num);
+}
+.saldo-edit-row {
+  display: none;
+  margin-top: 10px;
+  gap: 8px;
+  align-items: center;
+}
+.saldo-card.editing .saldo-edit-row {
+  display: flex;
+}
+.saldo-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-num);
+  padding: 8px 10px;
+  outline: none;
+  -webkit-appearance: none;
+}
+.saldo-save-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.saldo-cancel-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
