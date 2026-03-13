@@ -283,7 +283,7 @@ async function loadPortfolio() {
       }
     }
 
-    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP };
+    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.
