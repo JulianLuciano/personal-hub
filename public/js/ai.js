@@ -365,13 +365,14 @@ function buildPortfolioContext() {
   }
 
   // Historical performance (7d and 30d)
-  if (portfolioSnaps && portfolioSnaps.length > 1) {
-    const latest = portfolioSnaps[0];
+  const _snaps = (typeof portfolioSnaps !== 'undefined' ? portfolioSnaps : null) || window.portfolioSnaps || [];
+  if (_snaps.length > 1) {
+    const latest = _snaps[0];
     const latestGBP = latest.total_gbp || (latest.total_usd * (latest.fx_rate || FX_RATE));
     const msDay = 86400000;
     const now = new Date(latest.captured_at).getTime();
-    const snap7  = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
-    const snap30 = portfolioSnaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
+    const snap7  = _snaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
+    const snap30 = _snaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
     ctx += '\nHISTORICAL_PERFORMANCE\n';
     if (snap7) {
       const gbp7 = snap7.total_gbp || (snap7.total_usd * (snap7.fx_rate || FX_RATE));
@@ -387,9 +388,7 @@ function buildPortfolioContext() {
       const pct30 = snap30.total_usd > 0 ? (chg30 / snap30.total_usd * 100) : 0;
       ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fGn(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
     }
-  }
-
-  // P&L attribution — per category, non-fiat only
+  } — per category, non-fiat only
   const investedAssets = assets.filter(a => a.pos.category !== 'fiat' && a.pos.initial_investment_usd && a.valueUSD > 0);
   if (investedAssets.length > 0) {
     const byCategory = {};
