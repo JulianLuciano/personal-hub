@@ -1106,7 +1106,7 @@
 
   <div class="tx-panel" id="txPanel">
     <div class="tx-panel-header">
-      <h2>Nueva transacción</h2>
+      <h2 id="txPanelTitle">Nueva transacción</h2>
       <div style="display:flex;gap:8px;align-items:center">
         <button id="txOcrBtn" onclick="document.getElementById('txImageInput').click()" title="Leer screenshot automáticamente"
           style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:20px;border:none;background:linear-gradient(135deg,var(--accent),#a78bfa);color:#fff;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.3px;box-shadow:0 2px 8px rgba(108,99,255,0.4)">
@@ -1116,6 +1116,12 @@
       </div>
       <input type="file" id="txImageInput" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" style="display:none" onchange="handleTxImage(event)">
     </div>
+    <!-- Tab switcher -->
+    <div class="tx-panel-tabs">
+      <div class="tx-panel-tab active" id="tabTx" onclick="switchTxTab('tx')">Transacción</div>
+      <div class="tx-panel-tab" id="tabSaldos" onclick="switchTxTab('saldos')">Saldos</div>
+    </div>
+
     <div class="tx-panel-body">
 
       <!-- FORM -->
@@ -1276,6 +1282,18 @@
         <div class="tx-history-body" id="txHistoryBody">
           <div id="txHistoryContent" style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0">Cargando...</div>
         </div>
+      </div>
+
+
+      <!-- SALDOS PANE -->
+      <div id="saldosPane" style="display:none;padding:16px">
+        <p style="font-size:12px;color:var(--muted);margin:0 0 14px">
+          Posiciones manuales — editá el saldo actual en GBP (o USD para activos USD).
+        </p>
+        <div id="saldosList" style="display:flex;flex-direction:column;gap:10px">
+          <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>
+        </div>
+        <div id="saldosStatus" style="margin-top:14px;font-size:13px;text-align:center;min-height:18px"></div>
       </div>
 
     </div>
