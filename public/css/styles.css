@@ -1337,7 +1337,7 @@
 .saldo-edit-row {
   display: none;
   margin-top: 10px;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 .saldo-card.editing .saldo-edit-row {
@@ -1345,6 +1345,8 @@
 }
 .saldo-input {
   flex: 1;
+  min-width: 0;
+  max-width: 110px;
   background: var(--bg);
   border: 1.5px solid var(--accent);
   border-radius: 8px;
@@ -1352,28 +1354,28 @@
   font-size: 15px;
   font-weight: 700;
   font-family: var(--font-num);
-  padding: 8px 10px;
+  padding: 7px 8px;
   outline: none;
   -webkit-appearance: none;
 }
 .saldo-save-btn {
-  padding: 8px 16px;
+  padding: 7px 12px;
   border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
 }
 .saldo-cancel-btn {
-  padding: 8px 12px;
+  padding: 7px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
 }

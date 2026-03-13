@@ -526,27 +526,24 @@ function fillFormFromOcr(tx) {
 let _saldosData = [];
 
 function switchTxTab(tab) {
-  const txForm         = document.getElementById('txForm');
-  const txHistSection  = document.getElementById('txHistorySection');
-  const saldosPane     = document.getElementById('saldosPane');
-  const tabTx          = document.getElementById('tabTx');
-  const tabSaldos      = document.getElementById('tabSaldos');
-  const ocrBtn         = document.getElementById('txOcrBtn');
-  const title          = document.getElementById('txPanelTitle');
+  const txPane     = document.getElementById('txForm').parentElement;
+  const saldosPane = document.getElementById('saldosPane');
+  const tabTx      = document.getElementById('tabTx');
+  const tabSaldos  = document.getElementById('tabSaldos');
+  const ocrBtn     = document.getElementById('txOcrBtn');
+  const title      = document.getElementById('txPanelTitle');
 
   if (tab === 'saldos') {
-    txForm.style.display        = 'none';
-    if (txHistSection) txHistSection.style.display = 'none';
-    saldosPane.style.display    = 'block';
+    txPane.style.display     = 'none';
+    saldosPane.style.display = 'block';
     tabTx.classList.remove('active');
     tabSaldos.classList.add('active');
     if (ocrBtn) ocrBtn.style.display = 'none';
     title.textContent = 'Saldos';
     loadSaldos();
   } else {
-    txForm.style.display        = 'block';
-    if (txHistSection) txHistSection.style.display = 'block';
-    saldosPane.style.display    = 'none';
+    txPane.style.display     = 'block';
+    saldosPane.style.display = 'none';
     tabTx.classList.add('active');
     tabSaldos.classList.remove('active');
     if (ocrBtn) ocrBtn.style.display = 'flex';
@@ -623,8 +620,6 @@ function toggleSaldoEdit(ticker) {
   document.querySelectorAll('.saldo-card.editing').forEach(c => c.classList.remove('editing'));
   if (!isEditing) {
     card.classList.add('editing');
-    const inp = document.getElementById('saldo-input-' + ticker);
-    if (inp) setTimeout(() => { inp.focus(); inp.select(); }, 50);
   }
 }
 
