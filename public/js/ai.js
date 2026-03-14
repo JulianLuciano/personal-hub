@@ -644,14 +644,9 @@ ${macroSection ? '\n' + macroSection : ''}
 ${wlBase       ? '\n' + wlBase       : ''}
 ${wlExtended   ? '\n' + wlExtended   : ''}`;
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/ai-chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': await getAnthropicKey(),
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODELS[aiModel],
         max_tokens: aiModel === 'opus' ? 2048 : 1024,
@@ -682,7 +677,9 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
   }
 }
 
-async function getAnthropicKey() {
+// getAnthropicKey eliminada — la API key ya no se expone al frontend.
+// El chat AI va a través de /api/ai-chat (server-side proxy).
+async function getAnthropicKey_UNUSED() {
   // Fetch from server endpoint (keeps key out of frontend code)
   if (window._anthropicKey) return window._anthropicKey;
   const res = await fetch('/api/config');

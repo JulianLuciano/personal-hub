@@ -485,6 +485,48 @@ Return this JSON structure:
   }
 });
 
+// ── AI Chat Proxy ─────────────────────────────────────────────────────────────
+// Relay del chat AI — evita llamadas directas desde el browser a Anthropic.
+// Anthropic bloquea llamadas browser-side aunque la key tenga créditos.
+app.post('/api/ai-chat', async (req, res) => {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+
+  const bodyStr = JSON.stringify(req.body);
+  const https = require('https');
+  const options = {
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Content-Type':    'application/json',
+      'Content-Length':  Buffer.byteLength(bodyStr),
+      'x-api-key':       anthropicKey,
+      'anthropic-version': '2023-06-01',
+    },
+  };
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const reqHttp = https.request(options, (response) => {
+        let data = '';
+        response.on('data', chunk => { data += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode, body: data }));
+      });
+      reqHttp.on('error', reject);
+      reqHttp.setTimeout(60000, () => { reqHttp.destroy(); reject(new Error('Timeout 60s')); });
+      reqHttp.write(bodyStr);
+      reqHttp.end();
+    });
+
+    console.log('[ai-chat] Anthropic status:', result.status);
+    res.status(result.status).send(result.body);
+  } catch(e) {
+    console.error('[ai-chat] error:', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
