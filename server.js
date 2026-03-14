@@ -527,6 +527,221 @@ app.post('/api/ai-chat', async (req, res) => {
   }
 });
 
+// ── HABITS API ────────────────────────────────────────────────────────────────
+// Pegar estos endpoints en server.js, antes del catch-all app.get('*', ...)
+//
+// Tablas Supabase necesarias (ver DOCS.md para el schema completo):
+//   habit_daily_logs   — un registro por día (UNIQUE on log_date)
+//   habit_oneshots     — una sola fila con todos los contadores del año
+//   habit_weight_logs  — historial de registros de peso
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET  /api/habits/daily/:date  →  trae el log del día (o 204 si no existe)
+app.get('/api/habits/daily/:date', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const { date } = req.params;
+  // Validate basic date format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  }
+
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_daily_logs?log_date=eq.${date}&limit=1`;
+    const sbRes = await fetch(supaUrl, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    const data = await sbRes.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(204).end();   // día sin registro aún
+    }
+    res.json(data[0]);
+
+  } catch (e) {
+    console.error('[habits/daily GET]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+
+// POST /api/habits/daily  →  upsert del día completo
+// Body: { log_date, trained, piano, deepwork, food, food_note }
+app.post('/api/habits/daily', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const { log_date, trained, piano, deepwork, food, food_note } = req.body || {};
+  if (!log_date) return res.status(400).json({ error: 'log_date requerido' });
+
+  const payload = {
+    log_date,
+    trained:    trained    ?? null,
+    piano:      piano      ?? null,
+    deepwork:   deepwork   ?? null,
+    food:       food       ?? null,
+    food_note:  food_note  ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_daily_logs`;
+    const sbRes = await fetch(supaUrl, {
+      method: 'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type':  'application/json',
+        'Prefer':        'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await sbRes.text();
+    if (!sbRes.ok) {
+      console.error('[habits/daily POST] supabase error:', text.slice(0, 300));
+      return res.status(sbRes.status).json({ error: text });
+    }
+    res.json({ ok: true });
+
+  } catch (e) {
+    console.error('[habits/daily POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+
+// GET  /api/habits/oneshots  →  trae los contadores anuales
+app.get('/api/habits/oneshots', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  try {
+    const year = new Date().getFullYear();
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_oneshots?year=eq.${year}&limit=1`;
+    const sbRes = await fetch(supaUrl, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    const data = await sbRes.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(204).end();
+    }
+    res.json(data[0]);
+
+  } catch (e) {
+    console.error('[habits/oneshots GET]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+
+// POST /api/habits/oneshots  →  upsert de contadores anuales
+// Body: { year?, presentations, feedbacks, recordings, pianoLessons,
+//         trips, devTalks, pscReviews, groupPlans, dates2nd }
+app.post('/api/habits/oneshots', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const year = req.body?.year ?? new Date().getFullYear();
+  const allowed = [
+    'presentations','feedbacks','recordings','piano_lessons',
+    'trips','dev_talks','psc_reviews','group_plans','dates_2nd',
+  ];
+
+  const payload = { year, updated_at: new Date().toISOString() };
+  allowed.forEach(k => {
+    // Accept both camelCase and snake_case from frontend
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    if (req.body[k]     !== undefined) payload[k] = req.body[k];
+    if (req.body[camel] !== undefined) payload[k] = req.body[camel];
+  });
+
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_oneshots`;
+    const sbRes = await fetch(supaUrl, {
+      method: 'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type':  'application/json',
+        'Prefer':        'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await sbRes.text();
+    if (!sbRes.ok) {
+      console.error('[habits/oneshots POST] supabase error:', text.slice(0, 300));
+      return res.status(sbRes.status).json({ error: text });
+    }
+    res.json({ ok: true });
+
+  } catch (e) {
+    console.error('[habits/oneshots POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+
+// POST /api/habits/weight  →  inserta un registro de peso
+// Body: { weight_kg, recorded_date? }
+app.post('/api/habits/weight', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const { weight_kg, recorded_date } = req.body || {};
+  if (!weight_kg || isNaN(parseFloat(weight_kg))) {
+    return res.status(400).json({ error: 'weight_kg requerido' });
+  }
+
+  const payload = {
+    weight_kg:     parseFloat(weight_kg),
+    recorded_date: recorded_date || new Date().toISOString().slice(0, 10),
+    created_at:    new Date().toISOString(),
+  };
+
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_weight_logs`;
+    const sbRes = await fetch(supaUrl, {
+      method: 'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type':  'application/json',
+        'Prefer':        'return=representation',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await sbRes.text();
+    if (!sbRes.ok) {
+      console.error('[habits/weight POST] supabase error:', text.slice(0, 300));
+      return res.status(sbRes.status).json({ error: text });
+    }
+    res.json({ ok: true });
+
+  } catch (e) {
+    console.error('[habits/weight POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

@@ -30,252 +30,170 @@
   </div>
 
   <!-- TABS -->
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('today', this)">Today</button>
-    <button class="tab" onclick="switchTab('habitsanalytics', this)">Analytics</button>
-    <button class="tab" onclick="switchTab('all', this)">All Habits</button>
-  </div>
-
-  <!-- TODAY PANEL -->
+  <!-- HABITS PANEL -->
   <div class="panel active" id="panel-today">
-    <!-- Week strip -->
-    <div class="date-strip">
-      <div class="day-chip"><span class="day-name">Mon</span><span class="day-num">24</span></div>
-      <div class="day-chip"><span class="day-name">Tue</span><span class="day-num">25</span></div>
-      <div class="day-chip"><span class="day-name">Wed</span><span class="day-num">26</span></div>
-      <div class="day-chip"><span class="day-name">Thu</span><span class="day-num">27</span></div>
-      <div class="day-chip"><span class="day-name">Fri</span><span class="day-num">28</span></div>
-      <div class="day-chip today"><span class="day-name">Sat</span><span class="day-num">1</span></div>
-      <div class="day-chip"><span class="day-name">Sun</span><span class="day-num">2</span></div>
+
+    <!-- DATE NAV -->
+    <div class="h-date-nav">
+      <button class="h-nav-btn" id="habitPrevDayBtn" onclick="habitShiftDay(-1)">&#8249;</button>
+      <div class="day-pill" id="habitDayPill">Hoy</div>
+      <button class="h-nav-btn disabled" id="habitNextDayBtn" onclick="habitShiftDay(1)">&#8250;</button>
     </div>
 
-    <!-- Progress ring -->
-    <div class="progress-card">
-      <div class="progress-ring-wrap">
-        <svg width="80" height="80" viewBox="0 0 80 80">
-          <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(108,99,255,0.15)" stroke-width="7"/>
-          <circle id="progressCircle" cx="40" cy="40" r="32" fill="none" stroke="#6c63ff" stroke-width="7"
-            stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="80" style="transition:stroke-dashoffset 0.6s ease"/>
-        </svg>
-        <div class="ring-label">
-          <span class="pct" id="pctLabel">60%</span>
-          <span class="pct-sub">done</span>
-        </div>
-      </div>
-      <div class="progress-text">
-        <h3>Today's Progress</h3>
-        <p>Keep it up, almost there</p>
-        <p class="done-count" id="doneCount">3 of 5 habits done</p>
-      </div>
+    <!-- SUB-TABS -->
+    <div class="h-sub-tabs">
+      <button class="h-sub-tab active" onclick="habitSwitchSubTab('hoy', this)">Hoy</button>
+      <button class="h-sub-tab" onclick="habitSwitchSubTab('oneshots', this)">One-shots</button>
+      <button class="h-sub-tab" onclick="habitSwitchSubTab('anio', this)">A&#241;o</button>
+      <button class="h-sub-tab" onclick="habitSwitchSubTab('config', this)">Config</button>
     </div>
 
-    <p class="section-label">Habits</p>
-    <div class="habit-list" id="habitList">
-      <div class="habit-item done" onclick="toggleHabit(this)">
-        <div class="habit-icon" style="background:rgba(108,99,255,0.15)">🏃</div>
-        <div class="habit-info">
-          <div class="habit-name">Running</div>
-          <div class="habit-streak">🔥 12 day streak</div>
-        </div>
-        <div class="habit-check">✓</div>
+    <!-- HOY -->
+    <div class="h-panel active" id="h-panel-hoy">
+
+      <div class="h-past-banner" id="habitPastBanner" style="display:none">
+        &#9888; Editando d&#237;a anterior &#8212; los cambios se guardan para esa fecha
       </div>
-      <div class="habit-item done" onclick="toggleHabit(this)">
-        <div class="habit-icon" style="background:rgba(67,233,123,0.15)">📚</div>
-        <div class="habit-info">
-          <div class="habit-name">Reading</div>
-          <div class="habit-streak">🔥 7 day streak</div>
+
+      <div class="progress-card">
+        <div class="progress-ring-wrap">
+          <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(108,99,255,0.12)" stroke-width="6"/>
+            <circle id="habitProgressCircle" cx="40" cy="40" r="30" fill="none" stroke="#6c63ff" stroke-width="6"
+              stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="188.5"
+              style="transition:stroke-dashoffset 0.6s ease;transform:rotate(-90deg);transform-origin:40px 40px"/>
+          </svg>
+          <div class="ring-label">
+            <span class="pct" id="habitPctLabel">0%</span>
+            <span class="pct-sub">done</span>
+          </div>
         </div>
-        <div class="habit-check">✓</div>
-      </div>
-      <div class="habit-item done" onclick="toggleHabit(this)">
-        <div class="habit-icon" style="background:rgba(247,183,49,0.15)">💧</div>
-        <div class="habit-info">
-          <div class="habit-name">Drink 2L water</div>
-          <div class="habit-streak">🔥 4 day streak</div>
+        <div class="progress-text">
+          <h3>Progreso del d&#237;a</h3>
+          <p id="habitProgressMsg">Arranc&#225; con el primero</p>
+          <p class="done-count" id="habitDoneCount">0 de 4 h&#225;bitos</p>
         </div>
-        <div class="habit-check">✓</div>
       </div>
-      <div class="habit-item" onclick="toggleHabit(this)">
-        <div class="habit-icon" style="background:rgba(79,195,247,0.15)">🧘</div>
-        <div class="habit-info">
-          <div class="habit-name">Meditation</div>
-          <div class="habit-streak">2 day streak</div>
+
+      <p class="section-label">Cuerpo</p>
+      <div class="habit-list" id="habitListBody"></div>
+
+      <div class="h-divider"></div>
+
+      <p class="section-label">Trabajo</p>
+      <div class="habit-list" id="habitListWork"></div>
+
+      <div class="h-divider"></div>
+
+      <p class="section-label" style="margin-bottom:0">Alimentaci&#243;n</p>
+      <div class="habit-item h-food-block" id="habitFoodBlock" style="flex-direction:column;align-items:stretch;cursor:default">
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="habitToggleFood()">
+          <div class="habit-icon" style="background:rgba(247,183,49,0.15)">&#x1F957;</div>
+          <div class="habit-info">
+            <div class="habit-name">Com&#237; bien hoy</div>
+            <div class="habit-streak">Sin racha activa</div>
+          </div>
+          <div class="habit-check" id="habitFoodCheck"></div>
         </div>
-        <div class="habit-check"></div>
-      </div>
-      <div class="habit-item" onclick="toggleHabit(this)">
-        <div class="habit-icon" style="background:rgba(255,101,132,0.15)">✍️</div>
-        <div class="habit-info">
-          <div class="habit-name">Journaling</div>
-          <div class="habit-streak">1 day streak</div>
+        <div class="h-food-note-wrap" id="habitFoodNoteWrap">
+          <div class="h-food-note-label">&#191;Qu&#233; no estuvo bien?</div>
+          <textarea class="h-food-textarea" id="habitFoodNote"
+            placeholder="Ej: pizza a la noche, picoteo a las 17hs..."
+            rows="2"
+            oninput="habitFoodNoteChange(this.value)"></textarea>
         </div>
-        <div class="habit-check"></div>
       </div>
+
+      <div style="height:24px"></div>
     </div>
+
+    <!-- ONE-SHOTS -->
+    <div class="h-panel" id="h-panel-oneshots">
+
+      <p class="section-label">Peso</p>
+      <div class="h-weight-card">
+        <div class="h-weight-header">
+          <div>
+            <div class="h-weight-title">Registro quincenal</div>
+            <div class="h-weight-hint">&#128276; Notificaci&#243;n: lunes 8:00am</div>
+          </div>
+          <span style="font-size:24px">&#9878;&#65039;</span>
+        </div>
+        <div class="h-weight-input-row">
+          <input class="h-weight-input" id="habitWeightInput"
+            type="number" step="0.1" min="50" max="200" placeholder="101.0">
+          <span class="h-weight-unit">kg</span>
+        </div>
+        <div class="h-milestones">
+          <div class="h-milestone next" id="h-ms-apr">
+            <div class="h-milestone-month">Abril</div>
+            <div class="h-milestone-val">98 kg</div>
+          </div>
+          <div class="h-milestone future" id="h-ms-aug">
+            <div class="h-milestone-month">Agosto</div>
+            <div class="h-milestone-val">94 kg</div>
+          </div>
+          <div class="h-milestone future" id="h-ms-dec">
+            <div class="h-milestone-month">Diciembre</div>
+            <div class="h-milestone-val">90 kg</div>
+          </div>
+        </div>
+        <button class="h-save-btn" id="habitWeightSaveBtn" onclick="habitSaveWeight()">Guardar peso</button>
+      </div>
+
+      <div class="h-divider"></div>
+
+      <p class="section-label">Contadores del a&#241;o</p>
+      <div class="h-oneshot-group" id="habitOneshotGroup"></div>
+
+    </div>
+
+    <!-- A&#209;O -->
+    <div class="h-panel" id="h-panel-anio">
+      <div class="h-year-header">
+        <p class="section-label" style="margin-bottom:0">Progreso 2025</p>
+        <span class="h-year-week" id="habitYearWeekLabel">Semana &#8212; / 52</span>
+      </div>
+      <div id="habitYearCards"></div>
+    </div>
+
+    <!-- CONFIG -->
+    <div class="h-panel" id="h-panel-config">
+
+      <p class="section-label">Notificaciones</p>
+      <div class="h-config-card">
+        <div class="h-config-row">
+          <div class="habit-icon" style="background:rgba(108,99,255,0.12);flex-shrink:0">&#128276;</div>
+          <div style="flex:1">
+            <div class="h-config-label">Check diario</div>
+            <div class="h-config-sub">Recordatorio para completar h&#225;bitos</div>
+          </div>
+          <input class="h-time-input" type="time" value="22:20" id="habitNotifTimeDaily">
+          <div class="toggle on" id="h-tgl-daily" onclick="habitToggleNotif('daily')">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+        <div class="h-config-row">
+          <div class="habit-icon" style="background:rgba(247,183,49,0.12);flex-shrink:0">&#9878;&#65039;</div>
+          <div style="flex:1">
+            <div class="h-config-label">Registro de peso</div>
+            <div class="h-config-sub">Lunes &#8212; recordatorio quincenal</div>
+          </div>
+          <input class="h-time-input" type="time" value="08:00" id="habitNotifTimeWeight">
+          <div class="toggle on" id="h-tgl-weight" onclick="habitToggleNotif('weight')">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-label">H&#225;bitos activos</p>
+      <div class="h-config-card" id="habitConfigList"></div>
+
+    </div>
+
   </div>
 
-  <!-- HABITS ANALYTICS PANEL -->
-  <div class="panel" id="panel-habitsanalytics">
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-val" style="color:var(--accent)">87%</div>
-        <div class="stat-label">This month</div>
-        <div class="stat-trend up">↑ 12% vs last month</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val" style="color:var(--accent3)">12</div>
-        <div class="stat-label">Best streak</div>
-        <div class="stat-trend up">🔥 Running</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val" style="color:var(--accent4)">4.2</div>
-        <div class="stat-label">Avg habits/day</div>
-        <div class="stat-trend down">↓ 0.3 vs last week</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val" style="color:var(--accent5)">23</div>
-        <div class="stat-label">Perfect days</div>
-        <div class="stat-trend up">↑ 5 this month</div>
-      </div>
-    </div>
-
-    <!-- Weekly bar chart -->
-    <div class="chart-card">
-      <h3>This week</h3>
-      <div class="bar-chart">
-        <div class="bar-col"><div class="bar" style="height:62%"></div><span class="bar-label">Mon</span></div>
-        <div class="bar-col"><div class="bar" style="height:80%;background:var(--accent3)"></div><span class="bar-label">Tue</span></div>
-        <div class="bar-col"><div class="bar" style="height:40%"></div><span class="bar-label">Wed</span></div>
-        <div class="bar-col"><div class="bar" style="height:100%;background:var(--accent3)"></div><span class="bar-label">Thu</span></div>
-        <div class="bar-col"><div class="bar" style="height:60%"></div><span class="bar-label">Fri</span></div>
-        <div class="bar-col"><div class="bar" style="height:60%"></div><span class="bar-label">Sat</span></div>
-        <div class="bar-col"><div class="bar" style="height:20%;background:var(--surface2)"></div><span class="bar-label">Sun</span></div>
-      </div>
-    </div>
-
-    <!-- Pie chart -->
-    <div class="chart-card">
-      <h3>Completion by habit</h3>
-      <div class="pie-wrap">
-        <svg width="110" height="110" viewBox="0 0 110 110">
-          <!-- Pie slices via stroke-dasharray trick -->
-          <circle cx="55" cy="55" r="40" fill="none" stroke="var(--accent)" stroke-width="20"
-            stroke-dasharray="100 157" stroke-dashoffset="0" transform="rotate(-90 55 55)"/>
-          <circle cx="55" cy="55" r="40" fill="none" stroke="var(--accent3)" stroke-width="20"
-            stroke-dasharray="43 157" stroke-dashoffset="-100" transform="rotate(-90 55 55)"/>
-          <circle cx="55" cy="55" r="40" fill="none" stroke="var(--accent4)" stroke-width="20"
-            stroke-dasharray="30 157" stroke-dashoffset="-143" transform="rotate(-90 55 55)"/>
-          <circle cx="55" cy="55" r="40" fill="none" stroke="var(--accent5)" stroke-width="20"
-            stroke-dasharray="20 157" stroke-dashoffset="-173" transform="rotate(-90 55 55)"/>
-          <circle cx="55" cy="55" r="40" fill="none" stroke="var(--accent2)" stroke-width="20"
-            stroke-dasharray="14 157" stroke-dashoffset="-193" transform="rotate(-90 55 55)"/>
-          <circle cx="55" cy="55" r="28" fill="var(--surface)"/>
-        </svg>
-        <div class="pie-legend">
-          <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div><span class="legend-name">Running</span><span class="legend-pct">37%</span></div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div><span class="legend-name">Reading</span><span class="legend-pct">16%</span></div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--accent4)"></div><span class="legend-name">Water</span><span class="legend-pct">19%</span></div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--accent5)"></div><span class="legend-name">Meditation</span><span class="legend-pct">22%</span></div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div><span class="legend-name">Journal</span><span class="legend-pct">6%</span></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Heatmap -->
-    <div class="chart-card">
-      <h3>Activity heatmap</h3>
-      <div class="heatmap-grid" id="heatmap"></div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:10px;justify-content:flex-end">
-        <span style="font-size:11px;color:var(--muted)">Less</span>
-        <div style="width:12px;height:12px;border-radius:3px;background:var(--surface2)"></div>
-        <div style="width:12px;height:12px;border-radius:3px;background:rgba(108,99,255,0.2)"></div>
-        <div style="width:12px;height:12px;border-radius:3px;background:rgba(108,99,255,0.5)"></div>
-        <div style="width:12px;height:12px;border-radius:3px;background:rgba(108,99,255,1)"></div>
-        <span style="font-size:11px;color:var(--muted)">More</span>
-      </div>
-    </div>
-
-    <!-- Per habit progress bars -->
-    <div class="chart-card">
-      <h3>Monthly consistency</h3>
-      <div style="margin-top:4px">
-        <div class="habit-bar-item">
-          <div class="habit-bar-header"><span>🏃 Running</span><span>92%</span></div>
-          <div class="habit-bar-track"><div class="habit-bar-fill" style="width:92%;background:var(--accent)"></div></div>
-        </div>
-        <div class="habit-bar-item">
-          <div class="habit-bar-header"><span>📚 Reading</span><span>78%</span></div>
-          <div class="habit-bar-track"><div class="habit-bar-fill" style="width:78%;background:var(--accent3)"></div></div>
-        </div>
-        <div class="habit-bar-item">
-          <div class="habit-bar-header"><span>💧 Water</span><span>85%</span></div>
-          <div class="habit-bar-track"><div class="habit-bar-fill" style="width:85%;background:var(--accent4)"></div></div>
-        </div>
-        <div class="habit-bar-item">
-          <div class="habit-bar-header"><span>🧘 Meditation</span><span>54%</span></div>
-          <div class="habit-bar-track"><div class="habit-bar-fill" style="width:54%;background:var(--accent5)"></div></div>
-        </div>
-        <div class="habit-bar-item" style="margin-bottom:0">
-          <div class="habit-bar-header"><span>✍️ Journaling</span><span>41%</span></div>
-          <div class="habit-bar-track"><div class="habit-bar-fill" style="width:41%;background:var(--accent2)"></div></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ALL HABITS PANEL -->
-  <div class="panel" id="panel-all">
-    <p class="section-label">Your habits</p>
-    <div class="habit-list">
-      <div class="habit-item">
-        <div class="habit-icon" style="background:rgba(108,99,255,0.15)">🏃</div>
-        <div class="habit-info">
-          <div class="habit-name">Running</div>
-          <div class="habit-streak">Daily · 🔥 12 day streak</div>
-        </div>
-        <div style="font-size:20px;opacity:0.3">›</div>
-      </div>
-      <div class="habit-item">
-        <div class="habit-icon" style="background:rgba(67,233,123,0.15)">📚</div>
-        <div class="habit-info">
-          <div class="habit-name">Reading</div>
-          <div class="habit-streak">Daily · 🔥 7 day streak</div>
-        </div>
-        <div style="font-size:20px;opacity:0.3">›</div>
-      </div>
-      <div class="habit-item">
-        <div class="habit-icon" style="background:rgba(247,183,49,0.15)">💧</div>
-        <div class="habit-info">
-          <div class="habit-name">Drink 2L water</div>
-          <div class="habit-streak">Daily · 🔥 4 day streak</div>
-        </div>
-        <div style="font-size:20px;opacity:0.3">›</div>
-      </div>
-      <div class="habit-item">
-        <div class="habit-icon" style="background:rgba(79,195,247,0.15)">🧘</div>
-        <div class="habit-info">
-          <div class="habit-name">Meditation</div>
-          <div class="habit-streak">Daily · 2 day streak</div>
-        </div>
-        <div style="font-size:20px;opacity:0.3">›</div>
-      </div>
-      <div class="habit-item">
-        <div class="habit-icon" style="background:rgba(255,101,132,0.15)">✍️</div>
-        <div class="habit-info">
-          <div class="habit-name">Journaling</div>
-          <div class="habit-streak">Daily · 1 day streak</div>
-        </div>
-        <div style="font-size:20px;opacity:0.3">›</div>
-      </div>
-    </div>
-    <div style="margin-top:16px">
-      <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;background:var(--surface);border:1.5px dashed var(--border);border-radius:16px;cursor:pointer;color:var(--muted);font-size:14px">
-        <span style="font-size:20px">+</span> Add new habit
-      </div>
-    </div>
-  </div>
-
-  <!-- RECIPES PANEL -->
+    <!-- RECIPES PANEL -->
   <div class="panel" id="panel-recipes">
     <div class="search-bar">🔍 &nbsp;Buscar recetas...</div>
     <div class="tag-row">
