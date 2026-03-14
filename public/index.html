@@ -335,29 +335,29 @@
 
   <!-- PORTFOLIO PANEL -->
   <div class="panel" id="panel-portfolio">
-    <!-- Header bar: label + currency toggle (always visible, above ribbon) -->
+    <!-- Header bar: label + eye + currency toggle (always visible, above ribbon) -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px">
       <div class="portfolio-total-label">Patrimonio total</div>
-      <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
-        <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
-        <div id="btnUSD" onclick="setCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+          <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
+          <div id="btnUSD" onclick="setCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
+        </div>
       </div>
     </div>
 
     <!-- MAIN RIBBON: Portfolio (left) ↔ Pie por tipo (right) -->
     <div id="mainRibbonOuter" style="overflow:hidden;width:100%;position:relative;border-radius:var(--card-radius)">
-      <div id="mainRibbonTrack" style="display:flex;flex-direction:row;gap:10px;will-change:transform;transition:none;touch-action:pan-y">
+      <div id="mainRibbonTrack" style="display:flex;flex-direction:row;gap:10px;will-change:transform;transition:none;touch-action:pan-y;width:calc(200% + 10px)">
 
         <!-- CARD 1: Portfolio summary -->
-        <div class="portfolio-header" style="min-width:calc(100% - 0px);flex-shrink:0;box-sizing:border-box;position:relative;margin:0">
+        <div class="portfolio-header" style="width:calc(50% - 5px);flex-shrink:0;box-sizing:border-box;position:relative;margin:0">
           <!-- Arrow hint right -->
           <div style="position:absolute;bottom:10px;right:10px;z-index:10;pointer-events:none;opacity:0.35">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="3,3 10,6.5 3,10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
-            <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
-          </div>
+          <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
           <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
           <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Costo base: <span id="cbValue"></span></div>
           <div class="alloc-chart" style="margin-top:14px">
@@ -377,23 +377,23 @@
         </div>
 
         <!-- CARD 2: Pie por tipo de activo -->
-        <div class="portfolio-header" style="min-width:calc(100% - 0px);flex-shrink:0;box-sizing:border-box;margin:0;position:relative">
+        <div class="portfolio-header" style="width:calc(50% - 5px);flex-shrink:0;box-sizing:border-box;margin:0;position:relative">
           <!-- Arrow hint left (back) -->
           <div style="position:absolute;bottom:10px;left:10px;z-index:10;pointer-events:none;opacity:0.35">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="10,3 3,6.5 10,10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:12px">Por tipo de activo</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:12px">Distribución por tipo de activo</div>
           <div style="display:flex;align-items:center;gap:16px">
             <div style="position:relative;flex-shrink:0">
               <canvas id="assetPieCanvas" width="130" height="130" style="display:block"></canvas>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
                 <div id="assetPieCenter" style="font-size:15px;font-weight:700;line-height:1.1">—</div>
-                <div id="assetPieCenterSub" style="font-size:10px;color:var(--muted);margin-top:2px">por tipo</div>
+                <div id="assetPieCenterSub" style="font-size:10px;color:var(--muted);margin-top:2px">total</div>
               </div>
             </div>
             <div id="assetPieLegend" style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0"></div>
           </div>
-          <!-- Keep pl0–pl4 hidden here so portfolio.js renderPortfolio() can still write to them -->
+          <!-- Hidden anchors so renderPortfolio() doesn't throw on missing IDs -->
           <div style="display:none">
             <span id="pieTotal"></span>
             <span id="pl0"></span><span id="pl1"></span><span id="pl2"></span><span id="pl3"></span><span id="pl4"></span>
@@ -403,14 +403,14 @@
       </div>
     </div>
 
-    <!-- Pagination dots -->
-    <div style="display:flex;justify-content:center;gap:5px;margin-top:8px;margin-bottom:2px">
-      <div id="mrDot0" style="width:14px;height:4px;border-radius:2px;background:var(--accent);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
-      <div id="mrDot1" style="width:4px;height:4px;border-radius:2px;background:var(--muted);opacity:0.3;transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
+    <!-- Pagination dots (neutral grey, no accent color) -->
+    <div style="display:flex;justify-content:center;gap:5px;margin-top:10px;margin-bottom:6px">
+      <div id="mrDot0" style="width:14px;height:4px;border-radius:2px;background:rgba(255,255,255,0.55);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
+      <div id="mrDot1" style="width:4px;height:4px;border-radius:2px;background:rgba(255,255,255,0.2);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
     </div>
 
     <!-- DUAL CARD RIBBON: Evolución (left) + Renta Variable (right) -->
-    <div id="cardRibbonOuter" style="position:relative;overflow:hidden;margin-bottom:16px;border-radius:var(--card-radius)">
+    <div id="cardRibbonOuter" style="position:relative;overflow:hidden;margin-top:4px;margin-bottom:16px;border-radius:var(--card-radius)">
 
       <!-- Sliding track — 10px gap between the two cards via padding -->
       <div id="cardRibbonTrack" style="display:flex;width:200%;will-change:transform;transition:none;gap:10px">

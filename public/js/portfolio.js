@@ -855,15 +855,13 @@ function renderPnlAttribution() {
       ? 'transform 0.38s cubic-bezier(0.25,0.46,0.45,0.94)'
       : 'none';
     track.style.transform = `translateX(${x}px)`;
-    // Update dots
+    // Update dots — neutral white, no accent color
     const dot0 = document.getElementById('mrDot0');
     const dot1 = document.getElementById('mrDot1');
     const W = mrGetCardWidth();
     const progress = Math.max(0, Math.min(1, -x / W));
-    if (dot0) dot0.style.opacity = String(1 - progress * 0.7);
-    if (dot1) dot1.style.opacity = String(0.3 + progress * 0.7);
-    if (dot0) dot0.style.transform = `scaleX(${1 + (1 - progress) * 0.8})`;
-    if (dot1) dot1.style.transform = `scaleX(${1 + progress * 0.8})`;
+    if (dot0) { dot0.style.opacity = String(0.55 - progress * 0.35); dot0.style.transform = `scaleX(${1 + (1 - progress) * 0.8})`; }
+    if (dot1) { dot1.style.opacity = String(0.2 + progress * 0.35);  dot1.style.transform = `scaleX(${1 + progress * 0.8})`; }
   }
 
   function mrClamp(raw) {
@@ -955,16 +953,18 @@ function renderPnlAttribution() {
 
 // ── ASSET PIE (por tipo de activo: Acciones / Cripto / RSU / Cash) ─────────
 const ASSET_CAT_COLORS = {
-  acciones: '#43e97b',
-  cripto:   '#ff6584',
-  rsu:      '#f7b731',
-  fiat:     '#4fc3f7',
+  acciones:    '#43e97b',
+  cripto:      '#ff6584',
+  rsu:         '#f7b731',
+  fiat_liquid: '#4fc3f7',
+  fiat_locked: '#2a8f9f',
 };
 const ASSET_CAT_LABELS = {
-  acciones: 'Acciones',
-  cripto:   'Cripto',
-  rsu:      'RSUs',
-  fiat:     'Cash',
+  acciones:    'Acciones',
+  cripto:      'Cripto',
+  rsu:         'RSUs',
+  fiat_liquid: 'Cash líquido',
+  fiat_locked: 'Cash ilíquido',
 };
 
 let assetPieSlices   = [];
@@ -1047,7 +1047,7 @@ function drawAssetPieFrame(prog, focusCat, slices, totalUSD) {
     } else {
       center.textContent    = fmtVal(totalUSD, rate2, sym2);
       center.style.color    = '';
-      centerSub.textContent = 'por tipo';
+      centerSub.textContent = 'total';
       if (valuesHidden) maskElement(center);
     }
   }
@@ -1136,7 +1136,8 @@ function renderAssetPie() {
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
 
-  const CATS = ['acciones','cripto','rsu','fiat'];
+  // Use fiat_liquid / fiat_locked as separate slices (mirrors the alloc pie logic)
+  const CATS = ['acciones','cripto','rsu','fiat_liquid','fiat_locked'];
   const slices = [];
   let total = 0;
   CATS.forEach(cat => {
@@ -1181,7 +1182,7 @@ function renderAssetPie() {
       delete center.dataset.real;
       if (valuesHidden) maskElement(center);
     }
-    if (centerSub) centerSub.textContent = 'por tipo';
+    if (centerSub) centerSub.textContent = 'total';
   }
 
   // Legend
