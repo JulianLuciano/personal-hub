@@ -403,17 +403,12 @@
       </div>
     </div>
 
-    <!-- Pagination dots (neutral grey, no accent color) -->
-    <div style="display:flex;justify-content:center;gap:5px;margin-top:10px;margin-bottom:6px">
-      <div id="mrDot0" style="width:14px;height:4px;border-radius:2px;background:rgba(255,255,255,0.55);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
-      <div id="mrDot1" style="width:4px;height:4px;border-radius:2px;background:rgba(255,255,255,0.2);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
-    </div>
 
     <!-- DUAL CARD RIBBON: Evolución (left) + Renta Variable (right) -->
     <div id="cardRibbonOuter" style="position:relative;overflow:hidden;margin-top:4px;margin-bottom:16px;border-radius:var(--card-radius)">
 
       <!-- Sliding track — 10px gap between the two cards via padding -->
-      <div id="cardRibbonTrack" style="display:flex;width:200%;will-change:transform;transition:none;gap:10px">
+      <div id="cardRibbonTrack" style="display:flex;width:calc(200% + 10px);will-change:transform;transition:none;gap:10px">
 
         <!-- CARD 1: Evolución -->
         <div class="chart-card" id="evolCard" style="width:calc(50% - 5px);flex-shrink:0;margin-bottom:0;border-radius:var(--card-radius);box-sizing:border-box;position:relative">
