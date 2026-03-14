@@ -685,6 +685,9 @@ function renderPortfolio() {
   // Render equity breakdown pie
   renderEquityPie();
 
+  // Render asset category pie (main ribbon right card)
+  renderAssetPie();
+
   // Render P&L attribution
   renderPnlAttribution();
 
@@ -827,6 +830,424 @@ function renderPnlAttribution() {
     document.querySelectorAll('.pnl-attr-hideable').forEach(el => maskElement(el));
   }
 }
+
+// ── MAIN RIBBON DRAG (Portfolio ↔ Pie por Tipo de Activo) ─────────────────
+(function() {
+  let mrDragStartX = 0;
+  let mrDragStartY = 0;
+  let mrDragCurX   = 0;
+  let mrCurrentOffset = 0; // 0 = left card (portfolio), negative = right card (asset pie)
+  let mrTargetOffset  = 0;
+  let mrOnRight    = false;
+  let mrPointerDown = false;
+  let mrIsHorizDrag = false;
+  let mrIsVertDrag  = false;
+
+  function mrGetCardWidth() {
+    const outer = document.getElementById('mainRibbonOuter');
+    return outer ? outer.offsetWidth + 10 : 330;
+  }
+
+  function mrSetPos(x, animate) {
+    const track = document.getElementById('mainRibbonTrack');
+    if (!track) return;
+    track.style.transition = animate
+      ? 'transform 0.38s cubic-bezier(0.25,0.46,0.45,0.94)'
+      : 'none';
+    track.style.transform = `translateX(${x}px)`;
+    // Update dots
+    const dot0 = document.getElementById('mrDot0');
+    const dot1 = document.getElementById('mrDot1');
+    const W = mrGetCardWidth();
+    const progress = Math.max(0, Math.min(1, -x / W));
+    if (dot0) dot0.style.opacity = String(1 - progress * 0.7);
+    if (dot1) dot1.style.opacity = String(0.3 + progress * 0.7);
+    if (dot0) dot0.style.transform = `scaleX(${1 + (1 - progress) * 0.8})`;
+    if (dot1) dot1.style.transform = `scaleX(${1 + progress * 0.8})`;
+  }
+
+  function mrClamp(raw) {
+    const W = mrGetCardWidth();
+    const minOff = -W;
+    if (raw > 0) return raw * 0.2;
+    if (raw < minOff) return minOff - (raw - minOff) * -0.2;
+    return raw;
+  }
+
+  function mrSnap(velocity) {
+    const W = mrGetCardWidth();
+    const cur = mrCurrentOffset;
+    const halfW = -(W * 0.5);
+    let goRight;
+    if (Math.abs(velocity) > 0.5) {
+      goRight = velocity < -0.5;
+    } else {
+      goRight = cur < halfW;
+    }
+    if (goRight) {
+      mrTargetOffset = -W;
+      mrOnRight = true;
+    } else {
+      mrTargetOffset = 0;
+      mrOnRight = false;
+    }
+    mrSetPos(mrTargetOffset, true);
+    mrCurrentOffset = mrTargetOffset;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const outer = document.getElementById('mainRibbonOuter');
+    if (!outer) return;
+
+    let lastX = 0, lastT = 0, velX = 0;
+
+    outer.addEventListener('pointerdown', function(e) {
+      mrPointerDown = true;
+      mrIsHorizDrag = false;
+      mrIsVertDrag  = false;
+      mrDragStartX  = e.clientX;
+      mrDragStartY  = e.clientY;
+      mrDragCurX    = mrCurrentOffset;
+      lastX = e.clientX;
+      lastT = performance.now();
+      velX  = 0;
+    }, { passive: true });
+
+    document.addEventListener('pointermove', function(e) {
+      if (!mrPointerDown) return;
+      const dx = e.clientX - mrDragStartX;
+      const dy = e.clientY - mrDragStartY;
+      if (!mrIsHorizDrag && !mrIsVertDrag) {
+        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+          if (Math.abs(dx) > Math.abs(dy) * 1.4) mrIsHorizDrag = true;
+          else mrIsVertDrag = true;
+        }
+      }
+      if (!mrIsHorizDrag) return;
+      e.preventDefault();
+      const now = performance.now();
+      const dt = now - lastT || 16;
+      velX = (e.clientX - lastX) / dt;
+      lastX = e.clientX; lastT = now;
+      const raw = mrDragCurX + dx;
+      mrSetPos(mrClamp(raw), false);
+      mrCurrentOffset = mrClamp(raw);
+    }, { passive: false });
+
+    document.addEventListener('pointerup', function() {
+      if (!mrPointerDown) return;
+      mrPointerDown = false;
+      if (!mrIsHorizDrag) return;
+      mrSnap(velX);
+      if (mrOnRight) setTimeout(renderAssetPie, 60);
+    });
+
+    document.addEventListener('pointercancel', function() {
+      if (!mrPointerDown) return;
+      mrPointerDown = false;
+      mrSnap(0);
+    });
+  });
+
+  window._mainRibbonSnapLeft  = function() { mrTargetOffset=0; mrOnRight=false; mrSetPos(0,true); mrCurrentOffset=0; };
+  window._mainRibbonSnapRight = function() { const W=mrGetCardWidth(); mrTargetOffset=-W; mrOnRight=true; mrSetPos(-W,true); mrCurrentOffset=-W; setTimeout(renderAssetPie,60); };
+})();
+
+// ── ASSET PIE (por tipo de activo: Acciones / Cripto / RSU / Cash) ─────────
+const ASSET_CAT_COLORS = {
+  acciones: '#43e97b',
+  cripto:   '#ff6584',
+  rsu:      '#f7b731',
+  fiat:     '#4fc3f7',
+};
+const ASSET_CAT_LABELS = {
+  acciones: 'Acciones',
+  cripto:   'Cripto',
+  rsu:      'RSUs',
+  fiat:     'Cash',
+};
+
+let assetPieSlices   = [];
+let assetFocusCat    = null;
+let assetPieAnimReq  = null;
+let assetPieAnimProg = 1;
+let assetPieAnimFrom = null;
+
+function drawAssetPieFrame(prog, focusCat, slices, totalUSD) {
+  const canvas = document.getElementById('assetPieCanvas');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const SIZE = 130;
+  canvas.width  = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  const cx = SIZE / 2, cy = SIZE / 2;
+  const BASE_R = 52, BASE_r = 33;
+  const EXPAND = 10;
+  const easedProg = easeInOut(prog);
+
+  let angle = -Math.PI / 2;
+  slices.forEach(s => {
+    const sweep = (s.valueUSD / totalUSD) * Math.PI * 2;
+    const isFocused = focusCat && s.cat === focusCat;
+    const isOther   = focusCat && s.cat !== focusCat;
+
+    const R = BASE_R + (isFocused ? EXPAND * easedProg : isOther ? -3 * easedProg : 0);
+    const r = BASE_r + (isFocused ? -2 * easedProg : 0);
+
+    const bisect = angle + sweep / 2;
+    const offset = isFocused ? EXPAND * 0.6 * easedProg : 0;
+    const ox = Math.cos(bisect) * offset;
+    const oy = Math.sin(bisect) * offset;
+    const alpha = isOther ? 1 - 0.55 * easedProg : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(ox, oy);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, angle, angle + sweep);
+    ctx.arc(cx, cy, r, angle + sweep, angle, true);
+    ctx.closePath();
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 1, angle, angle + sweep);
+    ctx.arc(cx, cy, r - 1, angle + sweep, angle, true);
+    ctx.closePath();
+    ctx.strokeStyle = 'var(--bg)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    s._angle = angle;
+    s._sweep = sweep;
+    angle += sweep;
+  });
+
+  // Center label
+  const center    = document.getElementById('assetPieCenter');
+  const centerSub = document.getElementById('assetPieCenterSub');
+  if (center && centerSub) {
+    const isGBP2 = currentCurrency === 'GBP';
+    const rate2  = isGBP2 ? FX_RATE : 1;
+    const sym2   = isGBP2 ? '£' : '$';
+    if (focusCat && easedProg > 0.5) {
+      const fs = slices.find(s => s.cat === focusCat);
+      if (fs) {
+        const pct = ((fs.valueUSD / totalUSD) * 100).toFixed(1);
+        center.textContent    = pct + '%';
+        centerSub.textContent = ASSET_CAT_LABELS[focusCat] || focusCat;
+        center.style.color    = fs.color;
+      }
+    } else {
+      center.textContent    = fmtVal(totalUSD, rate2, sym2);
+      center.style.color    = '';
+      centerSub.textContent = 'por tipo';
+      if (valuesHidden) maskElement(center);
+    }
+  }
+}
+
+function animateAssetPie(targetCat, slices, totalUSD) {
+  if (assetPieAnimReq) cancelAnimationFrame(assetPieAnimReq);
+  const focusing  = !!targetCat;
+  const DURATION  = 280;
+  const startTime = performance.now();
+
+  if (targetCat && assetFocusCat && targetCat !== assetFocusCat) {
+    assetFocusCat    = null;
+    assetPieAnimProg = 0;
+  }
+
+  function step(now) {
+    const t = Math.min((now - startTime) / DURATION, 1);
+    assetPieAnimProg = focusing ? t : 1 - t;
+    const drawCat = focusing ? targetCat : assetPieAnimFrom;
+    drawAssetPieFrame(assetPieAnimProg, drawCat, slices, totalUSD);
+
+    // Legend
+    const legend = document.getElementById('assetPieLegend');
+    if (legend) {
+      const dimAmount = easeInOut(assetPieAnimProg);
+      legend.querySelectorAll('.asset-pie-row').forEach(row => {
+        const isF = drawCat && row.dataset.cat === drawCat;
+        const isO = drawCat && row.dataset.cat !== drawCat;
+        row.style.opacity    = isO ? String(1 - 0.55 * dimAmount) : '1';
+        row.style.fontWeight = isF && dimAmount > 0.5 ? '700' : '';
+        row.style.transform  = isF && dimAmount > 0.5 ? 'scale(1.03)' : 'scale(1)';
+      });
+    }
+
+    if (t < 1) {
+      assetPieAnimReq = requestAnimationFrame(step);
+    } else {
+      assetFocusCat    = targetCat;
+      assetPieAnimReq  = null;
+    }
+  }
+  assetPieAnimFrom = assetFocusCat;
+  assetPieAnimReq  = requestAnimationFrame(step);
+}
+
+function focusAssetSlice(cat, slices, totalUSD) {
+  if (assetFocusCat === cat) {
+    animateAssetPie(null, slices, totalUSD);
+  } else {
+    animateAssetPie(cat, slices, totalUSD);
+  }
+}
+
+function hitTestAssetPie(e) {
+  const canvas = document.getElementById('assetPieCanvas');
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  const cx2 = rect.left + rect.width  / 2;
+  const cy2 = rect.top  + rect.height / 2;
+  const touch = e.changedTouches ? e.changedTouches[0] : e;
+  const dx = touch.clientX - cx2;
+  const dy = touch.clientY - cy2;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const SIZE = 130;
+  const scale = rect.width / SIZE;
+  const BASE_R = 52 * scale, BASE_r = 33 * scale;
+  if (dist < BASE_r || dist > BASE_R + 12 * scale) return null;
+  let ang = Math.atan2(dy, dx);
+  if (ang < -Math.PI / 2) ang += Math.PI * 2;
+  for (const s of assetPieSlices) {
+    let normAng = ang + Math.PI / 2;
+    if (normAng < 0) normAng += Math.PI * 2;
+    let normA0 = s._angle + Math.PI / 2;
+    if (normA0 < 0) normA0 += Math.PI * 2;
+    let normA1 = normA0 + s._sweep;
+    if (normAng >= normA0 && normAng <= normA1) return s.cat;
+  }
+  return null;
+}
+
+function renderAssetPie() {
+  if (!liveData) return;
+  const { breakdown, totalUSD } = liveData;
+  const isGBP = currentCurrency === 'GBP';
+  const rate = isGBP ? FX_RATE : 1;
+  const sym = isGBP ? '£' : '$';
+
+  const CATS = ['acciones','cripto','rsu','fiat'];
+  const slices = [];
+  let total = 0;
+  CATS.forEach(cat => {
+    const v = breakdown[cat] || 0;
+    if (v <= 0.5) return;
+    slices.push({ cat, valueUSD: v, color: ASSET_CAT_COLORS[cat] || '#aaa' });
+    total += v;
+  });
+
+  slices.sort((a, b) => b.valueUSD - a.valueUSD);
+  assetPieSlices = slices;
+
+  if (total === 0) {
+    const canvas = document.getElementById('assetPieCanvas');
+    if (canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const SIZE = 130;
+      canvas.width = SIZE * dpr; canvas.height = SIZE * dpr;
+      canvas.style.width = SIZE + 'px'; canvas.style.height = SIZE + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      ctx.beginPath();
+      ctx.arc(SIZE/2, SIZE/2, 52, 0, Math.PI * 2);
+      ctx.arc(SIZE/2, SIZE/2, 33, Math.PI * 2, 0, true);
+      ctx.fillStyle = 'var(--surface2)'; ctx.fill();
+    }
+  } else {
+    if (assetFocusCat && !slices.find(s => s.cat === assetFocusCat)) {
+      assetFocusCat = null; assetPieAnimProg = 1;
+    }
+    drawAssetPieFrame(assetFocusCat ? assetPieAnimProg : 1, assetFocusCat, slices, total);
+  }
+
+  // Center
+  if (!assetFocusCat) {
+    const center = document.getElementById('assetPieCenter');
+    const centerSub = document.getElementById('assetPieCenterSub');
+    if (center) {
+      center.textContent = fmtVal(total, rate, sym);
+      center.style.color = '';
+      delete center.dataset.real;
+      if (valuesHidden) maskElement(center);
+    }
+    if (centerSub) centerSub.textContent = 'por tipo';
+  }
+
+  // Legend
+  const legend = document.getElementById('assetPieLegend');
+  if (!legend) return;
+  legend.innerHTML = '';
+  slices.forEach(s => {
+    const pct = total > 0 ? ((s.valueUSD / total) * 100).toFixed(1) : '0.0';
+    const valStr = fmtVal(s.valueUSD, rate, sym);
+    const row = document.createElement('div');
+    row.className = 'asset-pie-row';
+    row.dataset.cat = s.cat;
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;transition:opacity 0.22s,transform 0.22s,font-weight 0.1s;border-radius:8px;padding:2px 4px;margin:-2px -4px';
+    row.innerHTML =
+      '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0"></div>' +
+      '<span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap">' + (ASSET_CAT_LABELS[s.cat] || s.cat) + '</span>' +
+      '<span style="font-size:11px;font-weight:700;flex-shrink:0">' + pct + '%</span>' +
+      '<span class="asset-pie-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right">' + valStr + '</span>';
+    row.addEventListener('click', function() {
+      focusAssetSlice(s.cat, assetPieSlices, assetPieSlices.reduce((a,b)=>a+b.valueUSD,0));
+    });
+    legend.appendChild(row);
+  });
+
+  if (valuesHidden) {
+    legend.querySelectorAll('.asset-pie-val').forEach(maskElement);
+  }
+}
+
+// Asset pie canvas tap
+(function() {
+  let tapping = false, tapX = 0, tapY = 0;
+  const getCanvas = () => document.getElementById('assetPieCanvas');
+  document.addEventListener('touchstart', function(e) {
+    const c = getCanvas();
+    if (!c) return;
+    const t = e.touches[0];
+    const rect = c.getBoundingClientRect();
+    if (t.clientX < rect.left || t.clientX > rect.right || t.clientY < rect.top || t.clientY > rect.bottom) return;
+    tapping = true; tapX = t.clientX; tapY = t.clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    if (!tapping) return;
+    tapping = false;
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - tapX) > 10 || Math.abs(t.clientY - tapY) > 10) return;
+    const cat = hitTestAssetPie(e);
+    const total = assetPieSlices.reduce((a,b) => a + b.valueUSD, 0);
+    if (cat) {
+      focusAssetSlice(cat, assetPieSlices, total);
+    } else if (assetFocusCat) {
+      animateAssetPie(null, assetPieSlices, total);
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    if (!assetFocusCat) return;
+    const c  = getCanvas();
+    const lg = document.getElementById('assetPieLegend');
+    const t  = e.changedTouches[0];
+    const inCanvas = c  && (() => { const r=c.getBoundingClientRect(); return t.clientX>=r.left && t.clientX<=r.right && t.clientY>=r.top && t.clientY<=r.bottom; })();
+    const inLegend = lg && (() => { const r=lg.getBoundingClientRect(); return t.clientX>=r.left && t.clientX<=r.right && t.clientY>=r.top && t.clientY<=r.bottom; })();
+    if (!inCanvas && !inLegend) {
+      animateAssetPie(null, assetPieSlices, assetPieSlices.reduce((a,b)=>a+b.valueUSD,0));
+    }
+  }, { passive: true });
+})();
 
 // ── EQUITY PIE (ticker-level) ──────────────────────────────────────────
 
@@ -1469,6 +1890,11 @@ function toggleHideValues() {
   if (equityCenter) valuesHidden ? maskElement(equityCenter) : unmaskElement(equityCenter);
   document.querySelectorAll('.equity-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 
+  // asset category pie center + legend values
+  const assetCenter = document.getElementById('assetPieCenter');
+  if (assetCenter) valuesHidden ? maskElement(assetCenter) : unmaskElement(assetCenter);
+  document.querySelectorAll('.asset-pie-val').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
+
   // P&L attribution values
   document.querySelectorAll('.pnl-attr-hideable').forEach(el => valuesHidden ? maskElement(el) : unmaskElement(el));
 
@@ -1524,6 +1950,7 @@ function setCurrency(cur) {
   document.getElementById('btnUSD').style.color = !isGBP ? '#fff' : 'var(--muted)';
   renderPortfolio();
   renderEquityPie();
+  renderAssetPie();
   loadChartData();
 }
 

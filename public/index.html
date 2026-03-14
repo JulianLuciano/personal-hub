@@ -335,75 +335,78 @@
 
   <!-- PORTFOLIO PANEL -->
   <div class="panel" id="panel-portfolio">
-    <div class="portfolio-header"
-     style="position:relative;cursor:grab"
-     onpointerdown="swipeStart(event)" onpointerup="swipeEnd(event)">
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div class="portfolio-total-label">Patrimonio total</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
-          <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
-            <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
-            <div id="btnUSD" onclick="setCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
-          </div>
-        </div>
+    <!-- Header bar: label + currency toggle (always visible, above ribbon) -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:0 2px">
+      <div class="portfolio-total-label">Patrimonio total</div>
+      <div style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:3px;border:1px solid var(--border)">
+        <div id="btnGBP" onclick="setCurrency('GBP')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s">£</div>
+        <div id="btnUSD" onclick="setCurrency('USD')" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;color:var(--muted);transition:all 0.2s">$</div>
       </div>
+    </div>
 
-      <!-- Slide 0: normal view -->
-      <div id="hSlide0">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
-          <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
-        </div>
-        <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
-        <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Costo base: <span id="cbValue"></span></div>
-        <div class="alloc-chart" style="margin-top:14px">
-          <div class="alloc-bar" id="allocBar">
-            <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
-            <div class="alloc-seg" style="width:0%;background:#ff6584"></div>
-            <div class="alloc-seg" style="width:0%;background:#f7b731"></div>
-            <!-- cash: liquid part + locked part with stripe pattern -->
-            <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px;width:0%" id="cashAllocSegs">
+    <!-- MAIN RIBBON: Portfolio (left) ↔ Pie por tipo (right) -->
+    <div id="mainRibbonOuter" style="overflow:hidden;width:100%;position:relative;border-radius:var(--card-radius)">
+      <div id="mainRibbonTrack" style="display:flex;flex-direction:row;gap:10px;will-change:transform;transition:none;touch-action:pan-y">
+
+        <!-- CARD 1: Portfolio summary -->
+        <div class="portfolio-header" style="min-width:calc(100% - 0px);flex-shrink:0;box-sizing:border-box;position:relative;margin:0">
+          <!-- Arrow hint right -->
+          <div style="position:absolute;bottom:10px;right:10px;z-index:10;pointer-events:none;opacity:0.35">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="3,3 10,6.5 3,10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div class="portfolio-total" id="portfolioTotal" style="margin:0">—</div>
+            <div onclick="toggleHideValues()" id="eyeBtn" style="width:28px;height:28px;cursor:pointer;color:var(--muted);transition:all 0.2s;flex-shrink:0;padding:4px;display:flex;align-items:center;justify-content:center" title="Ocultar valores"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          </div>
+          <div class="portfolio-change" id="portfolioChange" style="color:var(--muted)">cargando...</div>
+          <div id="portfolioCostBasis" style="font-size:11px;color:var(--muted);margin-top:2px">Costo base: <span id="cbValue"></span></div>
+          <div class="alloc-chart" style="margin-top:14px">
+            <div class="alloc-bar" id="allocBar">
+              <div class="alloc-seg" style="width:0%;background:#43e97b"></div>
+              <div class="alloc-seg" style="width:0%;background:#ff6584"></div>
+              <div class="alloc-seg" style="width:0%;background:#f7b731"></div>
+              <div style="display:flex;height:100%;border-radius:100px;overflow:hidden;gap:1px;width:0%" id="cashAllocSegs"></div>
+            </div>
+            <div class="alloc-legend" style="margin-top:10px">
+              <div class="alloc-item"><div class="alloc-dot" style="background:#43e97b"></div>Acciones —%</div>
+              <div class="alloc-item"><div class="alloc-dot" style="background:#ff6584"></div>Cripto —%</div>
+              <div class="alloc-item"><div class="alloc-dot" style="background:#f7b731"></div>RSUs —%</div>
+              <div class="alloc-item"><div class="alloc-dot" style="background:#4fc3f7"></div>Cash —%</div>
             </div>
           </div>
-          <div class="alloc-legend" style="margin-top:10px">
-            <div class="alloc-item"><div class="alloc-dot" style="background:#43e97b"></div>Acciones —%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:#ff6584"></div>Cripto —%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:#f7b731"></div>RSUs —%</div>
-            <div class="alloc-item"><div class="alloc-dot" style="background:#4fc3f7"></div>Cash —%</div>
-          </div>
         </div>
-        <!-- Subtle swipe hint dots -->
-        <div style="display:flex;justify-content:center;gap:5px;margin-top:10px">
-          <div id="dot0" style="width:5px;height:5px;border-radius:50%;background:var(--accent);transition:all 0.3s"></div>
-          <div id="dot1" style="width:5px;height:5px;border-radius:50%;background:var(--border);transition:all 0.3s"></div>
-        </div>
-      </div>
 
-      <!-- Slide 1: pie view (hidden by default, shown on swipe) -->
-      <div id="hSlide1" style="display:none">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="position:relative;flex-shrink:0">
-            <canvas id="allocPie" width="130" height="130"></canvas>
-            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
-              <div style="font-family:var(--font-num);font-size:12px;font-weight:800;line-height:1" id="pieTotal">£33.8k</div>
-              <div style="font-size:8px;color:var(--muted)">total</div>
+        <!-- CARD 2: Pie por tipo de activo -->
+        <div class="portfolio-header" style="min-width:calc(100% - 0px);flex-shrink:0;box-sizing:border-box;margin:0;position:relative">
+          <!-- Arrow hint left (back) -->
+          <div style="position:absolute;bottom:10px;left:10px;z-index:10;pointer-events:none;opacity:0.35">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="10,3 3,6.5 10,10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:12px">Por tipo de activo</div>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div style="position:relative;flex-shrink:0">
+              <canvas id="assetPieCanvas" width="130" height="130" style="display:block"></canvas>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
+                <div id="assetPieCenter" style="font-size:15px;font-weight:700;line-height:1.1">—</div>
+                <div id="assetPieCenterSub" style="font-size:10px;color:var(--muted);margin-top:2px">por tipo</div>
+              </div>
             </div>
+            <div id="assetPieLegend" style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0"></div>
           </div>
-          <div style="flex:1;display:flex;flex-direction:column;gap:6px" id="pieLegend">
-            <div class="alloc-legend-row" data-cat="acciones" onclick="focusAllocSlice('acciones')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#43e97b"></div><span style="color:var(--muted)">Acciones</span></div><span style="font-weight:600" id="pl0">—</span></div>
-            <div class="alloc-legend-row" data-cat="cripto" onclick="focusAllocSlice('cripto')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#ff6584"></div><span style="color:var(--muted)">Cripto</span></div><span style="font-weight:600" id="pl1">—</span></div>
-            <div class="alloc-legend-row" data-cat="rsu" onclick="focusAllocSlice('rsu')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#f7b731"></div><span style="color:var(--muted)">RSUs</span></div><span style="font-weight:600" id="pl2">—</span></div>
-            <div class="alloc-legend-row" data-cat="liquid" onclick="focusAllocSlice('liquid')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#4fc3f7"></div><span style="color:var(--muted)">Líquido</span></div><span style="font-weight:600" id="pl3">—</span></div>
-            <div class="alloc-legend-row" data-cat="locked" onclick="focusAllocSlice('locked')" style="display:flex;justify-content:space-between;font-size:11px;cursor:pointer;transition:opacity 0.22s,transform 0.22s;border-radius:6px;padding:1px 3px;margin:-1px -3px"><div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#2a8f9f;border:1px dashed #4fc3f7"></div><span style="color:var(--muted)">Ilíquido</span></div><span style="font-weight:600" id="pl4">—</span></div>
+          <!-- Keep pl0–pl4 hidden here so portfolio.js renderPortfolio() can still write to them -->
+          <div style="display:none">
+            <span id="pieTotal"></span>
+            <span id="pl0"></span><span id="pl1"></span><span id="pl2"></span><span id="pl3"></span><span id="pl4"></span>
           </div>
         </div>
-        <div style="display:flex;justify-content:center;gap:5px;margin-top:10px">
-          <div id="dot0b" style="width:5px;height:5px;border-radius:50%;background:var(--border);transition:all 0.3s"></div>
-          <div id="dot1b" style="width:5px;height:5px;border-radius:50%;background:var(--accent);transition:all 0.3s"></div>
-        </div>
-      </div>
 
+      </div>
+    </div>
+
+    <!-- Pagination dots -->
+    <div style="display:flex;justify-content:center;gap:5px;margin-top:8px;margin-bottom:2px">
+      <div id="mrDot0" style="width:14px;height:4px;border-radius:2px;background:var(--accent);transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
+      <div id="mrDot1" style="width:4px;height:4px;border-radius:2px;background:var(--muted);opacity:0.3;transform-origin:center;transition:opacity 0.2s,transform 0.2s"></div>
     </div>
 
     <!-- DUAL CARD RIBBON: Evolución (left) + Renta Variable (right) -->
