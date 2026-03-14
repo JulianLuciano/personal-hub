@@ -957,15 +957,36 @@ const ASSET_CAT_COLORS = {
   cripto:      '#ff6584',
   rsu:         '#f7b731',
   fiat_liquid: '#4fc3f7',
-  fiat_locked: '#2a8f9f',
+  fiat_locked: '#4fc3f7', // same base color — pattern applied at draw time
 };
 const ASSET_CAT_LABELS = {
   acciones:    'Acciones',
   cripto:      'Cripto',
   rsu:         'RSUs',
-  fiat_liquid: 'Cash líquido',
-  fiat_locked: 'Cash ilíquido',
+  fiat_liquid: 'Líquido',
+  fiat_locked: 'Ilíquido',
 };
+
+// Build a striped canvas pattern matching the alloc bar locked-cash style
+function makeLockedPattern(ctx) {
+  const sz = 7; // tile size (matches 45deg stripe: 2px solid + 5px gap = 7px)
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = sz;
+  offscreen.height = sz;
+  const oc = offscreen.getContext('2d');
+  oc.fillStyle = '#2a6f7f';
+  oc.fillRect(0, 0, sz, sz);
+  oc.strokeStyle = '#4fc3f7';
+  oc.lineWidth = 2;
+  // Draw 45-degree stripes across the tile (repeat at corners for seamless tiling)
+  for (let i = -sz; i <= sz * 2; i += sz) {
+    oc.beginPath();
+    oc.moveTo(i, 0);
+    oc.lineTo(i + sz, sz);
+    oc.stroke();
+  }
+  return ctx.createPattern(offscreen, 'repeat');
+}
 
 let assetPieSlices   = [];
 let assetFocusCat    = null;
@@ -1013,7 +1034,7 @@ function drawAssetPieFrame(prog, focusCat, slices, totalUSD) {
     ctx.arc(cx, cy, R, angle, angle + sweep);
     ctx.arc(cx, cy, r, angle + sweep, angle, true);
     ctx.closePath();
-    ctx.fillStyle = s.color;
+    ctx.fillStyle = s.cat === 'fiat_locked' ? (makeLockedPattern(ctx) || '#4fc3f7') : s.color;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(cx, cy, R + 1, angle, angle + sweep);
@@ -1197,7 +1218,9 @@ function renderAssetPie() {
     row.dataset.cat = s.cat;
     row.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;transition:opacity 0.22s,transform 0.22s,font-weight 0.1s;border-radius:8px;padding:2px 4px;margin:-2px -4px';
     row.innerHTML =
-      '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0"></div>' +
+      (s.cat === 'fiat_locked'
+        ? '<div style="width:8px;height:8px;border-radius:50%;background:repeating-linear-gradient(45deg,#4fc3f7,#4fc3f7 2px,#2a6f7f 2px,#2a6f7f 4px);flex-shrink:0"></div>'
+        : '<div style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';flex-shrink:0"></div>') +
       '<span style="font-size:11px;color:var(--muted);flex:1;white-space:nowrap">' + (ASSET_CAT_LABELS[s.cat] || s.cat) + '</span>' +
       '<span style="font-size:11px;font-weight:700;flex-shrink:0">' + pct + '%</span>' +
       '<span class="asset-pie-val" style="font-size:10px;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right">' + valStr + '</span>';
