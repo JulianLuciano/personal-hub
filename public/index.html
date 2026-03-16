@@ -23,8 +23,8 @@
   <!-- TOP BAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1 id="topbarTitle">H&#225;bitos</h1>
-      <p id="topbarSub">&#160;</p>
+      <h1>Good morning, Julian 👋</h1>
+      <p>Monday, March 3</p>
     </div>
     <div class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
   </div>
@@ -55,17 +55,10 @@
         &#9888; Editando d&#237;a anterior &#8212; los cambios se guardan para esa fecha
       </div>
 
-            <p class="section-label">Cuerpo</p>
-      <div class="habit-list" id="habitListBody"></div>
+      <div class="habit-list" id="habitList"></div>
 
       <div class="h-divider"></div>
 
-      <p class="section-label">Trabajo</p>
-      <div class="habit-list" id="habitListWork"></div>
-
-      <div class="h-divider"></div>
-
-      <p class="section-label" style="margin-bottom:8px">Alimentaci&#243;n</p>
       <div class="h-food-block" id="habitFoodBlock">
         <div class="h-food-opts">
           <button class="h-food-opt good" id="h-food-opt-good" onclick="habitSelectFood(true)">
@@ -156,9 +149,9 @@
           <div class="habit-icon" style="background:rgba(108,99,255,0.12);flex-shrink:0">&#128276;</div>
           <div style="flex:1">
             <div class="h-config-label">Check diario</div>
-            <div class="h-config-sub">Recordatorio para completar h&#225;bitos</div>
+            <div class="h-config-sub">Usa la hora local del dispositivo (DST autom&#225;tico)</div>
           </div>
-          <input class="h-time-input" type="time" value="22:20" id="habitNotifTimeDaily">
+          <input class="h-time-input" type="time" value="22:30" id="habitNotifTimeDaily" onchange="habitSaveNotifTime()">
           <div class="toggle on" id="h-tgl-daily" onclick="habitToggleNotif('daily')">
             <div class="toggle-knob"></div>
           </div>
@@ -175,9 +168,7 @@
           </div>
         </div>
       </div>
-
-      <p class="section-label">H&#225;bitos activos</p>
-      <div class="h-config-card" id="habitConfigList"></div>
+      <button class="h-save-btn" id="habitNotifSaveBtn" onclick="habitSaveNotifTime()" style="margin-top:4px">Guardar hora</button>
 
     </div>
 

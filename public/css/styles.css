@@ -1442,8 +1442,9 @@
 .h-sub-tab.active { background: var(--accent); color: #fff; }
 
 /* Panels */
-.h-panel { display: none; }
+.h-panel { display: none; padding: 0 24px 100px; }
 .h-panel.active { display: block; }
+#panel-today { padding: 0; }
 .h-panel.active { display: block; }
 
 /* Past banner */

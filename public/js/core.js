@@ -20,7 +20,7 @@ function toggleTheme() {
 }
 
 const navTitles = {
-  today: ['Good morning, Julian 👋', 'Lunes, 3 de Marzo'],
+  today: ['Hábitos', ''],
   recipes: ['Mis Recetas 🍳', 'Tu repositorio personal'],
   portfolio: ['Portfolio', 'Cargando...'],
   analytics: ['Analytics 📊', 'Simulaciones y análisis'],
@@ -35,7 +35,7 @@ function switchNav(el, name) {
   const t = navTitles[name] || navTitles.today;
   document.querySelector('.topbar-left h1').textContent = t[0];
   document.querySelector('.topbar-left p').textContent = t[1];
-  document.querySelector('.tabs').style.display = name === 'today' ? 'flex' : 'none';
+  // h-sub-tabs live inside panel-today, no top-level show/hide needed
   if (name === 'portfolio') {
     requestAnimationFrame(() => requestAnimationFrame(drawChart));
     if (!liveData) loadPortfolio();

@@ -133,6 +133,12 @@ function habitWeekOfYear() {
 
 async function initHabits() {
   CURRENT_WEEK = habitWeekOfYear();
+  // Restore saved notification time from localStorage
+  const savedTime = localStorage.getItem('habitNotifTime');
+  if (savedTime) {
+    const input = document.getElementById('habitNotifTimeDaily');
+    if (input) input.value = savedTime;
+  }
   habitOneshotState = await loadOneshotsFromDB();
   habitUpdateDateUI();
   await habitLoadDay();
@@ -200,8 +206,7 @@ function habitScheduleSave() {
 // ── RENDER: HABITS ─────────────────────────────────────────────────────────────
 
 function habitRenderHabits() {
-  habitRenderGroup('habitListBody', HABITS_BODY);
-  habitRenderGroup('habitListWork', HABITS_WORK);
+  habitRenderGroup('habitList', [...HABITS_BODY, ...HABITS_WORK]);
 }
 
 function habitRenderGroup(containerId, habits) {
@@ -437,27 +442,29 @@ function habitRenderYear() {
 // ── RENDER: CONFIG ─────────────────────────────────────────────────────────────
 
 function habitRenderConfig() {
-  const list = document.getElementById('habitConfigList');
-  if (!list) return;
-
-  const allHabits = [
-    ...HABITS_BODY,
-    ...HABITS_WORK,
-    { id: 'food', icon: '🥗', name: 'Comí bien', color: 'rgba(247,183,49,0.15)' },
-  ];
-
-  list.innerHTML = allHabits.map(h => `
-    <div class="h-config-row">
-      <div class="habit-icon" style="background:${h.color || 'rgba(108,99,255,0.12)'};flex-shrink:0">${h.icon}</div>
-      <div class="h-config-label">${h.name}</div>
-      <div class="toggle on"><div class="toggle-knob"></div></div>
-    </div>`).join('');
+  // "Hábitos activos" section removed — no-op kept for compatibility
 }
 
 function habitToggleNotif(key) {
   habitNotifState[key] = !habitNotifState[key];
   const el = document.getElementById('h-tgl-' + key);
   if (el) el.classList.toggle('on', habitNotifState[key]);
+  if (key === 'daily') habitSaveNotifTime();
+}
+
+function habitSaveNotifTime() {
+  const input = document.getElementById('habitNotifTimeDaily');
+  if (!input || !input.value) return;
+  // Persist to localStorage — preference is per-device, not per-account
+  localStorage.setItem('habitNotifTime', input.value);
+  habitScheduleNotification();
+  // Visual feedback
+  const btn = document.getElementById('habitNotifSaveBtn');
+  if (btn) {
+    btn.textContent = 'Guardado ✓';
+    btn.classList.add('saved');
+    setTimeout(() => { btn.textContent = 'Guardar hora'; btn.classList.remove('saved'); }, 2000);
+  }
 }
 
 // ── SUB-TAB SWITCH ─────────────────────────────────────────────────────────────
@@ -500,6 +507,9 @@ async function habitInitNotifications() {
 }
 
 function habitScheduleNotification() {
+  // new Date() uses the device's local timezone automatically — including DST transitions.
+  // When UK moves from GMT to BST (last Sunday of March) or back, the system clock adjusts
+  // and new Date() reflects it. No manual timezone handling needed.
   const timeInput = document.getElementById('habitNotifTimeDaily');
   let hour   = HABIT_NOTIF_DEFAULT_HOUR;
   let minute = HABIT_NOTIF_DEFAULT_MINUTE;
