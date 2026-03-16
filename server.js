@@ -749,3 +749,46 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Personal Hub corriendo en puerto ${PORT}`);
 });
+
+// ── JACKET API PROXY ────────────────────────────────────────────────────────────
+// Pegar en server.js, junto al resto de los endpoints POST.
+//
+// La variable de entorno JACKET_API_URL ya tiene el valor por defecto abajo,
+// pero podés sobreescribirla en Railway si el deploy del bot cambia de URL.
+//
+// Node 18+ tiene fetch nativo. Si tu Railway usa Node < 18, instalá node-fetch:
+//   npm install node-fetch
+// y agregá al tope de server.js:
+//   const fetch = require('node-fetch');
+
+const JACKET_API_URL = process.env.JACKET_API_URL
+  || 'https://api-service-production-b8b1.up.railway.app/predecir';
+
+app.post('/api/abrigo', async (req, res) => {
+  try {
+    const { lat, lon, lead } = req.body;
+
+    if (lat === undefined || lon === undefined || lead === undefined) {
+      return res.status(400).json({ error: 'Faltan campos: lat, lon, lead' });
+    }
+
+    const upstream = await fetch(JACKET_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, lead }),
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      console.error('[/api/abrigo] upstream error:', upstream.status, errText);
+      return res.status(502).json({ error: 'Error en la API de predicción' });
+    }
+
+    const data = await upstream.json();
+    res.json(data);
+
+  } catch (err) {
+    console.error('[/api/abrigo]', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});

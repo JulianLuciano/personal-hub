@@ -189,51 +189,68 @@
 
   </div>
 
-    <!-- RECIPES PANEL -->
+  <!-- TOOLS PANEL -->
   <div class="panel" id="panel-recipes">
-    <div class="search-bar">🔍 &nbsp;Buscar recetas...</div>
-    <div class="tag-row">
-      <div class="tag-pill active">Todas</div>
-      <div class="tag-pill">🥗 Ensaladas</div>
-      <div class="tag-pill">🍝 Pastas</div>
-      <div class="tag-pill">🥩 Carnes</div>
-      <div class="tag-pill">🐟 Pescado</div>
-      <div class="tag-pill">🌱 Vegano</div>
-    </div>
-    <div class="recipe-grid">
-      <div class="recipe-card">
-        <div class="recipe-img">🍝</div>
-        <div class="recipe-body">
-          <div class="recipe-title">Spaghetti alla Carbonara</div>
-          <div class="recipe-meta"><span>⏱ 25 min</span><span>👤 2 porciones</span><span>⭐ Fav</span></div>
-          <div class="recipe-tags"><span class="recipe-tag">Pasta</span><span class="recipe-tag">Italiana</span></div>
-          <button class="recipe-timer-btn" onclick="openTimer('Carbonara')">⏱ Iniciar timers de cocción</button>
+
+    <!-- ── TOOLS HOME (menú de herramientas) ── -->
+    <div id="tools-home">
+      <p class="section-label" style="margin-bottom:16px">Herramientas</p>
+      <div class="tools-menu">
+
+        <div class="tool-card" onclick="toolsOpenSub('recipes')">
+          <div class="tool-card-icon">🍝</div>
+          <div class="tool-card-body">
+            <div class="tool-card-title">Recetario</div>
+            <div class="tool-card-desc">Recetas con timers de cocción</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
-      </div>
-      <div class="recipe-card">
-        <div class="recipe-img">🍚</div>
-        <div class="recipe-body">
-          <div class="recipe-title">Risotto ai Funghi</div>
-          <div class="recipe-meta"><span>⏱ 35 min</span><span>👤 4 porciones</span></div>
-          <div class="recipe-tags"><span class="recipe-tag">Arroz</span><span class="recipe-tag">Italiana</span></div>
-          <button class="recipe-timer-btn" onclick="openTimer('Risotto')">⏱ Iniciar timers de cocción</button>
+
+        <div class="tool-card" onclick="toolsOpenSub('jacket')">
+          <div class="tool-card-icon">🧥</div>
+          <div class="tool-card-body">
+            <div class="tool-card-title">Predictor de abrigo</div>
+            <div class="tool-card-desc">Qué ponerse según el clima</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
-      </div>
-      <div class="recipe-card">
-        <div class="recipe-img">🐟</div>
-        <div class="recipe-body">
-          <div class="recipe-title">Salmón a la Plancha</div>
-          <div class="recipe-meta"><span>⏱ 30 min</span><span>👤 2 porciones</span></div>
-          <div class="recipe-tags"><span class="recipe-tag">Pescado</span><span class="recipe-tag">Saludable</span></div>
-          <button class="recipe-timer-btn" onclick="openTimer('Salmón')">⏱ Iniciar timers de cocción</button>
-        </div>
+
       </div>
     </div>
-    <div style="margin-top:16px">
-      <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;background:var(--surface);border:1.5px dashed var(--border);border-radius:16px;cursor:pointer;color:var(--muted);font-size:14px">
-        <span style="font-size:20px">+</span> Agregar receta
+
+    <!-- ── RECETARIO SUB-PANEL ── -->
+    <div id="tools-sub-recipes" style="display:none">
+      <div class="tools-back-bar">
+        <button class="tools-back-btn" onclick="toolsBack()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Tools
+        </button>
+        <span class="tools-sub-title">Recetario</span>
       </div>
+      <div class="search-bar">🔍 &nbsp;Buscar recetas...</div>
+      <div class="tag-row">
+        <div class="tag-pill active">Todas</div>
+        <div class="tag-pill">🥗 Ensaladas</div>
+        <div class="tag-pill">🍝 Pastas</div>
+        <div class="tag-pill">🥩 Carnes</div>
+        <div class="tag-pill">🐟 Pescado</div>
+        <div class="tag-pill">🌱 Vegano</div>
+      </div>
+      <div id="recipeList" class="recipe-grid"></div>
     </div>
+
+    <!-- ── JACKET SUB-PANEL ── -->
+    <div id="tools-sub-jacket" style="display:none">
+      <div class="tools-back-bar">
+        <button class="tools-back-btn" onclick="toolsBack()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Tools
+        </button>
+        <span class="tools-sub-title">Predictor de abrigo</span>
+      </div>
+      <div id="jacketPanel"></div>
+    </div>
+
   </div>
 
   <!-- TIMER MODAL -->
@@ -1213,8 +1230,8 @@
       <span class="nav-label">Hábitos</span>
     </div>
     <div class="nav-item" onclick="switchNav(this, 'recipes')">
-      <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg></span>
-      <span class="nav-label">Recetas</span>
+      <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+      <span class="nav-label">Tools</span>
     </div>
     <div class="nav-item" onclick="switchNav(this, 'portfolio')">
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span>
@@ -1239,6 +1256,7 @@
 <script src="js/core.js"></script>
 <script src="js/habits.js"></script>
 <script src="js/recipes.js"></script>
+<script src="js/jacket.js"></script>
 <script src="js/portfolio.js"></script>
 <script src="js/analytics.js"></script>
 <script src="js/transactions.js"></script>

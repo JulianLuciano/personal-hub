@@ -383,3 +383,40 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 
+// ── TOOLS NAVIGATION ───────────────────────────────────────────────────────────
+// Pegar en core.js (al final, antes del cierre del módulo o del DOMContentLoaded)
+
+function toolsOpenSub(name) {
+  // Ocultar menú principal
+  document.getElementById('tools-home').style.display = 'none';
+  // Ocultar todos los sub-paneles
+  document.querySelectorAll('[id^="tools-sub-"]').forEach(el => el.style.display = 'none');
+  // Mostrar el pedido
+  const sub = document.getElementById(`tools-sub-${name}`);
+  if (sub) sub.style.display = 'block';
+
+  // Si es jacket, renderizarlo (por si acaso no se llamó en DOMContentLoaded)
+  if (name === 'jacket' && typeof renderJacket === 'function') {
+    if (!document.getElementById('jacketPanel')?.firstChild) {
+      renderJacket();
+      JACKET_STATE.step = 'ask_coords';
+      JACKET_STATE.hoursAhead = 0;
+    }
+  }
+
+  // Actualizar topbar title
+  const titles = { recipes: 'Recetario', jacket: 'Predictor de abrigo' };
+  const titleEl = document.getElementById('topbarTitle');
+  if (titleEl && titles[name]) titleEl.textContent = titles[name];
+}
+
+function toolsBack() {
+  // Mostrar menú principal, ocultar sub-paneles
+  document.getElementById('tools-home').style.display = 'block';
+  document.querySelectorAll('[id^="tools-sub-"]').forEach(el => el.style.display = 'none');
+
+  // Restaurar topbar
+  const titleEl = document.getElementById('topbarTitle');
+  if (titleEl) titleEl.textContent = 'Tools';
+}
+
