@@ -1391,7 +1391,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  padding: 0 24px 12px;
+  padding: 8px 24px 12px;
 }
 .h-nav-btn {
   width: 32px; height: 32px;
@@ -1442,7 +1442,8 @@
 .h-sub-tab.active { background: var(--accent); color: #fff; }
 
 /* Panels */
-.h-panel { display: none; padding: 0 24px 100px; }
+.h-panel { display: none; }
+.h-panel.active { display: block; }
 .h-panel.active { display: block; }
 
 /* Past banner */
@@ -1763,6 +1764,109 @@
   transition: border-color 0.15s;
 }
 .h-time-input:focus { border-color: var(--accent); }
+
+
+/* Food selection block */
+.h-food-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+.h-food-opts {
+  display: flex;
+  gap: 0;
+}
+.h-food-opt {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 12px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+}
+.h-food-opt:first-child { border-right: 1px solid var(--border); }
+.h-food-opt-icon { font-size: 18px; }
+.h-food-opt.good.selected {
+  color: var(--accent3);
+  background: rgba(67,233,123,0.06);
+  border-bottom-color: var(--accent3);
+}
+.h-food-opt.bad.selected {
+  color: var(--accent4);
+  background: rgba(247,183,49,0.06);
+  border-bottom-color: var(--accent4);
+}
+.h-food-drop {
+  display: none;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+.h-food-drop.open { display: block; }
+.h-food-drop-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.h-food-meals {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.h-meal-chip {
+  padding: 7px 14px;
+  border-radius: 100px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.h-meal-chip.selected {
+  border-color: var(--accent4);
+  color: var(--accent4);
+  background: rgba(247,183,49,0.1);
+}
+.h-food-issue {
+  display: flex;
+  gap: 8px;
+}
+.h-issue-btn {
+  flex: 1;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.h-issue-btn.selected {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  background: rgba(255,101,132,0.08);
+}
 
 /* Light theme overrides */
 .light .h-past-banner {

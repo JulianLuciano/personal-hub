@@ -49,7 +49,7 @@ let CURRENT_WEEK = 10;
 // ── STATE ──────────────────────────────────────────────────────────────────────
 
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
-let habitDayState    = {};         // { trained, piano, deepwork, food, foodNote }
+let habitDayState    = {};         // { trained, piano, deepwork, food, foodBad[], foodIssue }
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -57,8 +57,8 @@ let habitSaveTimeout = null;       // debounce timer para auto-save
 // ── MOCK DATA (reemplazar con sbFetch cuando haya DB) ──────────────────────────
 
 const MOCK_DAILY = {
-  0:   { trained: true,  piano: false, deepwork: true,  food: true,  foodNote: '' },
-  '-1':{ trained: true,  piano: true,  deepwork: true,  food: false, foodNote: 'Picoteé tarde' },
+  0:   { trained: false, piano: false, deepwork: false, food: null, foodBad: [], foodIssue: null },
+  '-1':{ trained: true,  piano: false, deepwork: true,  food: false, foodBad: ['dinner'], foodIssue: 'quality' },
 };
 
 const MOCK_ONESHOTS = {
@@ -139,6 +139,7 @@ async function initHabits() {
   habitRenderOneshots();
   habitRenderYear();
   habitRenderConfig();
+  habitInitNotifications();
 }
 
 // ── DATE NAV ───────────────────────────────────────────────────────────────────
@@ -186,7 +187,6 @@ async function habitLoadDay() {
   habitDayState = data ? { ...data } : {};
   habitRenderHabits();
   habitRenderFood();
-  habitUpdateProgress();
 }
 
 function habitScheduleSave() {
@@ -228,72 +228,81 @@ function habitToggle(id, el) {
   const done = habitDayState[id];
   el.classList.toggle('done', done);
   el.querySelector('.habit-check').textContent = done ? '✓' : '';
-  habitUpdateProgress();
   habitScheduleSave();
 }
 
 // ── RENDER: FOOD ───────────────────────────────────────────────────────────────
+// food: null = sin marcar, true = comí bien, false = comí mal
+// foodBad: [] multiselect de comidas (breakfast/lunch/dinner/other)
+// foodIssue: null | 'quantity' | 'quality' | 'both'
+
+const FOOD_MEALS = [
+  { id: 'breakfast', label: 'Desayuno' },
+  { id: 'lunch',     label: 'Almuerzo' },
+  { id: 'dinner',    label: 'Cena'     },
+  { id: 'other',     label: 'Otros'    },
+];
 
 function habitRenderFood() {
-  const done  = !!habitDayState.food;
-  const block = document.getElementById('habitFoodBlock');
-  const check = document.getElementById('habitFoodCheck');
-  const wrap  = document.getElementById('habitFoodNoteWrap');
-  const note  = document.getElementById('habitFoodNote');
+  const block  = document.getElementById('habitFoodBlock');
   if (!block) return;
+  const food   = habitDayState.food;   // null | true | false
+  const bad    = habitDayState.foodBad   || [];
+  const issue  = habitDayState.foodIssue || null;
 
-  block.classList.toggle('done', done);
-  if (check) {
-    check.textContent   = done ? '✓' : '';
-    check.style.background  = done ? 'var(--accent)' : '';
-    check.style.borderColor = done ? 'var(--accent)' : '';
-    check.style.color       = done ? '#fff' : '';
-  }
-  // Abre el textarea solo si NO comió bien
-  if (wrap) wrap.classList.toggle('open', !done);
-  if (note && habitDayState.foodNote) note.value = habitDayState.foodNote;
+  // Option buttons state
+  ['opt-good','opt-bad'].forEach(id => {
+    const el = document.getElementById('h-food-' + id);
+    if (el) el.classList.remove('selected');
+  });
+  if (food === true)  { const el = document.getElementById('h-food-opt-good'); if(el) el.classList.add('selected'); }
+  if (food === false) { const el = document.getElementById('h-food-opt-bad');  if(el) el.classList.add('selected'); }
+
+  // Dropdown visibility
+  const drop = document.getElementById('habitFoodDrop');
+  if (drop) drop.classList.toggle('open', food === false);
+
+  // Meal chips
+  FOOD_MEALS.forEach(m => {
+    const chip = document.getElementById('h-meal-' + m.id);
+    if (chip) chip.classList.toggle('selected', bad.includes(m.id));
+  });
+
+  // Issue buttons
+  ['quantity','quality','both'].forEach(v => {
+    const el = document.getElementById('h-issue-' + v);
+    if (el) el.classList.toggle('selected', issue === v);
+  });
 }
 
-function habitToggleFood() {
-  habitDayState.food = !habitDayState.food;
+function habitSelectFood(val) {
+  // val: true = bien, false = mal — toggle si ya estaba seleccionado
+  if (habitDayState.food === val) {
+    habitDayState.food = null;
+  } else {
+    habitDayState.food = val;
+    if (val === true) {
+      habitDayState.foodBad   = [];
+      habitDayState.foodIssue = null;
+    }
+  }
   habitRenderFood();
-  habitUpdateProgress();
   habitScheduleSave();
 }
 
-function habitFoodNoteChange(val) {
-  habitDayState.foodNote = val;
+function habitToggleMeal(mealId) {
+  if (!habitDayState.foodBad) habitDayState.foodBad = [];
+  const idx = habitDayState.foodBad.indexOf(mealId);
+  if (idx === -1) habitDayState.foodBad.push(mealId);
+  else            habitDayState.foodBad.splice(idx, 1);
+  habitRenderFood();
   habitScheduleSave();
 }
 
-// ── RENDER: PROGRESS RING ──────────────────────────────────────────────────────
-
-function habitUpdateProgress() {
-  const done  = ALL_HABIT_IDS.filter(k => !!habitDayState[k]).length;
-  const total = ALL_HABIT_IDS.length;
-  const pct   = Math.round((done / total) * 100);
-
-  const pctLabel  = document.getElementById('habitPctLabel');
-  const doneCount = document.getElementById('habitDoneCount');
-  const msg       = document.getElementById('habitProgressMsg');
-  const circle    = document.getElementById('habitProgressCircle');
-
-  if (pctLabel)  pctLabel.textContent  = pct + '%';
-  if (doneCount) doneCount.textContent = done + ' de ' + total + ' hábitos';
-
-  const msgs = [
-    'Arrancá con el primero',
-    'Buen comienzo',
-    'Vas bien',
-    'Casi completo!',
-    'Día perfecto! 🎉',
-  ];
-  if (msg) msg.textContent = msgs[Math.min(done, msgs.length - 1)];
-
-  if (circle) {
-    const circ = 188.5;
-    circle.style.strokeDashoffset = circ - (circ * pct / 100);
-  }
+function habitSelectIssue(val) {
+  habitDayState.foodIssue = habitDayState.foodIssue === val ? null : val;
+  habitRenderFood();
+  habitScheduleSave();
 }
 
 // ── RENDER: ONE-SHOTS ──────────────────────────────────────────────────────────
@@ -459,6 +468,67 @@ function habitSwitchSubTab(id, el) {
   document.querySelectorAll('.h-panel').forEach(p => p.classList.remove('active'));
   const target = document.getElementById('h-panel-' + id);
   if (target) target.classList.add('active');
+}
+
+
+// ── PUSH NOTIFICATIONS ─────────────────────────────────────────────────────────
+// Solicita permiso y registra un Service Worker que programa la alarma diaria.
+// La hora por defecto es 22:30 — configurable desde el tab Config.
+
+const HABIT_NOTIF_DEFAULT_HOUR   = 22;
+const HABIT_NOTIF_DEFAULT_MINUTE = 30;
+
+async function habitInitNotifications() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+
+  // Registrar SW si no está registrado
+  try {
+    await navigator.serviceWorker.register('/sw-habits.js');
+  } catch(e) {
+    console.warn('[habits] SW register failed:', e.message);
+    return;
+  }
+
+  // Pedir permiso solo si es 'default' (no volver a pedir si ya denegó)
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+
+  if (Notification.permission !== 'granted') return;
+
+  habitScheduleNotification();
+}
+
+function habitScheduleNotification() {
+  const timeInput = document.getElementById('habitNotifTimeDaily');
+  let hour   = HABIT_NOTIF_DEFAULT_HOUR;
+  let minute = HABIT_NOTIF_DEFAULT_MINUTE;
+
+  if (timeInput && timeInput.value) {
+    const parts = timeInput.value.split(':');
+    hour   = parseInt(parts[0], 10);
+    minute = parseInt(parts[1], 10);
+  }
+
+  // Calcular ms hasta la próxima alarma
+  const now    = new Date();
+  const target = new Date();
+  target.setHours(hour, minute, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1); // si ya pasó, mañana
+
+  const msUntil = target - now;
+
+  // Enviar la hora al SW para que maneje el scheduling persistente
+  if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type:   'SCHEDULE_HABIT_NOTIF',
+      hour,
+      minute,
+      msUntil,
+    });
+  }
+
+  console.log(`[habits] notif programada para ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} (en ${Math.round(msUntil/60000)} min)`);
 }
 
 // ── BOOT ───────────────────────────────────────────────────────────────────────

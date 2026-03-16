@@ -23,8 +23,8 @@
   <!-- TOP BAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1>Good morning, Julian 👋</h1>
-      <p>Monday, March 3</p>
+      <h1 id="topbarTitle">H&#225;bitos</h1>
+      <p id="topbarSub">&#160;</p>
     </div>
     <div class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
   </div>
@@ -55,27 +55,7 @@
         &#9888; Editando d&#237;a anterior &#8212; los cambios se guardan para esa fecha
       </div>
 
-      <div class="progress-card">
-        <div class="progress-ring-wrap">
-          <svg width="80" height="80" viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="30" fill="none" stroke="rgba(108,99,255,0.12)" stroke-width="6"/>
-            <circle id="habitProgressCircle" cx="40" cy="40" r="30" fill="none" stroke="#6c63ff" stroke-width="6"
-              stroke-linecap="round" stroke-dasharray="188.5" stroke-dashoffset="188.5"
-              style="transition:stroke-dashoffset 0.6s ease;transform:rotate(-90deg);transform-origin:40px 40px"/>
-          </svg>
-          <div class="ring-label">
-            <span class="pct" id="habitPctLabel">0%</span>
-            <span class="pct-sub">done</span>
-          </div>
-        </div>
-        <div class="progress-text">
-          <h3>Progreso del d&#237;a</h3>
-          <p id="habitProgressMsg">Arranc&#225; con el primero</p>
-          <p class="done-count" id="habitDoneCount">0 de 4 h&#225;bitos</p>
-        </div>
-      </div>
-
-      <p class="section-label">Cuerpo</p>
+            <p class="section-label">Cuerpo</p>
       <div class="habit-list" id="habitListBody"></div>
 
       <div class="h-divider"></div>
@@ -85,22 +65,32 @@
 
       <div class="h-divider"></div>
 
-      <p class="section-label" style="margin-bottom:0">Alimentaci&#243;n</p>
-      <div class="habit-item h-food-block" id="habitFoodBlock" style="flex-direction:column;align-items:stretch;cursor:default">
-        <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="habitToggleFood()">
-          <div class="habit-icon" style="background:rgba(247,183,49,0.15)">&#x1F957;</div>
-          <div class="habit-info">
-            <div class="habit-name">Com&#237; bien hoy</div>
-            <div class="habit-streak">Sin racha activa</div>
-          </div>
-          <div class="habit-check" id="habitFoodCheck"></div>
+      <p class="section-label" style="margin-bottom:8px">Alimentaci&#243;n</p>
+      <div class="h-food-block" id="habitFoodBlock">
+        <div class="h-food-opts">
+          <button class="h-food-opt good" id="h-food-opt-good" onclick="habitSelectFood(true)">
+            <span class="h-food-opt-icon">&#x1F957;</span>
+            <span>Com&#237; bien</span>
+          </button>
+          <button class="h-food-opt bad" id="h-food-opt-bad" onclick="habitSelectFood(false)">
+            <span class="h-food-opt-icon">&#x1F355;</span>
+            <span>Com&#237; mal</span>
+          </button>
         </div>
-        <div class="h-food-note-wrap" id="habitFoodNoteWrap">
-          <div class="h-food-note-label">&#191;Qu&#233; no estuvo bien?</div>
-          <textarea class="h-food-textarea" id="habitFoodNote"
-            placeholder="Ej: pizza a la noche, picoteo a las 17hs..."
-            rows="2"
-            oninput="habitFoodNoteChange(this.value)"></textarea>
+        <div class="h-food-drop" id="habitFoodDrop">
+          <div class="h-food-drop-label">&#191;En qu&#233; comida?</div>
+          <div class="h-food-meals">
+            <button class="h-meal-chip" id="h-meal-breakfast" onclick="habitToggleMeal('breakfast')">Desayuno</button>
+            <button class="h-meal-chip" id="h-meal-lunch"     onclick="habitToggleMeal('lunch')">Almuerzo</button>
+            <button class="h-meal-chip" id="h-meal-dinner"    onclick="habitToggleMeal('dinner')">Cena</button>
+            <button class="h-meal-chip" id="h-meal-other"     onclick="habitToggleMeal('other')">Otros</button>
+          </div>
+          <div class="h-food-drop-label" style="margin-top:12px">&#191;Qu&#233; fall&#243;?</div>
+          <div class="h-food-issue">
+            <button class="h-issue-btn" id="h-issue-quantity" onclick="habitSelectIssue('quantity')">&#x1F4CF; Cantidad</button>
+            <button class="h-issue-btn" id="h-issue-quality"  onclick="habitSelectIssue('quality')">&#x1F6AB; Calidad</button>
+            <button class="h-issue-btn" id="h-issue-both"     onclick="habitSelectIssue('both')">Ambas</button>
+          </div>
         </div>
       </div>
 
