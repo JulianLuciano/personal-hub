@@ -58,57 +58,6 @@
 
       <div class="habit-list" id="habitList"></div>
 
-      <!-- Entrenamiento detail drawer -->
-      <div class="h-detail-drawer" id="h-drawer-trained">
-        <div class="h-drawer-label">&#x1F3CB;&#xFE0F; Tipo de entrenamiento</div>
-        <div class="h-scroll-chips" id="h-chips-trained-type">
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Rugby')">&#x1F3C9; Rugby</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Gym')">&#x1F4AA; Gym</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Crossfit')">&#x1F525; Crossfit</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Paddle')">&#x1F3D3; Paddle</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Fútbol')">&#x26BD; Fútbol</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Correr')">&#x1F3C3; Correr</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Bici')">&#x1F6B4; Bici</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainType('Otro')">&#x2795; Otro</button>
-        </div>
-        <input class="h-drawer-other-input" id="h-train-other" placeholder="¿Cuál?" style="display:none" oninput="habitTrainOtherChange(this.value)">
-        <div class="h-drawer-label" style="margin-top:12px">&#x23F1; Duración</div>
-        <div class="h-scroll-chips" id="h-chips-trained-dur">
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(15)">15 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(30)">30 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(45)">45 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(60)">60 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(90)">90 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur(120)">120 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectTrainDur('custom')">Otro</button>
-        </div>
-        <input class="h-drawer-other-input" id="h-train-dur-custom" type="number" placeholder="min" style="display:none" oninput="habitTrainDurCustomChange(this.value)">
-      </div>
-
-      <!-- Piano detail drawer -->
-      <div class="h-detail-drawer" id="h-drawer-piano">
-        <div class="h-drawer-label">&#x1F3B9; Qué practicaste</div>
-        <div class="h-scroll-chips" id="h-chips-piano-type">
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Escalas')">Escalas</button>
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Arpegios')">Arpegios</button>
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Canciones')">Canciones</button>
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Ejercicios')">Ejercicios</button>
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Clase')">Clase</button>
-          <button class="h-scroll-chip" onclick="habitTogglePianoType('Inversiones')">Inversiones</button>
-        </div>
-        <div class="h-drawer-label" style="margin-top:12px">&#x23F1; Duración</div>
-        <div class="h-scroll-chips" id="h-chips-piano-dur">
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(15)">15 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(30)">30 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(45)">45 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(60)">60 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(90)">90 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur(120)">120 min</button>
-          <button class="h-scroll-chip" onclick="habitSelectPianoDur('custom')">Otro</button>
-        </div>
-        <input class="h-drawer-other-input" id="h-piano-dur-custom" type="number" placeholder="min" style="display:none" oninput="habitPianoDurCustomChange(this.value)">
-      </div>
-
       <div class="h-divider"></div>
 
       <!-- Estado de ánimo -->

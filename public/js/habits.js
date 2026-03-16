@@ -9,14 +9,11 @@
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-// hasDetail: true = tapping opens a detail drawer
+// hasDetail: true = tapping opens a detail drawer inline
 const HABITS_LIST = [
-  { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',      color: 'rgba(108,99,255,0.15)', streak: 3, hasDetail: true  },
-  { id: 'piano',    icon: '🎹', name: 'Practicaste piano',    color: 'rgba(79,195,247,0.15)',  streak: 0, hasDetail: true  },
-  { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',     color: 'rgba(67,233,123,0.15)',  streak: 5, hasDetail: false },
-  { id: 'slept',    icon: '😴', name: 'Dormí bien',           color: 'rgba(247,183,49,0.15)',  streak: 2, hasDetail: false },
-  { id: 'meditated',icon: '🧘', name: 'Meditaste',            color: 'rgba(79,195,247,0.12)',  streak: 0, hasDetail: false },
-  { id: 'read',     icon: '📖', name: 'Leíste',               color: 'rgba(67,233,123,0.12)',  streak: 1, hasDetail: false },
+  { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',   color: 'rgba(108,99,255,0.15)', streak: 3, hasDetail: true  },
+  { id: 'piano',    icon: '🎹', name: 'Practicaste piano', color: 'rgba(79,195,247,0.15)',  streak: 0, hasDetail: true  },
+  { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',  color: 'rgba(67,233,123,0.15)',  streak: 5, hasDetail: false },
 ];
 
 // Keep legacy refs for compatibility
@@ -238,13 +235,48 @@ function habitScheduleSave() {
 
 // ── RENDER: HABITS ─────────────────────────────────────────────────────────────
 
+function habitDrawerHTML(id) {
+  var q = '"', sq = "'";
+  if (id === 'trained') {
+    var typeChips = ['Rugby','Gym','Crossfit','Paddle','Fútbol','Correr','Bici','Otro'].map(function(t) {
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainType(' + sq + t + sq + ')' + q + '>' + t + '</button>';
+    }).join('');
+    var durChips = [15,30,45,60,90,120].map(function(n) {
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + n + ')' + q + '>' + n + ' min</button>';
+    }).join('') + '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + sq + 'custom' + sq + ')' + q + '>Otro</button>';
+    return '<div class=' + q + 'h-detail-drawer' + q + ' id=' + q + 'h-drawer-trained' + q + '>' +
+      '<div class=' + q + 'h-drawer-label' + q + '>Tipo de entrenamiento</div>' +
+      '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-type' + q + '>' + typeChips + '</div>' +
+      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-other' + q + ' placeholder=' + q + '¿Cuál?' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainOtherChange(this.value)' + q + '>' +
+      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración</div>' +
+      '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-dur' + q + '>' + durChips + '</div>' +
+      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainDurCustomChange(this.value)' + q + '>' +
+    '</div>';
+  }
+  if (id === 'piano') {
+    var typeChips = ['Escalas','Arpegios','Canciones','Ejercicios','Clase','Inversiones'].map(function(t) {
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitTogglePianoType(' + sq + t + sq + ')' + q + '>' + t + '</button>';
+    }).join('');
+    var durChips = [15,30,45,60,90,120].map(function(n) {
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectPianoDur(' + n + ')' + q + '>' + n + ' min</button>';
+    }).join('') + '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectPianoDur(' + sq + 'custom' + sq + ')' + q + '>Otro</button>';
+    return '<div class=' + q + 'h-detail-drawer' + q + ' id=' + q + 'h-drawer-piano' + q + '>' +
+      '<div class=' + q + 'h-drawer-label' + q + '>Qué practicaste</div>' +
+      '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-type' + q + '>' + typeChips + '</div>' +
+      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración</div>' +
+      '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-dur' + q + '>' + durChips + '</div>' +
+      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-piano-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitPianoDurCustomChange(this.value)' + q + '>' +
+    '</div>';
+  }
+  return '';
+}
+
 function habitRenderHabits() {
   const el = document.getElementById('habitList');
   if (!el) return;
   el.innerHTML = HABITS_LIST.map(h => {
     const done = !!habitDayState[h.id];
-    const chevron = h.hasDetail ? '<span class="h-habit-chevron" id="h-chev-' + h.id + '">' + (done ? '›' : '') + '</span>' : '';
-    return (
+    const itemHTML = (
       '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="habitToggle(\'' + h.id + '\', this)" data-id="' + h.id + '">' +
         '<div class="habit-icon" style="background:' + h.color + '">' + h.icon + '</div>' +
         '<div class="habit-info">' +
@@ -252,30 +284,60 @@ function habitRenderHabits() {
           '<div class="habit-streak">' + (h.streak > 0 ? '🔥 ' + h.streak + ' días seguidos' : 'Sin racha activa') + '</div>' +
         '</div>' +
         '<div class="habit-check">' + (done ? '✓' : '') + '</div>' +
-        chevron +
+        (h.hasDetail ? '<span class="h-habit-chevron">›</span>' : '') +
       '</div>'
     );
+    // Inline drawer immediately after item — open if done
+    const drawerHTML = h.hasDetail ? habitDrawerHTML(h.id).replace(
+      'class="h-detail-drawer"',
+      'class="h-detail-drawer' + (done ? ' open' : '') + '"'
+    ) : '';
+    return itemHTML + drawerHTML;
   }).join('');
+  // Restore drawer selections after re-render
+  habitRestoreDrawerSelections();
 }
 
 function habitToggle(id, el) {
-  el.classList.add('just-done');
-  setTimeout(() => el.classList.remove('just-done'), 180);
   habitDayState[id] = !habitDayState[id];
   const done = habitDayState[id];
-  el.classList.toggle('done', done);
-  el.querySelector('.habit-check').textContent = done ? '✓' : '';
   // Mark activity for smart notification
   if (done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
-  // Toggle detail drawer if habit has one
-  const habit = HABITS_LIST.find(h => h.id === id);
-  if (habit && habit.hasDetail) {
-    const drawer = document.getElementById('h-drawer-' + id);
-    if (drawer) drawer.classList.toggle('open', done);
-    const chev = document.getElementById('h-chev-' + id);
-    if (chev) chev.textContent = done ? '›' : '';
-  }
+  // Re-render the whole list so drawer appears inline in correct position
+  habitRenderHabits();
   habitScheduleSave();
+}
+
+
+function habitRestoreDrawerSelections() {
+  // Trained type
+  if (habitDayState.trainType) {
+    document.querySelectorAll('#h-chips-trained-type .h-scroll-chip').forEach(c => {
+      c.classList.toggle('selected', c.textContent.trim() === habitDayState.trainType);
+    });
+    const inp = document.getElementById('h-train-other');
+    if (inp) inp.style.display = habitDayState.trainType === 'Otro' ? 'block' : 'none';
+  }
+  // Trained duration
+  if (habitDayState.trainDur) {
+    document.querySelectorAll('#h-chips-trained-dur .h-scroll-chip').forEach(c => {
+      const n = parseInt(c.textContent);
+      c.classList.toggle('selected', n === habitDayState.trainDur);
+    });
+  }
+  // Piano types (multi)
+  if (habitDayState.pianoTypes && habitDayState.pianoTypes.length) {
+    document.querySelectorAll('#h-chips-piano-type .h-scroll-chip').forEach(c => {
+      c.classList.toggle('selected', habitDayState.pianoTypes.includes(c.textContent.trim()));
+    });
+  }
+  // Piano duration
+  if (habitDayState.pianoDur) {
+    document.querySelectorAll('#h-chips-piano-dur .h-scroll-chip').forEach(c => {
+      const n = parseInt(c.textContent);
+      c.classList.toggle('selected', n === habitDayState.pianoDur);
+    });
+  }
 }
 
 // ── RENDER: FOOD ───────────────────────────────────────────────────────────────
@@ -437,25 +499,8 @@ function habitRenderMood() {
   });
 }
 
-// Restore drawer state when loading a day
-function habitRenderDrawers() {
-  // Trained
-  const trainedDrawer = document.getElementById('h-drawer-trained');
-  if (trainedDrawer) trainedDrawer.classList.toggle('open', !!habitDayState.trained);
-  if (habitDayState.trainType) habitSelectTrainType(habitDayState.trainType);
-  if (habitDayState.trainDur)  habitSelectTrainDur(habitDayState.trainDur);
-  // Piano
-  const pianoDrawer = document.getElementById('h-drawer-piano');
-  if (pianoDrawer) pianoDrawer.classList.toggle('open', !!habitDayState.piano);
-  if (habitDayState.pianoTypes) {
-    habitDayState.pianoTypes.forEach(t => {
-      document.querySelectorAll('#h-chips-piano-type .h-scroll-chip').forEach(c => {
-        if (c.textContent === t) c.classList.add('selected');
-      });
-    });
-  }
-  if (habitDayState.pianoDur) habitSelectPianoDur(habitDayState.pianoDur);
-}
+// Drawer state is restored by habitRestoreDrawerSelections() called from habitRenderHabits
+function habitRenderDrawers() { /* no-op: inline drawers handle this */ }
 
 // ── RENDER: ONE-SHOTS ──────────────────────────────────────────────────────────
 
