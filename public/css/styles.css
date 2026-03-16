@@ -1869,6 +1869,104 @@
   background: rgba(255,101,132,0.08);
 }
 
+
+/* ── Detail drawers (entrenamiento / piano) ─────────────────────── */
+.h-detail-drawer {
+  display: none;
+  background: var(--surface2);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+.h-detail-drawer.open { display: block; }
+.h-drawer-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.h-scroll-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.h-scroll-chips::-webkit-scrollbar { display: none; }
+.h-scroll-chip {
+  flex-shrink: 0;
+  padding: 7px 13px;
+  border-radius: 100px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.h-scroll-chip.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(108,99,255,0.1);
+}
+.h-drawer-other-input {
+  margin-top: 10px;
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+}
+.h-drawer-other-input:focus { border-color: var(--accent); }
+.h-habit-chevron {
+  font-size: 18px;
+  color: var(--muted);
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Mood block ─────────────────────────────────────────────────── */
+.h-mood-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+.h-mood-opts {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.h-mood-btn {
+  flex: 1;
+  font-size: 26px;
+  padding: 8px 4px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+  opacity: 0.4;
+}
+.h-mood-btn:hover { opacity: 0.75; transform: scale(1.1); }
+.h-mood-btn.selected {
+  opacity: 1;
+  border-color: var(--accent);
+  background: rgba(108,99,255,0.08);
+  transform: scale(1.12);
+}
+
 /* Light theme overrides */
 .light .h-past-banner {
   background: rgba(247,183,49,0.06);

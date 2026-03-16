@@ -10,11 +10,30 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 let notifTimer = null;
 
+
+// Fire notification only if user hasn't logged any habit today
+function fireNotif(hour, minute, lastActivity) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (lastActivity === todayStr) {
+    console.log('[sw-habits] actividad detectada hoy, notif omitida');
+    return;
+  }
+  self.registration.showNotification('Personal Hub', {
+    body: 'Hora de completar tus hábitos diarios.',
+    icon: '/logos/icon-192.png',
+    badge: '/logos/icon-192.png',
+    tag: 'habits-daily',
+    renotify: false,
+    requireInteraction: false,
+    data: { url: '/' },
+  });
+}
+
 self.addEventListener('message', event => {
   const data = event.data || {};
 
   if (data.type === 'SCHEDULE_HABIT_NOTIF') {
-    const { hour, minute, msUntil } = data;
+    const { hour, minute, msUntil, lastActivity } = data;
 
     // Cancelar timer anterior si existía
     if (notifTimer) clearTimeout(notifTimer);
@@ -25,26 +44,10 @@ self.addEventListener('message', event => {
       const hh = String(hour).padStart(2, '0');
       const mm = String(minute).padStart(2, '0');
 
-      self.registration.showNotification('Personal Hub — Hábitos', {
-        body: `Son las ${hh}:${mm}. ¿Completaste tus hábitos de hoy?`,
-        icon: '/logos/icon-192.png',
-        badge: '/logos/icon-192.png',
-        tag: 'habits-daily',          // reemplaza notif anterior si no fue cerrada
-        renotify: false,
-        requireInteraction: false,
-        data: { url: '/' },
-      });
+      fireNotif(hour, minute, lastActivity);
 
       // Re-schedule para mañana a la misma hora
-      notifTimer = setTimeout(() => {
-        self.registration.showNotification('Personal Hub — Hábitos', {
-          body: `Son las ${hh}:${mm}. ¿Completaste tus hábitos de hoy?`,
-          icon: '/logos/icon-192.png',
-          badge: '/logos/icon-192.png',
-          tag: 'habits-daily',
-          data: { url: '/' },
-        });
-      }, 24 * 60 * 60 * 1000);
+      notifTimer = setTimeout(() => fireNotif(hour, minute, lastActivity), 24 * 60 * 60 * 1000);
 
     }, msUntil);
 

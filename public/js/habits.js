@@ -9,17 +9,19 @@
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-const HABITS_BODY = [
-  { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',      color: 'rgba(108,99,255,0.15)', streak: 3 },
-  { id: 'piano',    icon: '🎹', name: 'Practicaste piano',    color: 'rgba(79,195,247,0.15)',  streak: 0 },
+// hasDetail: true = tapping opens a detail drawer
+const HABITS_LIST = [
+  { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',      color: 'rgba(108,99,255,0.15)', streak: 3, hasDetail: true  },
+  { id: 'piano',    icon: '🎹', name: 'Practicaste piano',    color: 'rgba(79,195,247,0.15)',  streak: 0, hasDetail: true  },
+  { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',     color: 'rgba(67,233,123,0.15)',  streak: 5, hasDetail: false },
+  { id: 'slept',    icon: '😴', name: 'Dormí bien',           color: 'rgba(247,183,49,0.15)',  streak: 2, hasDetail: false },
+  { id: 'meditated',icon: '🧘', name: 'Meditaste',            color: 'rgba(79,195,247,0.12)',  streak: 0, hasDetail: false },
+  { id: 'read',     icon: '📖', name: 'Leíste',               color: 'rgba(67,233,123,0.12)',  streak: 1, hasDetail: false },
 ];
 
-const HABITS_WORK = [
-  { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',    color: 'rgba(67,233,123,0.15)',  streak: 5 },
-];
-
-// Todos los hábitos para el progress ring (food se agrega manualmente)
-const ALL_HABIT_IDS = ['trained', 'piano', 'deepwork', 'food'];
+// Keep legacy refs for compatibility
+const HABITS_BODY = HABITS_LIST;
+const HABITS_WORK = [];
 
 const ONESHOTS = [
   { id: 'presentations',  icon: '🎤', name: 'Presentaciones',          sub: 'Objetivo: ≥6',      goal: 6  },
@@ -135,10 +137,15 @@ async function initHabits() {
   CURRENT_WEEK = habitWeekOfYear();
   // Restore saved notification time from localStorage
   const savedTime = localStorage.getItem('habitNotifTime');
-  if (savedTime) {
-    const input = document.getElementById('habitNotifTimeDaily');
-    if (input) input.value = savedTime;
-  }
+  const timeInput = document.getElementById('habitNotifTimeDaily');
+  if (savedTime && timeInput) timeInput.value = savedTime;
+  // Wire time input: 'change' fires after user confirms (OK button), not while scrolling
+  if (timeInput) timeInput.addEventListener('change', habitSaveNotifTime);
+  // Set topbar title on first load (switchNav only runs on tab changes)
+  const h1 = document.querySelector('.topbar-left h1');
+  const sub = document.querySelector('.topbar-left p');
+  if (h1) h1.textContent = 'Hábitos';
+  if (sub) sub.textContent = '';
   habitOneshotState = await loadOneshotsFromDB();
   habitUpdateDateUI();
   await habitLoadDay();
@@ -174,13 +181,37 @@ function habitUpdateDateUI() {
     if (nextBtn) nextBtn.classList.remove('disabled');
   }
 
-  if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= -1);
+  if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= -7);
 }
 
 function habitShiftDay(delta) {
   const next = habitDayOffset + delta;
-  if (next > 0 || next < -1) return;   // máximo 1 día atrás
+  if (next > 0 || next < -7) return;   // máximo 7 días atrás
   habitDayOffset = next;
+  habitUpdateDateUI();
+  habitLoadDay();
+}
+
+function habitOpenDatePicker() {
+  const picker = document.getElementById('habitDatePicker');
+  if (!picker) return;
+  // Set max to today, min to 7 days ago
+  const today = new Date();
+  const minDate = new Date(); minDate.setDate(today.getDate() - 7);
+  picker.max = today.toISOString().slice(0,10);
+  picker.min = minDate.toISOString().slice(0,10);
+  picker.value = habitDateStr(habitDayOffset);
+  picker.showPicker ? picker.showPicker() : picker.click();
+}
+
+function habitPickDate(dateStr) {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const picked = new Date(dateStr + 'T00:00:00');
+  const diffMs = picked - today;
+  const diffDays = Math.round(diffMs / 86400000);
+  if (diffDays > 0 || diffDays < -7) return;
+  habitDayOffset = diffDays;
   habitUpdateDateUI();
   habitLoadDay();
 }
@@ -193,6 +224,8 @@ async function habitLoadDay() {
   habitDayState = data ? { ...data } : {};
   habitRenderHabits();
   habitRenderFood();
+  habitRenderMood();
+  habitRenderDrawers();
 }
 
 function habitScheduleSave() {
@@ -206,23 +239,22 @@ function habitScheduleSave() {
 // ── RENDER: HABITS ─────────────────────────────────────────────────────────────
 
 function habitRenderHabits() {
-  habitRenderGroup('habitList', [...HABITS_BODY, ...HABITS_WORK]);
-}
-
-function habitRenderGroup(containerId, habits) {
-  const el = document.getElementById(containerId);
+  const el = document.getElementById('habitList');
   if (!el) return;
-  el.innerHTML = habits.map(h => {
+  el.innerHTML = HABITS_LIST.map(h => {
     const done = !!habitDayState[h.id];
-    return `
-      <div class="habit-item ${done ? 'done' : ''}" onclick="habitToggle('${h.id}', this)">
-        <div class="habit-icon" style="background:${h.color}">${h.icon}</div>
-        <div class="habit-info">
-          <div class="habit-name">${h.name}</div>
-          <div class="habit-streak">${h.streak > 0 ? '🔥 ' + h.streak + ' días seguidos' : 'Sin racha activa'}</div>
-        </div>
-        <div class="habit-check">${done ? '✓' : ''}</div>
-      </div>`;
+    const chevron = h.hasDetail ? '<span class="h-habit-chevron" id="h-chev-' + h.id + '">' + (done ? '›' : '') + '</span>' : '';
+    return (
+      '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="habitToggle(\'' + h.id + '\', this)" data-id="' + h.id + '">' +
+        '<div class="habit-icon" style="background:' + h.color + '">' + h.icon + '</div>' +
+        '<div class="habit-info">' +
+          '<div class="habit-name">' + h.name + '</div>' +
+          '<div class="habit-streak">' + (h.streak > 0 ? '🔥 ' + h.streak + ' días seguidos' : 'Sin racha activa') + '</div>' +
+        '</div>' +
+        '<div class="habit-check">' + (done ? '✓' : '') + '</div>' +
+        chevron +
+      '</div>'
+    );
   }).join('');
 }
 
@@ -233,6 +265,16 @@ function habitToggle(id, el) {
   const done = habitDayState[id];
   el.classList.toggle('done', done);
   el.querySelector('.habit-check').textContent = done ? '✓' : '';
+  // Mark activity for smart notification
+  if (done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+  // Toggle detail drawer if habit has one
+  const habit = HABITS_LIST.find(h => h.id === id);
+  if (habit && habit.hasDetail) {
+    const drawer = document.getElementById('h-drawer-' + id);
+    if (drawer) drawer.classList.toggle('open', done);
+    const chev = document.getElementById('h-chev-' + id);
+    if (chev) chev.textContent = done ? '›' : '';
+  }
   habitScheduleSave();
 }
 
@@ -308,6 +350,111 @@ function habitSelectIssue(val) {
   habitDayState.foodIssue = habitDayState.foodIssue === val ? null : val;
   habitRenderFood();
   habitScheduleSave();
+}
+
+
+// ── RENDER: DETAIL DRAWERS ─────────────────────────────────────────────────────
+
+function habitSelectTrainType(type) {
+  habitDayState.trainType = type;
+  // Update chips UI — single select
+  document.querySelectorAll('#h-chips-trained-type .h-scroll-chip').forEach(c => {
+    c.classList.toggle('selected', c.textContent.includes(type));
+  });
+  // Show/hide "Otro" text input
+  const inp = document.getElementById('h-train-other');
+  if (inp) inp.style.display = type === 'Otro' ? 'block' : 'none';
+  habitScheduleSave();
+}
+
+function habitTrainOtherChange(val) {
+  habitDayState.trainTypeOther = val;
+  habitScheduleSave();
+}
+
+function habitSelectTrainDur(val) {
+  const isCustom = val === 'custom';
+  habitDayState.trainDur = isCustom ? null : val;
+  document.querySelectorAll('#h-chips-trained-dur .h-scroll-chip').forEach(c => {
+    const chipVal = c.textContent === 'Otro' ? 'custom' : parseInt(c.textContent);
+    c.classList.toggle('selected', isCustom ? c.textContent === 'Otro' : chipVal === val);
+  });
+  const inp = document.getElementById('h-train-dur-custom');
+  if (inp) inp.style.display = isCustom ? 'block' : 'none';
+  habitScheduleSave();
+}
+
+function habitTrainDurCustomChange(val) {
+  habitDayState.trainDur = parseInt(val) || null;
+  habitScheduleSave();
+}
+
+function habitTogglePianoType(type) {
+  if (!habitDayState.pianoTypes) habitDayState.pianoTypes = [];
+  const idx = habitDayState.pianoTypes.indexOf(type);
+  if (idx === -1) habitDayState.pianoTypes.push(type);
+  else            habitDayState.pianoTypes.splice(idx, 1);
+  document.querySelectorAll('#h-chips-piano-type .h-scroll-chip').forEach(c => {
+    c.classList.toggle('selected', habitDayState.pianoTypes.includes(c.textContent));
+  });
+  habitScheduleSave();
+}
+
+function habitSelectPianoDur(val) {
+  const isCustom = val === 'custom';
+  habitDayState.pianoDur = isCustom ? null : val;
+  document.querySelectorAll('#h-chips-piano-dur .h-scroll-chip').forEach(c => {
+    const chipVal = c.textContent === 'Otro' ? 'custom' : parseInt(c.textContent);
+    c.classList.toggle('selected', isCustom ? c.textContent === 'Otro' : chipVal === val);
+  });
+  const inp = document.getElementById('h-piano-dur-custom');
+  if (inp) inp.style.display = isCustom ? 'block' : 'none';
+  habitScheduleSave();
+}
+
+function habitPianoDurCustomChange(val) {
+  habitDayState.pianoDur = parseInt(val) || null;
+  habitScheduleSave();
+}
+
+// ── RENDER: MOOD ──────────────────────────────────────────────────────────────
+
+function habitSelectMood(val) {
+  habitDayState.mood = habitDayState.mood === val ? null : val;
+  [1,2,3,4,5].forEach(i => {
+    const btn = document.getElementById('h-mood-' + i);
+    if (btn) btn.classList.toggle('selected', habitDayState.mood === i);
+  });
+  if (habitDayState.mood) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+  habitScheduleSave();
+}
+
+function habitRenderMood() {
+  const mood = habitDayState.mood || null;
+  [1,2,3,4,5].forEach(i => {
+    const btn = document.getElementById('h-mood-' + i);
+    if (btn) btn.classList.toggle('selected', mood === i);
+  });
+}
+
+// Restore drawer state when loading a day
+function habitRenderDrawers() {
+  // Trained
+  const trainedDrawer = document.getElementById('h-drawer-trained');
+  if (trainedDrawer) trainedDrawer.classList.toggle('open', !!habitDayState.trained);
+  if (habitDayState.trainType) habitSelectTrainType(habitDayState.trainType);
+  if (habitDayState.trainDur)  habitSelectTrainDur(habitDayState.trainDur);
+  // Piano
+  const pianoDrawer = document.getElementById('h-drawer-piano');
+  if (pianoDrawer) pianoDrawer.classList.toggle('open', !!habitDayState.piano);
+  if (habitDayState.pianoTypes) {
+    habitDayState.pianoTypes.forEach(t => {
+      document.querySelectorAll('#h-chips-piano-type .h-scroll-chip').forEach(c => {
+        if (c.textContent === t) c.classList.add('selected');
+      });
+    });
+  }
+  if (habitDayState.pianoDur) habitSelectPianoDur(habitDayState.pianoDur);
 }
 
 // ── RENDER: ONE-SHOTS ──────────────────────────────────────────────────────────
@@ -528,13 +675,15 @@ function habitScheduleNotification() {
 
   const msUntil = target - now;
 
-  // Enviar la hora al SW para que maneje el scheduling persistente
+  // Enviar la hora al SW — incluye la fecha de última actividad para notif inteligente
   if (navigator.serviceWorker.controller) {
+    const lastActivity = localStorage.getItem('habitLastActivity') || '';
     navigator.serviceWorker.controller.postMessage({
-      type:   'SCHEDULE_HABIT_NOTIF',
+      type:         'SCHEDULE_HABIT_NOTIF',
       hour,
       minute,
       msUntil,
+      lastActivity, // SW skips notif if lastActivity === today
     });
   }
 
