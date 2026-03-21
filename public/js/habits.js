@@ -299,13 +299,15 @@ function habitWaterItemHTML() {
   const label    = takenL + 'L / ' + goalL + 'L';
   const minusDisabled = habitWaterMl <= 0 ? ' disabled' : '';
   return (
-    '<div class="habit-item h-water-item" data-id="water" style="position:relative">' +
-      (done ? '<div class="h-water-tick">&#10003;</div>' : '') +
+    '<div class="habit-item h-water-item" data-id="water">' +
       '<div class="habit-icon" style="background:rgba(79,195,247,0.10)">&#x1F4A7;</div>' +
       '<div class="habit-info" style="flex:1">' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<div class="habit-name">Agua</div>' +
-          '<div class="h-water-label" style="color:' + (done ? 'var(--accent3)' : 'var(--accent5)') + '">' + label + '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            (done ? '<div class="h-water-tick">&#10003;</div>' : '') +
+            '<div class="h-water-label" style="color:' + (done ? 'var(--accent3)' : 'var(--accent5)') + '">' + label + '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="h-water-bar-track">' +
           '<div class="h-water-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div>' +
