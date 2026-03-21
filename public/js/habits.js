@@ -10,10 +10,12 @@
 // ── CONFIG ─────────────────────────────────────────────────────────────────────
 
 // hasDetail: true = tapping opens a detail drawer inline
+// isWater: true = special water tracker UI instead of checkbox
 const HABITS_LIST = [
   { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',   color: 'rgba(108,99,255,0.15)', streak: 3, hasDetail: true  },
   { id: 'piano',    icon: '🎹', name: 'Practicaste piano', color: 'rgba(79,195,247,0.15)',  streak: 0, hasDetail: true  },
   { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',  color: 'rgba(67,233,123,0.15)',  streak: 5, hasDetail: false },
+  { id: 'water',    icon: '💧', name: 'Agua',              color: 'rgba(79,195,247,0.10)',  streak: 0, hasDetail: false, isWater: true },
 ];
 
 // Keep legacy refs for compatibility
@@ -52,6 +54,8 @@ let habitDayState    = {};         // { trained, piano, deepwork, food, foodBad[
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
+let habitWaterMl     = 0;           // ml de agua de hoy (cargado desde DB)
+let habitWaterGoal   = 2000;        // meta del día (2500 si entrenó)
 
 // ── MOCK DATA (reemplazar con sbFetch cuando haya DB) ──────────────────────────
 
@@ -217,12 +221,25 @@ function habitPickDate(dateStr) {
 
 async function habitLoadDay() {
   const dateStr = habitDateStr(habitDayOffset);
-  const data    = await loadDailyFromDB(dateStr);
+  const [data] = await Promise.all([
+    loadDailyFromDB(dateStr),
+    habitDayOffset === 0 ? habitLoadWater() : Promise.resolve(),
+  ]);
   habitDayState = data ? { ...data } : {};
+  habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitRenderHabits();
   habitRenderFood();
   habitRenderMood();
   habitRenderDrawers();
+}
+
+async function habitLoadWater() {
+  try {
+    const res = await fetch('/api/water/today');
+    if (!res.ok) return;
+    const data = await res.json();
+    habitWaterMl = data.total_ml || 0;
+  } catch (_) { habitWaterMl = 0; }
 }
 
 function habitScheduleSave() {
@@ -271,10 +288,35 @@ function habitDrawerHTML(id) {
   return '';
 }
 
+function habitWaterItemHTML() {
+  const pct   = Math.min(100, Math.round((habitWaterMl / habitWaterGoal) * 100));
+  const done  = habitWaterMl >= habitWaterGoal;
+  const label = (habitWaterMl / 1000).toFixed(1) + 'L / ' + (habitWaterGoal / 1000).toFixed(1) + 'L';
+  return (
+    '<div class="habit-item h-water-item' + (done ? ' done' : '') + '" data-id="water">' +
+      '<div class="habit-icon" style="background:rgba(79,195,247,0.10)">💧</div>' +
+      '<div class="habit-info" style="flex:1">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div class="habit-name">Agua</div>' +
+          '<div class="h-water-label">' + label + '</div>' +
+        '</div>' +
+        '<div class="h-water-bar-track"><div class="h-water-bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="h-water-btns">' +
+          '<button class="h-water-btn minus" onclick="habitAddWater(-100);event.stopPropagation()">−100</button>' +
+          '<button class="h-water-btn" onclick="habitAddWater(250);event.stopPropagation()">+250</button>' +
+          '<button class="h-water-btn plus" onclick="habitAddWater(500);event.stopPropagation()">+500</button>' +
+        '</div>' +
+      '</div>' +
+      (done ? '<div class="habit-check">✓</div>' : '') +
+    '</div>'
+  );
+}
+
 function habitRenderHabits() {
   const el = document.getElementById('habitList');
   if (!el) return;
   el.innerHTML = HABITS_LIST.map(h => {
+    if (h.isWater) return habitWaterItemHTML();
     const done = !!habitDayState[h.id];
     const itemHTML = (
       '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="habitToggle(\'' + h.id + '\', this)" data-id="' + h.id + '">' +
@@ -287,14 +329,12 @@ function habitRenderHabits() {
         (h.hasDetail ? '<span class="h-habit-chevron">›</span>' : '') +
       '</div>'
     );
-    // Inline drawer immediately after item — open if done
     const drawerHTML = h.hasDetail ? habitDrawerHTML(h.id).replace(
       'class="h-detail-drawer"',
       'class="h-detail-drawer' + (done ? ' open' : '') + '"'
     ) : '';
     return itemHTML + drawerHTML;
   }).join('');
-  // Restore drawer selections after re-render
   habitRestoreDrawerSelections();
 }
 
@@ -338,6 +378,36 @@ function habitRestoreDrawerSelections() {
       c.classList.toggle('selected', n === habitDayState.pianoDur);
     });
   }
+}
+
+// ── WATER TRACKER ────────────────────────────────────────────────────────────
+
+function habitAddWater(deltaMl) {
+  const newVal = Math.max(0, Math.min(3000, habitWaterMl + deltaMl));
+  if (newVal === habitWaterMl) return;
+  habitWaterMl = newVal;
+
+  // Re-render just the water item (avoid full re-render)
+  const waterEl = document.querySelector('[data-id="water"]');
+  if (waterEl) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = habitWaterItemHTML();
+    waterEl.replaceWith(tmp.firstChild);
+  }
+
+  // Debounce save to server
+  clearTimeout(habitSaveTimeout);
+  habitSaveTimeout = setTimeout(() => {
+    if (deltaMl > 0) {
+      fetch('/api/water/log', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ amount_ml: Math.abs(deltaMl), source: 'manual' }),
+      }).catch(console.warn);
+    }
+    // Mark activity
+    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+  }, 800);
 }
 
 // ── RENDER: FOOD ───────────────────────────────────────────────────────────────
@@ -677,62 +747,82 @@ function habitSwitchSubTab(id, el) {
 const HABIT_NOTIF_DEFAULT_HOUR   = 22;
 const HABIT_NOTIF_DEFAULT_MINUTE = 30;
 
+// ── WEB PUSH REAL (VAPID) ────────────────────────────────────────────────────
+// El servidor (notification-worker.js) decide cuándo mandar cada push.
+// El frontend solo necesita: registrar el SW + suscribirse + guardar la sub en DB.
+
 async function habitInitNotifications() {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
 
-  // Registrar SW si no está registrado
+  // Register SW
+  let reg;
   try {
-    await navigator.serviceWorker.register('/sw-habits.js');
+    reg = await navigator.serviceWorker.register('/sw-habits.js');
+    await navigator.serviceWorker.ready;
   } catch(e) {
     console.warn('[habits] SW register failed:', e.message);
     return;
   }
 
-  // Pedir permiso solo si es 'default' (no volver a pedir si ya denegó)
+  // Request permission
   if (Notification.permission === 'default') {
     await Notification.requestPermission();
   }
+  if (Notification.permission !== 'granted') {
+    console.log('[habits] notification permission denied');
+    return;
+  }
 
-  if (Notification.permission !== 'granted') return;
+  // Get VAPID public key from server
+  let vapidKey;
+  try {
+    const r = await fetch('/api/push/vapid-public-key');
+    if (!r.ok) throw new Error('no vapid key');
+    const d = await r.json();
+    vapidKey = d.publicKey;
+  } catch(e) {
+    console.warn('[habits] could not get VAPID key:', e.message);
+    return;
+  }
 
-  habitScheduleNotification();
+  // Subscribe or reuse existing subscription
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    try {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      });
+    } catch(e) {
+      console.warn('[habits] push subscribe failed:', e.message);
+      return;
+    }
+  }
+
+  // Save subscription to server
+  try {
+    await fetch('/api/push/subscribe', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(sub.toJSON()),
+    });
+    console.log('[habits] push subscription saved');
+  } catch(e) {
+    console.warn('[habits] could not save subscription:', e.message);
+  }
 }
 
+// urlBase64ToUint8Array — needed to convert VAPID key for pushManager.subscribe
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw     = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+// habitSaveNotifTime — now just persists preference; actual scheduling done server-side
 function habitScheduleNotification() {
-  // new Date() uses the device's local timezone automatically — including DST transitions.
-  // When UK moves from GMT to BST (last Sunday of March) or back, the system clock adjusts
-  // and new Date() reflects it. No manual timezone handling needed.
-  const timeInput = document.getElementById('habitNotifTimeDaily');
-  let hour   = HABIT_NOTIF_DEFAULT_HOUR;
-  let minute = HABIT_NOTIF_DEFAULT_MINUTE;
-
-  if (timeInput && timeInput.value) {
-    const parts = timeInput.value.split(':');
-    hour   = parseInt(parts[0], 10);
-    minute = parseInt(parts[1], 10);
-  }
-
-  // Calcular ms hasta la próxima alarma
-  const now    = new Date();
-  const target = new Date();
-  target.setHours(hour, minute, 0, 0);
-  if (target <= now) target.setDate(target.getDate() + 1); // si ya pasó, mañana
-
-  const msUntil = target - now;
-
-  // Enviar la hora al SW — incluye la fecha de última actividad para notif inteligente
-  if (navigator.serviceWorker.controller) {
-    const lastActivity = localStorage.getItem('habitLastActivity') || '';
-    navigator.serviceWorker.controller.postMessage({
-      type:         'SCHEDULE_HABIT_NOTIF',
-      hour,
-      minute,
-      msUntil,
-      lastActivity, // SW skips notif if lastActivity === today
-    });
-  }
-
-  console.log(`[habits] notif programada para ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} (en ${Math.round(msUntil/60000)} min)`);
+  console.log('[habits] scheduling done server-side via notification-worker.js');
 }
 
 // ── BOOT ───────────────────────────────────────────────────────────────────────

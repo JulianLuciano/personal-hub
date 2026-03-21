@@ -22,13 +22,16 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
     │   └── styles.css     ← TODO el CSS de la app (1255 líneas)
     │
     ├── /js
-    │   ├── core.js            ← Base: estado global, fetch, nav, formatters
+    │   ├── core.js            ← Base: estado global, fetch, nav, formatters, tools nav
     │   ├── habits.js          ← Tab Today + hábitos
-    │   ├── recipes.js         ← Tab Recipes + timers de cocción
+    │   ├── recipes.js         ← Sub-tool Recetario + timers de cocción
+    │   ├── jacket.js          ← Sub-tool Predictor de abrigo (replica bot Telegram)
     │   ├── portfolio.js       ← Tab Portfolio (la más compleja)
     │   ├── analytics.js       ← Tab Analytics: Health Score + Monte Carlo
     │   ├── transactions.js    ← Panel de nueva transacción + OCR
     │   └── ai.js              ← Chat con Claude
+    │
+    └── sw-habits.js           ← Service Worker para notificaciones de hábitos
     │
     └── /logos
         └── *.png              ← Logos de activos (no tocar)
@@ -43,7 +46,10 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug visual, color, layout, fuente | `styles.css` |
 | La app no carga / error en consola al iniciar | `core.js` |
 | Bug en tab Today (hábitos, progreso, heatmap) | `habits.js` |
+| Bug en navigación Tools / menú de herramientas | `core.js` |
 | Agregar/modificar receta o timer | `recipes.js` |
+| Bug en predictor de abrigo (UI, shortcuts, resultado) | `jacket.js` |
+| Cambiar URL de la API de predicción | `server.js` (env var `JACKET_API_URL`) |
 | Bug en Portfolio (posiciones, gráfico, pie, RSU, P&L) | `portfolio.js` |
 | Bug en Analytics (Health Score, Monte Carlo) | `analytics.js` |
 | Bug en nueva transacción o en OCR | `transactions.js` |
@@ -61,16 +67,18 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 |---|---|
 | `index.html` | Esqueleto HTML. Solo estructura y referencias a CSS/JS. |
 | `styles.css` | Todo el CSS: colores, layout, cards, animaciones. |
-| `core.js` | Estado global, fetch a DB, navegación, formatters, pull-to-refresh. |
+| `core.js` | Estado global, fetch a DB, navegación, formatters, pull-to-refresh, **tools nav**. |
 | `habits.js` | Datos y lógica de hábitos, progress ring, heatmap. |
-| `recipes.js` | Datos de recetas, render, timers de cocción. |
+| `recipes.js` | Sub-tool: datos de recetas, render, timers de cocción. |
+| `jacket.js` | Sub-tool: predictor de abrigo. Replica exactamente el bot de Telegram. |
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
 | `analytics.js` | Health Score engine + Monte Carlo engine + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
 | `ai.js` | Chat con Claude: builders de contexto, streaming, rendering de respuestas. |
-| `server.js` | Express: proxy Supabase, endpoint OCR, servir archivos estáticos. |
+| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
+| `sw-habits.js` | Service Worker en `/public`. Recibe mensajes de `habits.js` y programa notificaciones push diarias de hábitos. No persiste entre reinicios del browser; se reprograma en cada visita. |
 
 ---
 
@@ -356,6 +364,65 @@ Motor de recálculo de posiciones desde transacciones.
 - Regla especial: `ticker=META` + `type=RSU_VEST` → `positions.ticker = RSU_META`
 - Compara con posiciones existentes; solo hace UPSERT si los valores cambiaron (no toca `updated_at` innecesariamente)
 - Solo afecta posiciones con `managed_by = 'transactions'`; las `managed_by = 'manual'` no se tocan
+
+---
+
+### `js/jacket.js`
+Sub-tool del tab Tools. Replica exactamente la lógica del bot de Telegram (`bot.py` + `utils.py`).
+
+**Helpers (equivalentes a utils.py):**
+- `jacketTemperaturaEmoji(apparent_temperature)` — mismo mapa de rangos que `temperatura_emoji()`
+- `jacketAbrigo(clase)` — mismo mapa emoji que `abrigo_emoji()`
+- `jacketLluviaMsj(prob, intensidad)` — misma lógica que `lluvia_msj()`
+
+**Shortcuts de ubicación (equivalentes a `location_shortcuts` en bot.py):**
+- Mapeo de nombres (`cordoba`, `cba`, `casa`, `caba`, `london`, etc.) a coordenadas
+- `jacketNormalize(text)` — minúsculas, sin espacios, sin tildes (igual que el bot)
+
+**Flujo (equivalente a `ConversationHandler` del bot):**
+1. Selector de modo: Ahora / +2h / +3h / +4h / N hs (equivalente a `/abrigo`, `/abrigo_2h`, etc.)
+2. En modo N hs, muestra input de horas con validación 1–48
+3. Input de ubicación: shortcuts rápidos (London, Córdoba, Buenos Aires) + lat,lon manual + GPS
+4. POST a `/api/abrigo` (proxy en `server.js` hacia la API de Railway)
+5. Render de resultado: temperatura, métricas de clima, recomendación principal + barra de prob, segunda opción condicional (misma lógica que el bot: `prob_1st <= 0.6 and prob_2nd > 0.25 or diff < 0.10`), accordion de lluvia
+
+**API:**
+- `renderJacket()` — genera el HTML completo del predictor en `#jacketPanel`
+- `jacketSelectMode(el, lead)` — equivalente a elegir `/abrigo` vs `/abrigo_nhs`
+- `jacketSubmit()` — orquesta la validación y la llamada a la API
+- `jacketRenderResult(data, label)` — equivalente a `process_coordinates()` en el bot
+- `jacketReset()` — vuelve al estado inicial
+
+---
+
+### `public/sw-habits.js`
+Service Worker registrado por `habits.js` en `/public/sw-habits.js`. Gestiona las notificaciones push de hábitos.
+
+**Eventos:**
+- `install` → `skipWaiting()` para activarse inmediatamente
+- `activate` → `clients.claim()` para tomar control de las pestañas existentes
+- `message` → escucha mensajes de tipo `SCHEDULE_HABIT_NOTIF` desde `habits.js` con `{ hour, minute, msUntil, lastActivity }`. Cancela el timer anterior y programa un `setTimeout` para disparar la notificación. Auto-reprograma para el día siguiente.
+- `notificationclick` → al tocar la notificación, abre/enfoca la app
+
+**Lógica de supresión:**
+- `fireNotif(hour, minute, lastActivity)` — antes de mostrar la notificación, verifica si `lastActivity` ya es hoy (formato `YYYY-MM-DD`). Si el usuario ya completó hábitos hoy, la notificación se omite.
+
+**Limitaciones:**
+- El SW puede suspenderse cuando el browser está cerrado. La reprogramación ocurre en cada visita a la app (llamada desde `habits.js` al cargar).
+
+---
+
+### `server.js` — endpoint `/api/abrigo`
+Proxy hacia la API de predicción de abrigo (deployada en Railway por separado, con el modelo CatBoost).
+- `POST /api/abrigo` — recibe `{ lat, lon, lead }`, los reenvía a `JACKET_API_URL` (env var), devuelve la respuesta JSON al cliente
+- Si `JACKET_API_URL` no está definida en Railway, devuelve error 500
+- El modelo y la inferencia Python siguen corriendo en su propio servicio; el hub solo actúa de proxy
+
+---
+
+### `core.js` — funciones de Tools nav
+- `toolsOpenSub(name)` — muestra el sub-panel `tools-sub-{name}`, oculta el menú home, actualiza el topbar title
+- `toolsBack()` — vuelve al menú home de Tools
 
 ---
 

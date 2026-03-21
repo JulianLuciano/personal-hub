@@ -742,6 +742,186 @@ app.post('/api/habits/weight', async (req, res) => {
 });
 
 
+
+// ── WEB PUSH / NOTIFICATIONS ──────────────────────────────────────────────────
+
+const webpush = require('web-push');
+
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_CONTACT    || 'mailto:admin@example.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
+
+// GET /api/push/vapid-public-key  →  devuelve la clave pública VAPID al frontend
+app.get('/api/push/vapid-public-key', (req, res) => {
+  const key = process.env.VAPID_PUBLIC_KEY || '';
+  if (!key) return res.status(500).json({ error: 'VAPID not configured' });
+  res.json({ publicKey: key });
+});
+
+// POST /api/push/subscribe  →  guarda la suscripción del browser en Supabase
+// Body: { endpoint, keys: { p256dh, auth } }
+app.post('/api/push/subscribe', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'endpoint y keys requeridos' });
+  }
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/push_subscriptions`;
+    const sbRes = await fetch(supaUrl, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({ endpoint, p256dh: keys.p256dh, auth: keys.auth, updated_at: new Date().toISOString() }),
+    });
+    if (!sbRes.ok) {
+      const t = await sbRes.text();
+      return res.status(sbRes.status).json({ error: t });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST /api/push/unsubscribe  →  elimina la suscripción
+app.post('/api/push/unsubscribe', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'endpoint requerido' });
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ── WATER ─────────────────────────────────────────────────────────────────────
+
+// GET /api/water/today  →  ml totales de hoy
+app.get('/api/water/today', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/water_logs?log_date=eq.${today}&select=amount_ml`;
+    const sbRes = await fetch(supaUrl, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' },
+    });
+    const rows = await sbRes.json();
+    const total = Array.isArray(rows) ? rows.reduce((s, r) => s + (r.amount_ml || 0), 0) : 0;
+    res.json({ total_ml: total, date: today });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST /api/water/log  →  registra una ingesta de agua
+// Body: { amount_ml, source? ('manual'|'notification'), response? }
+app.post('/api/water/log', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { amount_ml, source = 'manual', response } = req.body || {};
+  if (!amount_ml || isNaN(parseInt(amount_ml))) return res.status(400).json({ error: 'amount_ml requerido' });
+
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    // Insert water log
+    const supaUrl = `${SUPABASE_URL}/rest/v1/water_logs`;
+    const sbRes = await fetch(supaUrl, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ log_date: today, amount_ml: parseInt(amount_ml), source }),
+    });
+    if (!sbRes.ok) {
+      const t = await sbRes.text();
+      return res.status(sbRes.status).json({ error: t });
+    }
+
+    // If from notification, update adaptive state (yes response)
+    if (source === 'notification' && response === 'yes') {
+      await updateWaterNotifConsecutive('yes');
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST /api/water/respond  →  registra respuesta "no tomé" para lógica adaptativa
+app.post('/api/water/respond', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { response, water_ml_at_time = 0 } = req.body || {};
+  try {
+    // Log the response
+    const logUrl = `${SUPABASE_URL}/rest/v1/water_notif_responses`;
+    await fetch(logUrl, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ response, water_ml_at_time }),
+    });
+
+    if (response === 'no') await updateWaterNotifConsecutive('no');
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Helper: update consecutive counters in water_notif_state
+async function updateWaterNotifConsecutive(response) {
+  try {
+    const supaUrl = `${SUPABASE_URL}/rest/v1/water_notif_state?id=eq.1`;
+    const stateRes = await fetch(supaUrl, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' },
+    });
+    const rows = await stateRes.json();
+    const state = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
+
+    let patch;
+    if (response === 'yes') {
+      patch = { consecutive_yes: (state.consecutive_yes || 0) + 1, consecutive_no: 0 };
+    } else {
+      patch = { consecutive_no: (state.consecutive_no || 0) + 1, consecutive_yes: 0 };
+    }
+    patch.updated_at = new Date().toISOString();
+
+    // Recalculate interval
+    const baseInterval = 90;
+    if (patch.consecutive_no >= 2)  patch.interval_minutes = 60;
+    else if (patch.consecutive_yes >= 3) patch.interval_minutes = 120;
+    else patch.interval_minutes = baseInterval;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/water_notif_state?id=eq.1`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(patch),
+    });
+  } catch (e) {
+    console.warn('[water] consecutive update failed:', e.message);
+  }
+}
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
