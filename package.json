@@ -2,7 +2,8 @@
   "name": "personal-hub",
   "version": "1.0.0",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:worker": "node notification-worker.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
