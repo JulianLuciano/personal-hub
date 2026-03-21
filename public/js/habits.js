@@ -294,9 +294,9 @@ function habitWaterItemHTML() {
   const goalPct  = Math.round((habitWaterGoal / 3000) * 100);
   const done     = habitWaterMl >= habitWaterGoal;
   const barColor = done ? 'var(--accent3)' : 'var(--accent5)';
-  const takenL   = (habitWaterMl / 1000).toFixed(1);
+  const takenL   = (habitWaterMl / 1000).toFixed(2);
   const goalL    = (habitWaterGoal / 1000).toFixed(1);
-  const label    = takenL + 'L / ' + goalL + 'L';
+  const label    = takenL + ' / ' + goalL + 'L';
   const minusDisabled = habitWaterMl <= 0 ? ' disabled' : '';
   return (
     '<div class="habit-item h-water-item" data-id="water">' +
@@ -429,7 +429,7 @@ async function habitWaterFlush() {
 
 function habitWaterScheduleFlush() {
   clearTimeout(waterFlushTimer);
-  waterFlushTimer = setTimeout(habitWaterFlush, 800);
+  waterFlushTimer = setTimeout(habitWaterFlush, 0);
 }
 
 function habitAddWater(deltaMl) {
