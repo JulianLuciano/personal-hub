@@ -394,11 +394,14 @@ function habitRestoreDrawerSelections() {
 // ── WATER TRACKER ────────────────────────────────────────────────────────────
 
 function habitAddWater(deltaMl) {
-  const newVal = Math.max(0, Math.min(3000, habitWaterMl + deltaMl));
-  if (newVal === habitWaterMl) return;
-  habitWaterMl = newVal;
+  // Guard: don't go below 0 or above 3000
+  if (deltaMl < 0 && habitWaterMl <= 0) return;
+  if (deltaMl > 0 && habitWaterMl >= 3000) return;
 
-  // Re-render just the water item (avoid full re-render)
+  // Optimistic local update
+  habitWaterMl = Math.max(0, Math.min(3000, habitWaterMl + deltaMl));
+
+  // Re-render water item immediately
   const waterEl = document.querySelector('[data-id="water"]');
   if (waterEl) {
     const tmp = document.createElement('div');
@@ -406,17 +409,31 @@ function habitAddWater(deltaMl) {
     waterEl.replaceWith(tmp.firstChild);
   }
 
-  // Debounce save to server
+  // Always persist to DB — negative transactions included
   clearTimeout(habitSaveTimeout);
-  habitSaveTimeout = setTimeout(() => {
-    if (deltaMl > 0) {
-      fetch('/api/water/log', {
+  habitSaveTimeout = setTimeout(async () => {
+    try {
+      await fetch('/api/water/log', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ amount_ml: Math.abs(deltaMl), source: 'manual' }),
-      }).catch(console.warn);
+        // deltaMl can be negative — server stores it as-is
+        body:    JSON.stringify({ amount_ml: deltaMl, source: 'manual' }),
+      });
+      // Reconcile local state with DB truth after save
+      const r = await fetch('/api/water/today');
+      if (r.ok) {
+        const d = await r.json();
+        habitWaterMl = Math.max(0, d.total_ml || 0);
+        const waterEl2 = document.querySelector('[data-id="water"]');
+        if (waterEl2) {
+          const tmp2 = document.createElement('div');
+          tmp2.innerHTML = habitWaterItemHTML();
+          waterEl2.replaceWith(tmp2.firstChild);
+        }
+      }
+    } catch (e) {
+      console.warn('[water] save failed:', e);
     }
-    // Mark activity
     localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
   }, 800);
 }

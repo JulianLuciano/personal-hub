@@ -809,7 +809,7 @@ app.post('/api/push/unsubscribe', async (req, res) => {
 
 // ── WATER ─────────────────────────────────────────────────────────────────────
 
-// GET /api/water/today  →  ml totales de hoy
+// GET /api/water/today  →  ml totales de hoy (SUM incluye transacciones negativas)
 app.get('/api/water/today', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
   const today = new Date().toISOString().slice(0, 10);
@@ -831,7 +831,10 @@ app.get('/api/water/today', async (req, res) => {
 app.post('/api/water/log', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
   const { amount_ml, source = 'manual', response } = req.body || {};
-  if (!amount_ml || isNaN(parseInt(amount_ml))) return res.status(400).json({ error: 'amount_ml requerido' });
+  const amountInt = parseInt(amount_ml);
+  if (amount_ml === undefined || amount_ml === null || isNaN(amountInt) || amountInt === 0) {
+    return res.status(400).json({ error: 'amount_ml requerido (puede ser negativo)' });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   try {
@@ -843,7 +846,7 @@ app.post('/api/water/log', async (req, res) => {
         'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json', 'Prefer': 'return=minimal',
       },
-      body: JSON.stringify({ log_date: today, amount_ml: parseInt(amount_ml), source }),
+      body: JSON.stringify({ log_date: today, amount_ml: amountInt, source }),
     });
     if (!sbRes.ok) {
       const t = await sbRes.text();
