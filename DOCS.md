@@ -10,9 +10,10 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 
 ```
 /personal-hub
-├── server.js              ← Servidor Express (API, proxy Supabase, OCR)
-├── worker.js              ← Worker de precios (corre cada 15 min, Yahoo Finance)
-├── recalculator.js        ← Motor de recálculo de posiciones desde transacciones
+├── server.js                  ← Servidor Express (API, proxy Supabase, OCR, push, water)
+├── worker.js                  ← Worker de precios (corre cada 15 min, Yahoo Finance)
+├── notification-worker.js     ← Worker de notificaciones push (hábitos + agua, corre 24/7 en Railway)
+├── recalculator.js            ← Motor de recálculo de posiciones desde transacciones
 ├── package.json
 │
 └── /public
@@ -31,7 +32,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
     │   ├── transactions.js    ← Panel de nueva transacción + OCR
     │   └── ai.js              ← Chat con Claude
     │
-    └── sw-habits.js           ← Service Worker para notificaciones de hábitos
+    └── sw-habits.js           ← Service Worker: recibe Web Push real del servidor, maneja action buttons de agua
     │
     └── /logos
         └── *.png              ← Logos de activos (no tocar)
@@ -56,6 +57,9 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
+| Bug en notificaciones push (hábitos o agua) | `notification-worker.js` + `sw-habits.js` |
+| Bug en tracker de agua (UI, botones, barra) | `habits.js` |
+| Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
 | Feature nueva que toca varias tabs | `core.js` + módulos relevantes |
 
@@ -78,7 +82,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
-| `sw-habits.js` | Service Worker en `/public`. Recibe mensajes de `habits.js` y programa notificaciones push diarias de hábitos. No persiste entre reinicios del browser; se reprograma en cada visita. |
+| `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Muestra notificaciones con action buttons (agua: ✓ Sí tomé / ✗ No tomé). Responde clicks llamando a endpoints del server. |
+| `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30 (solo si no completaste todo) y push de agua cada ~90 min entre 09:40 y 22:40 con lógica adaptativa. |
 
 ---
 
@@ -154,16 +159,35 @@ El módulo base que todos los demás dependen. Se carga primero. Contiene:
 ---
 
 ### `js/habits.js`
-Lógica de la tab Today y All Habits. Actualmente con datos hardcodeados (dummy); cuando se conecte a DB, solo cambia `HABITS_DATA`.
+Lógica completa del tab Hábitos. Incluye checks diarios, tracker de agua, one-shots anuales, estado de ánimo, drawers de detalle y sistema de notificaciones push real.
 
-**Datos:**
-- `HABITS_DATA` — array de objetos `{icon, name, streak, color, done}`
+**Configuración:**
+- `HABITS_LIST` — array de hábitos con `{id, icon, name, color, streak, hasDetail, isWater}`. Hábitos actuales: entrenamiento (con drawer de tipo + duración), piano (con drawer de tipos practicados + duración), deep work.
+- `ONESHOTS` — contadores anuales: presentaciones, feedbacks, grabaciones, clases de piano, viajes, charlas de desarrollo, PSC reviews, planes grupales, segundas citas.
+- `YEAR_GOALS` — objetivos anuales con valores actuales y metas para mostrar progreso.
 
-**Funciones:**
-- `renderHabits()` — genera el HTML de los ítems en `#habitList` y `#allHabitsList`
-- `toggleHabit(el)` — marca/desmarca done, actualiza `HABITS_DATA`, llama `updateProgress()`
-- `updateProgress()` — calcula el % de completado y actualiza el SVG progress ring y el contador
-- `renderHeatmap()` — genera 91 celdas con clases de color aleatorio para simular actividad
+**Estado:**
+- `habitDayOffset` — 0 = hoy, negativo = días anteriores (hasta -7).
+- `habitDayState` — estado del día: `{trained, piano, deepwork, food, foodBad[], foodIssue, trainType, trainDur, pianoTypes[], pianoDur, mood}`.
+- `habitWaterMl` / `habitWaterGoal` — ml acumulados hoy y meta del día (2000ml base, 2500ml si entrenó).
+
+**Funciones principales:**
+- `initHabits()` — inicializa módulo, restaura hora de notif desde localStorage, carga datos, registra SW para push.
+- `habitLoadDay()` — carga estado del día desde DB (mock) + agua desde `/api/water/today` en paralelo.
+- `habitRenderHabits()` — genera HTML de ítems con drawers inline para hasDetail. Llama `habitRestoreDrawerSelections()`.
+- `habitToggle(id)` — marca/desmarca hábito, re-renderiza lista completa (para que drawer aparezca en posición correcta).
+- `habitWaterItemHTML()` — genera HTML del tracker de agua: barra hasta 3L, verde al llegar a la meta, tick inline a la izquierda del label, botones −100/+250/+500.
+- `habitAddWater(deltaMl)` — actualiza local + persiste en DB (acepta negativos), reconcilia con `/api/water/today` post-save.
+- `habitSelectFood(val)` / `habitToggleMeal(id)` / `habitSelectIssue(val)` — lógica del check de alimentación (bien/mal + detalle).
+- `habitSelectMood(val)` — registra estado de ánimo (1-5).
+- `habitInitNotifications()` — registra SW, solicita permiso, suscribe con VAPID, guarda suscripción en `/api/push/subscribe`.
+- `habitSaveNotifTime()` — persiste hora configurada en localStorage y llama `/api/push/subscribe` para que el worker use la preferencia.
+
+**Drawers de detalle (entrenamiento / piano):**
+- `habitDrawerHTML(id)` — genera HTML del drawer inline (chips de tipo + duración).
+- `habitSelectTrainType(type)` / `habitSelectTrainDur(val)` — selección única de tipo y duración de entrenamiento.
+- `habitTogglePianoType(type)` / `habitSelectPianoDur(val)` — selección múltiple de tipos de piano, única de duración.
+- `habitRestoreDrawerSelections()` — restaura estado visual de chips después de re-render.
 
 ---
 
@@ -334,11 +358,21 @@ Chat con Claude integrado en la app (~493 líneas).
 ### `server.js`
 Servidor Express. Puntos clave:
 - Sirve los archivos estáticos de `/public`
-- `GET /api/db/:table` — proxy hacia Supabase con la secret key server-side (los clientes nunca ven las credenciales)
+- `GET /api/db/:table` — proxy hacia Supabase con la secret key server-side
 - `POST /api/transactions` — inserta en la tabla transactions y dispara recálculo
 - `POST /api/ocr-transaction` — recibe imagen base64, llama a Claude Vision, devuelve JSON con datos de la transacción
 - `GET /api/price/:ticker` — proxy hacia Yahoo Finance para obtener precio actual
-- `GET /api/anthropic-key` — devuelve la API key de Anthropic para el chat (solo accesible desde la propia app)
+- `GET /api/anthropic-key` — devuelve la API key de Anthropic para el chat
+
+**Endpoints de push (VAPID):**
+- `GET /api/push/vapid-public-key` — devuelve la clave pública VAPID al frontend para la suscripción.
+- `POST /api/push/subscribe` — guarda la suscripción del browser (`endpoint`, `p256dh`, `auth`) en la tabla `push_subscriptions`. Usa `merge-duplicates` para upsert.
+- `POST /api/push/unsubscribe` — elimina la suscripción por endpoint.
+
+**Endpoints de agua:**
+- `GET /api/water/today` — suma todos los `amount_ml` de `water_logs` del día actual (incluye negativos).
+- `POST /api/water/log` — inserta una transacción de agua. `amount_ml` puede ser positivo (+250, +500) o negativo (−100). `source`: `'manual'` | `'notification'`.
+- `POST /api/water/respond` — registra respuesta "no tomé" en `water_notif_responses` y actualiza contadores consecutivos en `water_notif_state` para la lógica adaptativa del worker.
 
 ---
 
@@ -396,19 +430,41 @@ Sub-tool del tab Tools. Replica exactamente la lógica del bot de Telegram (`bot
 ---
 
 ### `public/sw-habits.js`
-Service Worker registrado por `habits.js` en `/public/sw-habits.js`. Gestiona las notificaciones push de hábitos.
+Service Worker registrado por `habits.js`. Gestiona notificaciones Web Push reales enviadas por `notification-worker.js` desde el servidor via protocolo VAPID. Ya **no** usa `setTimeout` local.
 
 **Eventos:**
-- `install` → `skipWaiting()` para activarse inmediatamente
-- `activate` → `clients.claim()` para tomar control de las pestañas existentes
-- `message` → escucha mensajes de tipo `SCHEDULE_HABIT_NOTIF` desde `habits.js` con `{ hour, minute, msUntil, lastActivity }`. Cancela el timer anterior y programa un `setTimeout` para disparar la notificación. Auto-reprograma para el día siguiente.
-- `notificationclick` → al tocar la notificación, abre/enfoca la app
+- `install` → `skipWaiting()` para activarse inmediatamente.
+- `activate` → `clients.claim()` para tomar control de pestañas existentes.
+- `push` → recibe el payload del servidor, muestra la notificación con opciones y action buttons. Para notificaciones de agua (`WATER_CHECK`), usa `requireInteraction: true` para que no desaparezca sola.
+- `notificationclick` → maneja clicks en la notificación y en los action buttons:
+  - `water_yes` → POST a `/api/water/log` con 500ml + abre la app.
+  - `water_no` → POST a `/api/water/respond` con `response: 'no'` (para lógica adaptativa del worker).
+  - Default → abre/enfoca la app.
 
-**Lógica de supresión:**
-- `fireNotif(hour, minute, lastActivity)` — antes de mostrar la notificación, verifica si `lastActivity` ya es hoy (formato `YYYY-MM-DD`). Si el usuario ya completó hábitos hoy, la notificación se omite.
+**Ventaja sobre el sistema anterior:**
+- Las notificaciones llegan aunque el browser esté cerrado (push real vía Apple/Google servers).
+- No depende de que el usuario abra la app para reprogramar. El worker en Railway es quien decide cuándo mandar cada push.
 
-**Limitaciones:**
-- El SW puede suspenderse cuando el browser está cerrado. La reprogramación ocurre en cada visita a la app (llamada desde `habits.js` al cargar).
+### `notification-worker.js`
+Proceso Node.js independiente que corre en Railway como segundo service (start command: `npm run start:worker`). Corre un tick cada 60 segundos.
+
+**Variables de entorno requeridas:**
+- `SUPABASE_URL`, `SUPABASE_SECRET_KEY` — para leer logs y suscripciones.
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` — claves VAPID generadas una sola vez con `web-push`.
+- `VAPID_CONTACT` — debe ser `mailto:tu@email.com` (con prefijo `mailto:`).
+
+**Notificaciones de hábitos (22:30):**
+- Consulta `habit_daily_logs` y `water_logs` del día.
+- Si todos los hábitos están completos (trained, piano, deepwork, food, agua ≥ objetivo) → silencio.
+- Si falta algo → manda push listando exactamente qué falta.
+- Objetivo de agua: 2000ml por defecto, 2500ml si `trained = true` ese día.
+
+**Notificaciones de agua (09:40–22:40):**
+- Consulta `water_notif_state` para saber cuándo fue el último push y cuál es el intervalo actual.
+- Si ya se llegó al objetivo del día → no manda más.
+- Intervalo adaptativo: base 90 min. Si respondiste "no tomé" 2 veces seguidas → acorta a 60 min. Si respondiste "sí tomé" 3 veces seguidas → alarga a 120 min.
+- Actualiza `water_notif_state` después de cada envío.
+- Registra respuestas en `water_notif_responses` para análisis futuro.
 
 ---
 
@@ -458,6 +514,13 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). |
 | `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). |
 | `rsu_vests` | Schedule de vesting de RSUs META. |
+| `habit_daily_logs` | Un registro por día con estado de cada hábito. UNIQUE(log_date). |
+| `habit_oneshots` | Contadores anuales (presentaciones, viajes, clases de piano, etc.). UNIQUE(year). |
+| `habit_weight_logs` | Historial de registros de peso quincenal. |
+| `push_subscriptions` | Suscripciones Web Push de cada dispositivo/browser. UNIQUE(endpoint). |
+| `water_logs` | Transacciones de agua del día. Acepta `amount_ml` negativos (correcciones). El total del día es la suma de todas las filas. |
+| `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
+| `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
 
 ### Reglas importantes
 - Las posiciones con `managed_by = 'transactions'` son calculadas automáticamente por `recalculator.js`. **No editarlas a mano en Supabase.**
@@ -466,6 +529,30 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 - El campo `pricing_currency` en `positions` indica si el activo cotiza en GBP (ej: VWRP.L) o USD.
 
 ---
+
+
+---
+
+## Variables de entorno (Railway)
+
+### Service principal (`server.js`)
+| Variable | Descripción |
+|---|---|
+| `SUPABASE_URL` | URL del proyecto Supabase |
+| `SUPABASE_SECRET_KEY` | Service role key (nunca expuesta al frontend) |
+| `ANTHROPIC_API_KEY` | API key de Anthropic para OCR y chat |
+| `JACKET_API_URL` | URL de la API de predicción de abrigo |
+| `VAPID_PUBLIC_KEY` | Clave pública VAPID para Web Push |
+| `VAPID_PRIVATE_KEY` | Clave privada VAPID |
+| `VAPID_CONTACT` | `mailto:tu@email.com` (con prefijo `mailto:`) |
+
+### Service de notificaciones (`notification-worker.js`)
+Requiere las mismas variables que el service principal, **más** las VAPID keys. Deben cargarse manualmente — Railway no comparte variables entre services automáticamente.
+
+### Generar claves VAPID (una sola vez)
+```bash
+node -e "const wp=require('web-push'); console.log(wp.generateVAPIDKeys())"
+```
 
 ## Claude Code — ¿Vale la pena?
 
