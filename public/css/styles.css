@@ -2551,3 +2551,62 @@
 .h-water-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .h-water-btn.plus { border-color: rgba(79,195,247,0.4); color: var(--accent5); }
 .h-water-btn.minus { color: var(--muted); }
+
+/* ── Water prompt banner (iOS push fallback) ────────────────────────────── */
+#waterPromptBanner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  max-width: 398px;
+  z-index: 500;
+  animation: wpr-slide-in 0.3s ease;
+}
+@keyframes wpr-slide-in {
+  from { transform: translateX(-50%) translateY(-80px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+}
+.wpr-body {
+  background: var(--surface);
+  border: 1px solid rgba(79,195,247,0.35);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.wpr-icon { font-size: 24px; flex-shrink: 0; }
+.wpr-text { flex: 1; }
+.wpr-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.wpr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.wpr-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.wpr-btn {
+  padding: 7px 14px;
+  border-radius: 100px;
+  border: none;
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.wpr-btn.yes { background: var(--accent3); color: #0a0a0f; }
+.wpr-btn.no  { background: var(--surface2); color: var(--muted); }
+.wpr-btn:active { transform: scale(0.93); }
+.wpr-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}

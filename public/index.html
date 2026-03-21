@@ -1249,6 +1249,22 @@
 
 </div>
 
+  <!-- WATER PROMPT BANNER (iOS fallback — shown when opening from push notif) -->
+  <div id="waterPromptBanner" style="display:none">
+    <div class="wpr-body">
+      <div class="wpr-icon">&#x1F4A7;</div>
+      <div class="wpr-text">
+        <div class="wpr-title">&#xBF;Tomaste agua?</div>
+        <div class="wpr-sub">La &#250;ltima hora</div>
+      </div>
+      <div class="wpr-btns">
+        <button class="wpr-btn yes" onclick="waterPromptRespond(true)">S&#237;</button>
+        <button class="wpr-btn no"  onclick="waterPromptRespond(false)">No</button>
+      </div>
+      <button class="wpr-close" onclick="waterPromptDismiss()">&#215;</button>
+    </div>
+  </div>
+
 
 <!-- ═══════════════════════════════════════════════════════════
      JAVASCRIPT MODULES — load order: core → features

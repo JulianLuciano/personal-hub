@@ -64,7 +64,9 @@ self.addEventListener('notificationclick', event => {
     }
   }
 
-  event.waitUntil(focusOrOpenApp('/'));
+  // Default tap (iOS — no action buttons): if water notif, open with prompt param
+  const openUrl = type === 'WATER_CHECK' ? '/?water_prompt=1' : '/';
+  event.waitUntil(focusOrOpenApp(openUrl));
 });
 
 function focusOrOpenApp(url) {
@@ -72,7 +74,11 @@ function focusOrOpenApp(url) {
     .matchAll({ type: 'window', includeUncontrolled: true })
     .then(clients => {
       const existing = clients.find(c => c.url.includes(self.location.origin));
-      if (existing) return existing.focus();
+      if (existing) {
+        // Navigate existing tab to the url so water_prompt param is picked up
+        existing.navigate ? existing.navigate(url) : existing.focus();
+        return existing.focus();
+      }
       return self.clients.openWindow(url);
     });
 }

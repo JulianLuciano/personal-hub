@@ -154,6 +154,58 @@ async function initHabits() {
   habitRenderYear();
   habitRenderConfig();
   habitInitNotifications();
+  habitCheckWaterPrompt();
+}
+
+// ── WATER PROMPT (iOS fallback) ───────────────────────────────────────────────
+// When user taps the water push notification on iOS (no action buttons),
+// the app opens with ?water_prompt=1. We show a banner asking yes/no.
+
+function habitCheckWaterPrompt() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('water_prompt')) return;
+  // Clean the URL without reloading
+  window.history.replaceState({}, '', window.location.pathname);
+  // Show the banner after a short delay so the app renders first
+  setTimeout(waterPromptShow, 600);
+}
+
+function waterPromptShow() {
+  const banner = document.getElementById('waterPromptBanner');
+  if (banner) {
+    banner.style.display = 'block';
+    // Auto-dismiss after 30s if no response
+    banner._timer = setTimeout(waterPromptDismiss, 30000);
+  }
+}
+
+function waterPromptDismiss() {
+  const banner = document.getElementById('waterPromptBanner');
+  if (!banner) return;
+  clearTimeout(banner._timer);
+  banner.style.display = 'none';
+}
+
+function waterPromptRespond(tookWater) {
+  waterPromptDismiss();
+  if (tookWater) {
+    // Same as tapping action button: log 500ml
+    fetch('/api/water/log', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ amount_ml: 500, source: 'notification', response: 'yes' }),
+    }).then(() => {
+      habitWaterMl += 500;
+      habitWaterRender();
+      localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    }).catch(console.warn);
+  } else {
+    fetch('/api/water/respond', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ response: 'no', water_ml_at_time: habitWaterMl }),
+    }).catch(console.warn);
+  }
 }
 
 // ── DATE NAV ───────────────────────────────────────────────────────────────────

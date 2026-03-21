@@ -286,7 +286,7 @@ async function checkAndSendWaterNotif() {
 
   await sendPushToAll({
     type:    'WATER_CHECK',
-    title:   'Personal Hub · Agua 💧',
+    title:   'Agua 💧',
     body,
     tag:     'water-reminder',
     actions: [
