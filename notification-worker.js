@@ -243,8 +243,23 @@ async function checkAndSendWaterNotif() {
   const state = await getWaterNotifState();
   const lastSentAt     = state?.last_sent_at ? new Date(state.last_sent_at) : null;
   const intervalMin    = state?.interval_minutes || WATER_BASE_INTERVAL_MIN;
-  const consecutiveYes = state?.consecutive_yes  || 0;
-  const consecutiveNo  = state?.consecutive_no   || 0;
+  let   consecutiveYes = state?.consecutive_yes  || 0;
+  let   consecutiveNo  = state?.consecutive_no   || 0;
+  const lastResetDate  = state?.last_reset_date  || '';
+
+  // Reset consecutive counters at midnight — so yesterday's streak doesn't
+  // carry over and distort the interval at the start of a new day
+  if (lastResetDate !== today) {
+    consecutiveYes = 0;
+    consecutiveNo  = 0;
+    await updateWaterNotifState({
+      consecutive_yes: 0,
+      consecutive_no:  0,
+      interval_minutes: WATER_BASE_INTERVAL_MIN,
+      last_reset_date: today,
+    });
+    console.log('[worker] water: consecutive counters reset for new day');
+  }
 
   // Check if enough time has passed since last notification
   if (lastSentAt) {

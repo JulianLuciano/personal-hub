@@ -392,51 +392,74 @@ function habitRestoreDrawerSelections() {
 }
 
 // ── WATER TRACKER ────────────────────────────────────────────────────────────
+// Queue de transacciones: cada tap encola su delta, el flush manda todas juntas.
+// No reconcilia con la DB post-save — el estado local ya es correcto
+// (suma de todos los deltas encolados + base cargada al inicio del día).
+
+let waterQueue   = [];   // deltas pendientes de persistir
+let waterFlushTimer = null;
+
+function habitWaterRender() {
+  const waterEl = document.querySelector('[data-id="water"]');
+  if (!waterEl) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = habitWaterItemHTML();
+  waterEl.replaceWith(tmp.firstChild);
+}
+
+async function habitWaterFlush() {
+  if (waterQueue.length === 0) return;
+  const toSend = waterQueue.slice(); // snapshot
+  waterQueue = [];                   // vaciar antes del await
+  try {
+    await Promise.all(toSend.map(deltaMl =>
+      fetch('/api/water/log', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ amount_ml: deltaMl, source: 'manual' }),
+      })
+    ));
+    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+  } catch (e) {
+    // Si falla, reencolar para reintentar en el próximo flush
+    console.warn('[water] flush failed, re-queuing:', e.message);
+    waterQueue = [...toSend, ...waterQueue];
+  }
+}
+
+function habitWaterScheduleFlush() {
+  clearTimeout(waterFlushTimer);
+  waterFlushTimer = setTimeout(habitWaterFlush, 800);
+}
 
 function habitAddWater(deltaMl) {
-  // Guard: don't go below 0 or above 3000
+  // Guard: no bajar de 0 ni superar 3000
   if (deltaMl < 0 && habitWaterMl <= 0) return;
   if (deltaMl > 0 && habitWaterMl >= 3000) return;
 
-  // Optimistic local update
+  // Actualización local inmediata
   habitWaterMl = Math.max(0, Math.min(3000, habitWaterMl + deltaMl));
+  habitWaterRender();
 
-  // Re-render water item immediately
-  const waterEl = document.querySelector('[data-id="water"]');
-  if (waterEl) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = habitWaterItemHTML();
-    waterEl.replaceWith(tmp.firstChild);
-  }
-
-  // Always persist to DB — negative transactions included
-  clearTimeout(habitSaveTimeout);
-  habitSaveTimeout = setTimeout(async () => {
-    try {
-      await fetch('/api/water/log', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // deltaMl can be negative — server stores it as-is
-        body:    JSON.stringify({ amount_ml: deltaMl, source: 'manual' }),
-      });
-      // Reconcile local state with DB truth after save
-      const r = await fetch('/api/water/today');
-      if (r.ok) {
-        const d = await r.json();
-        habitWaterMl = Math.max(0, d.total_ml || 0);
-        const waterEl2 = document.querySelector('[data-id="water"]');
-        if (waterEl2) {
-          const tmp2 = document.createElement('div');
-          tmp2.innerHTML = habitWaterItemHTML();
-          waterEl2.replaceWith(tmp2.firstChild);
-        }
-      }
-    } catch (e) {
-      console.warn('[water] save failed:', e);
-    }
-    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
-  }, 800);
+  // Encolar delta y programar flush (debounced 800ms)
+  waterQueue.push(deltaMl);
+  habitWaterScheduleFlush();
 }
+
+// Flush inmediato si el usuario cierra/navega fuera de la app
+window.addEventListener('beforeunload', () => {
+  if (waterQueue.length === 0) return;
+  // sendBeacon es el único fetch garantizado durante beforeunload
+  waterQueue.forEach(deltaMl => {
+    navigator.sendBeacon('/api/water/log',
+      new Blob(
+        [JSON.stringify({ amount_ml: deltaMl, source: 'manual' })],
+        { type: 'application/json' }
+      )
+    );
+  });
+  waterQueue = [];
+});
 
 // ── RENDER: FOOD ───────────────────────────────────────────────────────────────
 // food: null = sin marcar, true = comí bien, false = comí mal
