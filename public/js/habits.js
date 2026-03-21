@@ -289,25 +289,34 @@ function habitDrawerHTML(id) {
 }
 
 function habitWaterItemHTML() {
-  const pct   = Math.min(100, Math.round((habitWaterMl / habitWaterGoal) * 100));
-  const done  = habitWaterMl >= habitWaterGoal;
-  const label = (habitWaterMl / 1000).toFixed(1) + 'L / ' + (habitWaterGoal / 1000).toFixed(1) + 'L';
+  // Bar fills to 3000ml max; turns green at goal (2000 or 2500)
+  const pct      = Math.min(100, Math.round((habitWaterMl / 3000) * 100));
+  const goalPct  = Math.round((habitWaterGoal / 3000) * 100);
+  const done     = habitWaterMl >= habitWaterGoal;
+  const barColor = done ? 'var(--accent3)' : 'var(--accent5)';
+  const takenL   = (habitWaterMl / 1000).toFixed(1);
+  const goalL    = (habitWaterGoal / 1000).toFixed(1);
+  const label    = takenL + 'L / ' + goalL + 'L';
+  const minusDisabled = habitWaterMl <= 0 ? ' disabled' : '';
   return (
-    '<div class="habit-item h-water-item' + (done ? ' done' : '') + '" data-id="water">' +
-      '<div class="habit-icon" style="background:rgba(79,195,247,0.10)">💧</div>' +
+    '<div class="habit-item h-water-item" data-id="water" style="position:relative">' +
+      (done ? '<div class="h-water-tick">&#10003;</div>' : '') +
+      '<div class="habit-icon" style="background:rgba(79,195,247,0.10)">&#x1F4A7;</div>' +
       '<div class="habit-info" style="flex:1">' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<div class="habit-name">Agua</div>' +
-          '<div class="h-water-label">' + label + '</div>' +
+          '<div class="h-water-label" style="color:' + (done ? 'var(--accent3)' : 'var(--accent5)') + '">' + label + '</div>' +
         '</div>' +
-        '<div class="h-water-bar-track"><div class="h-water-bar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="h-water-bar-track">' +
+          '<div class="h-water-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div>' +
+          '<div class="h-water-goal-mark" style="left:' + goalPct + '%"></div>' +
+        '</div>' +
         '<div class="h-water-btns">' +
-          '<button class="h-water-btn minus" onclick="habitAddWater(-100);event.stopPropagation()">−100</button>' +
+          '<button class="h-water-btn minus"' + minusDisabled + ' onclick="habitAddWater(-100);event.stopPropagation()">&#8722;100</button>' +
           '<button class="h-water-btn" onclick="habitAddWater(250);event.stopPropagation()">+250</button>' +
           '<button class="h-water-btn plus" onclick="habitAddWater(500);event.stopPropagation()">+500</button>' +
         '</div>' +
       '</div>' +
-      (done ? '<div class="habit-check">✓</div>' : '') +
     '</div>'
   );
 }

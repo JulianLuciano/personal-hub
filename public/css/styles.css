@@ -2482,23 +2482,61 @@
   border-color: var(--accent);
 }
 /* ── Water habit item ───────────────────────────────────────── */
-.h-water-item { cursor: default; flex-direction: column; align-items: stretch; gap: 8px; }
+/* ── Water habit item ───────────────────────────────────────── */
+.h-water-item {
+  cursor: default;
+  flex-direction: row;
+  align-items: center;
+  position: relative;
+}
 .h-water-item .habit-info { width: 100%; }
-.h-water-label { font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 700; color: var(--accent5); }
+.h-water-tick {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent3);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.h-water-label {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+}
 .h-water-bar-track {
   height: 5px;
   background: var(--surface2);
   border-radius: 99px;
-  overflow: hidden;
-  margin: 6px 0;
+  overflow: visible;
+  margin: 7px 0 8px;
+  position: relative;
 }
 .h-water-bar-fill {
   height: 100%;
-  background: var(--accent5);
   border-radius: 99px;
-  transition: width 0.4s ease;
+  transition: width 0.35s ease, background 0.35s ease;
+  position: relative;
+  z-index: 1;
 }
-.h-water-btns { display: flex; gap: 8px; margin-top: 4px; }
+.h-water-goal-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 11px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 1px;
+  z-index: 2;
+  transform: translateX(-50%);
+}
+.h-water-btns { display: flex; gap: 8px; }
 .h-water-btn {
   flex: 1;
   padding: 7px 4px;
@@ -2514,5 +2552,6 @@
   text-align: center;
 }
 .h-water-btn:active { transform: scale(0.93); }
+.h-water-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .h-water-btn.plus { border-color: rgba(79,195,247,0.4); color: var(--accent5); }
 .h-water-btn.minus { color: var(--muted); }
