@@ -543,7 +543,8 @@ function renderPortfolio() {
   const totalDisplay    = isGBP ? totalGBP : totalUSD;
   const prevDisplay     = totalDisplay - changeDisplay;
   const changePct       = prevDisplay > 0 ? (changeDisplay / prevDisplay) * 100 : 0;
-  const changeFormatted = fmtVal(Math.abs(changeDisplay), rate, sym);
+  // changeDisplay is already in native currency (GBP or USD) — rate=1 so fmtVal does not double-convert
+  const changeFormatted = fmtVal(Math.abs(changeDisplay), 1, sym);
   const arrow      = changeDisplay >= 0 ? '↑' : '↓';
   const changeColor = changeDisplay > 0 ? 'var(--accent3)' : changeDisplay < 0 ? 'var(--accent2)' : 'var(--muted)';
   changeEl.className = 'portfolio-change';
