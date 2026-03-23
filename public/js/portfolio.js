@@ -201,21 +201,36 @@ async function loadPortfolio() {
         }
       }
 
-      // Daily variation: use correct baseline depending on whether market opened today
-      let dayPct = null;
+      // Daily variation in USD — baseline depends on whether market opened today
+      let dayPct = null, dayPctGBP = null;
       const baseline = baselineDayForTicker(pos.ticker === 'RSU_META' ? 'META' : pos.ticker);
+      // FX rates for daily GBP calculation — from portfolio_snapshots (price_snapshots is USD-only)
+      const fxToday = snapData.length > 0 ? Number(snapData[0].fx_rate) : FX_RATE;
+      const fxYest  = yesterdaySnap ? Number(yesterdaySnap.fx_rate) : FX_RATE;
+      const fxD2    = dayBeforeSnapObj ? Number(dayBeforeSnapObj.fx_rate) : fxYest;
       if (baseline === 'today') {
         // Normal: today's price vs yesterday's close
         const prevPrice = pricesYesterday[pos.ticker];
-        if (priceUSD && prevPrice) dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
+        if (priceUSD && prevPrice) {
+          dayPct = ((priceUSD - prevPrice) / prevPrice) * 100;
+          // GBP version: convert each price to GBP at the FX of that day's snapshot
+          const priceGBP     = priceUSD   * fxToday;
+          const prevPriceGBP = prevPrice  * fxYest;
+          dayPctGBP = ((priceGBP - prevPriceGBP) / prevPriceGBP) * 100;
+        }
       } else {
         // Market hasn't opened yet: compare yesterday's close vs day-before close
         const prevPrice = pricesYesterday[pos.ticker];
         const d2Price   = pricesDayBefore[pos.ticker];
-        if (prevPrice && d2Price) dayPct = ((prevPrice - d2Price) / d2Price) * 100;
+        if (prevPrice && d2Price) {
+          dayPct = ((prevPrice - d2Price) / d2Price) * 100;
+          const prevPriceGBP = prevPrice * fxYest;
+          const d2PriceGBP   = d2Price   * fxD2;
+          dayPctGBP = ((prevPriceGBP - d2PriceGBP) / d2PriceGBP) * 100;
+        }
       }
 
-      assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct });
+      assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct, dayPctGBP });
     }
 
     // ── Cost basis: total capital ever deployed (investments + current cash) ──
@@ -635,7 +650,7 @@ function renderPortfolio() {
   if (librasFound && librasValue > 0.5) {
     mergedAssets.push({
       pos: { ticker: 'GBP_LIQUID', category: 'fiat', currency: 'GBP', qty: librasQty },
-      valueUSD: librasValue, priceUSD: null, pctUSD: null, pctGBP: null, dayPct: null,
+      valueUSD: librasValue, priceUSD: null, pctUSD: null, pctGBP: null, dayPct: null, dayPctGBP: null,
       _merged: true,
     });
   }
@@ -647,7 +662,7 @@ function renderPortfolio() {
   });
   const assetList = document.getElementById('assetList');
   assetList.innerHTML = '';
-  sorted.forEach(({ pos, valueUSD, pctUSD, pctGBP, dayPct }) => {
+  sorted.forEach(({ pos, valueUSD, pctUSD, pctGBP, dayPct, dayPctGBP }) => {
     const pct = isGBP ? pctGBP : pctUSD;
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker, logo: '💰', cat: pos.category, showTicker: true };
     const isLockedFiat = (pos.ticker === 'RENT_DEPOSIT' || pos.ticker === 'GBP_RECEIVABLE');
@@ -664,7 +679,9 @@ function renderPortfolio() {
       subLabel = '<span class="asset-sub-qty">' + (pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR')) + '</span>' + lockedBadge;
     }
     // Change badge — driven by chgMode ('hist' or 'day')
-    const chgHtml = renderChgHtml(pct, dayPct);
+    // In GBP mode use dayPctGBP (price converted at per-day FX), in USD mode use dayPct
+    const dayPctDisplay = isGBP ? (dayPctGBP ?? dayPct) : dayPct;
+    const chgHtml = renderChgHtml(pct, dayPctDisplay);
     const ticker = pos.ticker;
     const rsuClick = meta.rsu
       ? ' onclick="if(window._ribbonDragged){window._ribbonDragged=false;return;}openRSU()" style="cursor:pointer"'
@@ -782,13 +799,20 @@ function renderPnlAttribution() {
     if (valueUSD < 1) return;
 
     if (pnlAttrMode === 'day') {
-      // Daily contribution — for GBP display use yesterday's FX (not today's)
-      // so the attribution total matches the snapshot-based changeGBP in the header.
-      if (!dayPct) return;
-      const prevValue = valueUSD / (1 + dayPct / 100);
-      const contribUSD = prevValue * (dayPct / 100);
-      const displayRate = isGBP ? fxYesterday : 1;
-      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * displayRate });
+      // Daily contribution — use dayPctGBP in GBP mode (accounts for FX moves per snapshot)
+      // and dayPct in USD mode. This ensures sum == header change in both currencies.
+      if (isGBP) {
+        if (!dayPctGBP) return;
+        const valueGBP  = valueUSD * FX_RATE;
+        const prevValueGBP = valueGBP / (1 + dayPctGBP / 100);
+        const contribGBP   = prevValueGBP * (dayPctGBP / 100);
+        contribs.push({ ticker: pos.ticker, contribUSD: contribGBP / FX_RATE, contribDisplay: contribGBP });
+      } else {
+        if (!dayPct) return;
+        const prevValue  = valueUSD / (1 + dayPct / 100);
+        const contribUSD = prevValue * (dayPct / 100);
+        contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD });
+      }
     } else {
       // Historic P&L contribution — use native currency to match cost basis
       if (isGBP) {
