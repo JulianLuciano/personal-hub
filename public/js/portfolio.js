@@ -775,7 +775,7 @@ function renderPnlAttribution() {
   let fiatGBPDayContribUSD = 0;  // day mode: GBP cash daily FX move in USD terms
   let hasFiatGBP = false;
   let hasFiatGBPDay = false;
-  assets.forEach(({ pos, valueUSD, dayPct, pctUSD }) => {
+  assets.forEach(({ pos, valueUSD, dayPct, dayPctGBP, pctUSD }) => {
     if (pos.category === 'fiat') {
       if (pos.currency !== 'GBP' || valueUSD < 1) return;
       if (pnlAttrMode === 'hist') {
