@@ -256,34 +256,45 @@ async function loadPortfolio() {
     }
 
     // ── Portfolio daily change ──────────────────────────────────────────────────
-    // If LSE hasn't opened yet, use yesterday vs day-before snapshots.
-    // Compute BOTH USD and GBP change from snapshot native values — no FX conversion needed.
+    // Both USD and GBP changes are computed from the snapshot table's NATIVE values.
+    // snapData[0].total_gbp is the GBP total recorded by the worker at that moment
+    // (with its own FX rate) — no conversion from totalUSD needed.
+    // USD change uses live totalUSD (bottom-up) vs yesterday snapshot — that's intentional:
+    // it captures price moves that happened since the last snapshot.
+    // GBP change uses snapData[0].total_gbp (latest today snapshot) vs yesterday snapshot —
+    // both come from the table and carry their own FX, so the diff is clean.
     let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
+    const todaySnap = snapData.length > 0 ? snapData[0] : null; // most recent snapshot (today)
     if (lseOpened) {
       // Normal: today vs yesterday
-      if (yesterdaySnap) {
-        changeUSD = totalUSD - yesterdaySnap.total_usd;
-        const todayGBP = totalUSD * FX_RATE;
-        const prevGBP  = yesterdaySnap.total_gbp || (yesterdaySnap.total_usd * (yesterdaySnap.fx_rate || FX_RATE));
+      if (todaySnap && yesterdaySnap) {
+        changeUSD = totalUSD - Number(yesterdaySnap.total_usd);
+        const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
+        const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
         changeGBP = todayGBP - prevGBP;
       }
     } else {
       // Pre-market: yesterday vs day-before
       if (yesterdaySnap && dayBeforeSnapObj) {
-        changeUSD = yesterdaySnap.total_usd - dayBeforeSnapObj.total_usd;
-        const yGBP  = yesterdaySnap.total_gbp   || (yesterdaySnap.total_usd   * (yesterdaySnap.fx_rate   || FX_RATE));
-        const d2GBP = dayBeforeSnapObj.total_gbp || (dayBeforeSnapObj.total_usd * (dayBeforeSnapObj.fx_rate || FX_RATE));
+        changeUSD = Number(yesterdaySnap.total_usd) - Number(dayBeforeSnapObj.total_usd);
+        const yGBP  = Number(yesterdaySnap.total_gbp)    || (Number(yesterdaySnap.total_usd)    * (Number(yesterdaySnap.fx_rate)    || FX_RATE));
+        const d2GBP = Number(dayBeforeSnapObj.total_gbp)  || (Number(dayBeforeSnapObj.total_usd) * (Number(dayBeforeSnapObj.fx_rate)  || FX_RATE));
         changeGBP = yGBP - d2GBP;
-      } else if (yesterdaySnap) {
-        changeUSD = totalUSD - yesterdaySnap.total_usd;
-        const todayGBP = totalUSD * FX_RATE;
-        const prevGBP  = yesterdaySnap.total_gbp || (yesterdaySnap.total_usd * (yesterdaySnap.fx_rate || FX_RATE));
+      } else if (todaySnap && yesterdaySnap) {
+        // Fallback: market hasn't opened but no day-before snapshot available
+        changeUSD = totalUSD - Number(yesterdaySnap.total_usd);
+        const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
+        const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
         changeGBP = todayGBP - prevGBP;
       }
     }
 
-    liveData = { totalUSD, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
+    // totalGBP from the latest snapshot — native value, not converted from totalUSD
+    const totalGBP = todaySnap
+      ? (Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE)))
+      : totalUSD * FX_RATE;
+    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.
@@ -516,18 +527,20 @@ function getMarketStatus(ticker, category) {
 
 function renderPortfolio() {
   if (!liveData) return;
-  const { totalUSD, changeUSD, changeGBP, costBasisUSD, costBasisGBP, breakdown, assets } = liveData;
+  const { totalUSD, totalGBP, changeUSD, changeGBP, costBasisUSD, costBasisGBP, breakdown, assets } = liveData;
   const isGBP = currentCurrency === 'GBP';
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
 
   // Total
-  document.getElementById('portfolioTotal').textContent = fmtVal(totalUSD, rate, sym);
+  document.getElementById('portfolioTotal').textContent = isGBP
+    ? '£' + Math.round(totalGBP).toLocaleString('es-AR')
+    : fmtVal(totalUSD, 1, '$');
 
   // Change — use native GBP or USD change from snapshot (no FX conversion needed)
   const changeEl = document.getElementById('portfolioChange');
   const changeDisplay   = isGBP ? (changeGBP || 0) : (changeUSD || 0);
-  const totalDisplay    = isGBP ? totalUSD * FX_RATE : totalUSD;
+  const totalDisplay    = isGBP ? totalGBP : totalUSD;
   const prevDisplay     = totalDisplay - changeDisplay;
   const changePct       = prevDisplay > 0 ? (changeDisplay / prevDisplay) * 100 : 0;
   const changeFormatted = fmtVal(Math.abs(changeDisplay), rate, sym);

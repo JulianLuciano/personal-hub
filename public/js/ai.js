@@ -260,19 +260,20 @@ function buildMarketContext() {
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
+  const { totalUSD, totalGBP: _totalGBP, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
   const rate = FX_RATE;
   const fG  = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
   const fGn = v => '£' + Math.round(v).toLocaleString('es-AR'); // already in GBP
   const fU  = v => '$' + Math.round(v).toLocaleString('en-US');
 
+  // totalGBP: use snapshot native value if available, fallback to conversion
+  const totalGBP = _totalGBP != null ? _totalGBP : totalUSD * rate;
+
   // Day change % — use yesterday total as denominator (total - change = yesterday)
   const yesterdayUSD = totalUSD - changeUSD;
   const chgPctUSD = yesterdayUSD > 0 ? (changeUSD / yesterdayUSD * 100) : 0;
-  const yesterdayGBP = totalUSD * rate - (changeGBP || 0);
+  const yesterdayGBP = totalGBP - (changeGBP || 0);
   const chgPctGBP = yesterdayGBP > 0 && changeGBP ? (changeGBP / yesterdayGBP * 100) : 0;
-
-  const totalGBP = totalUSD * rate;
 
   let ctx = `PORTFOLIO\n`;
   ctx += `total: ${fU(totalUSD)} / £${Math.round(totalGBP).toLocaleString('es-AR')}\n`;
