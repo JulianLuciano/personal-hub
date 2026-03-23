@@ -744,29 +744,50 @@ function renderPnlAttribution() {
   const rate = isGBP ? FX_RATE : 1;
   const sym = isGBP ? '£' : '$';
 
+  // Yesterday's FX — from the snapshot used as daily baseline.
+  // Used in daily attribution to convert USD contributions to GBP at yesterday's rate,
+  // so the sum matches the snapshot-based changeGBP shown in the tab header.
+  const _snaps = liveData.snapshots || [];
+  const _todayDay = _snaps.length > 0 ? new Date(_snaps[0].captured_at).toISOString().slice(0,10) : null;
+  const _yesterdaySnap = _snaps.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== _todayDay) || null;
+  const fxYesterday = _yesterdaySnap ? Number(_yesterdaySnap.fx_rate) : FX_RATE;
+
   const contribs = [];
-  let fiatGBPContribUSD = 0; // accumulate all GBP fiat FX P&L
+  let fiatGBPContribUSD = 0;     // hist mode: GBP cash FX P&L vs initial investment
+  let fiatGBPDayContribUSD = 0;  // day mode: GBP cash daily FX move in USD terms
   let hasFiatGBP = false;
+  let hasFiatGBPDay = false;
   assets.forEach(({ pos, valueUSD, dayPct, pctUSD }) => {
-    // Fiat: only show in USD mode (historic) where GBP cash has FX P&L
     if (pos.category === 'fiat') {
-      if (isGBP || pnlAttrMode === 'day') return;
       if (pos.currency !== 'GBP' || valueUSD < 1) return;
-      const inv = Number(pos.initial_investment_usd);
-      if (!inv) return;
-      fiatGBPContribUSD += valueUSD - inv;
-      hasFiatGBP = true;
+      if (pnlAttrMode === 'hist') {
+        // Historic: FX P&L in USD — only meaningful in USD mode
+        if (isGBP) return;
+        const inv = Number(pos.initial_investment_usd);
+        if (!inv) return;
+        fiatGBPContribUSD += valueUSD - inv;
+        hasFiatGBP = true;
+      } else {
+        // Daily: same GBP qty at today's FX vs yesterday's FX — USD mode only
+        if (isGBP) return;
+        const gbpQty = Number(pos.qty);
+        if (!gbpQty || !fxYesterday) return;
+        fiatGBPDayContribUSD += valueUSD - (gbpQty / fxYesterday);
+        hasFiatGBPDay = true;
+      }
       return;
     }
 
     if (valueUSD < 1) return;
 
     if (pnlAttrMode === 'day') {
-      // Daily contribution (always USD-based, converted at display)
+      // Daily contribution — for GBP display use yesterday's FX (not today's)
+      // so the attribution total matches the snapshot-based changeGBP in the header.
       if (!dayPct) return;
       const prevValue = valueUSD / (1 + dayPct / 100);
       const contribUSD = prevValue * (dayPct / 100);
-      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * rate });
+      const displayRate = isGBP ? fxYesterday : 1;
+      contribs.push({ ticker: pos.ticker, contribUSD, contribDisplay: contribUSD * displayRate });
     } else {
       // Historic P&L contribution — use native currency to match cost basis
       if (isGBP) {
@@ -789,9 +810,13 @@ function renderPnlAttribution() {
     }
   });
 
-  // Add grouped GBP fiat FX P&L as single "Libras" entry
+  // Libras line — hist mode USD: FX P&L on GBP cash vs initial investment
   if (hasFiatGBP && Math.abs(fiatGBPContribUSD) >= 0.01) {
     contribs.push({ ticker: 'Libras', contribUSD: fiatGBPContribUSD, contribDisplay: fiatGBPContribUSD });
+  }
+  // Libras line — day mode USD: daily FX move on GBP cash holdings
+  if (hasFiatGBPDay && Math.abs(fiatGBPDayContribUSD) >= 0.01) {
+    contribs.push({ ticker: 'Libras', contribUSD: fiatGBPDayContribUSD, contribDisplay: fiatGBPDayContribUSD });
   }
 
   if (!contribs.length || contribs.every(c => Math.abs(c.contribUSD) < 0.01)) {
