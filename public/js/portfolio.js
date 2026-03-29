@@ -2107,14 +2107,22 @@ async function loadChartData() {
   const periodDays = { '1S': 7, '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
   const days = periodDays[chartPeriod] || 7;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  // Fetch desc (newest first) so PostgREST limit keeps the most recent rows,
+  // then reverse in JS to get chronological order for the chart.
+  // 12000 rows covers ~33 days at 1 snapshot/15min (360/day).
+  const SNAP_LIMIT = 12000;
 
   try {
-    const snaps = await sbFetch(
-      '/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.asc&captured_at=gte.' + since
+    const snapsDesc = await sbFetch(
+      '/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.desc&captured_at=gte.' + since + '&limit=' + SNAP_LIMIT
     );
+    const snaps = (snapsDesc || []).slice().reverse(); // chronological asc
+
+    console.log(`[loadChartData] period=${chartPeriod} since=${since} rows=${snaps.length}`);
 
     if (!snaps || snaps.length < 2) {
-      // Not enough data yet — keep dummy points or show flat line
+      // Not enough data yet — clear points so chart shows placeholder, don't leave stale data
+      ['acciones','cripto','rsu','fiat','fiat_locked'].forEach(cat => { catData[cat].points = []; });
       drawChart();
       return;
     }
