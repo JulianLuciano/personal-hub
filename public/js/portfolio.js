@@ -2035,6 +2035,7 @@ function setCurrency(cur) {
   document.getElementById('btnGBP').style.color = isGBP ? '#fff' : 'var(--muted)';
   document.getElementById('btnUSD').style.background = !isGBP ? 'var(--accent)' : 'transparent';
   document.getElementById('btnUSD').style.color = !isGBP ? '#fff' : 'var(--muted)';
+  invalidateChartCache(); // raw data stays the same but GBP/USD conversion changes
   renderPortfolio();
   renderEquityPie();
   renderAssetPie();
@@ -2102,95 +2103,94 @@ function setYAxis(min, max) {
   if (typeof valuesHidden !== 'undefined' && valuesHidden) applyAxisMask();
 }
 
-// Load chart data from portfolio_snapshots based on period
-async function loadChartData() {
-  const periodDays = { '1S': 7, '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
-  const days = periodDays[chartPeriod] || 7;
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  // Fetch desc (newest first) so PostgREST limit keeps the most recent rows,
-  // then reverse in JS to get chronological order for the chart.
-  // 12000 rows covers ~33 days at 1 snapshot/15min (360/day).
-  const SNAP_LIMIT = 12000;
-
-  try {
-    const snapsDesc = await sbFetch(
-      '/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.desc&captured_at=gte.' + since + '&limit=' + SNAP_LIMIT
-    );
-    const snaps = (snapsDesc || []).slice().reverse(); // chronological asc
-
-    console.log(`[loadChartData] period=${chartPeriod} since=${since} rows=${snaps.length}`);
-
-    if (!snaps || snaps.length < 2) {
-      // Not enough data yet — clear points so chart shows placeholder, don't leave stale data
-      ['acciones','cripto','rsu','fiat','fiat_locked'].forEach(cat => { catData[cat].points = []; });
-      drawChart();
-      return;
-    }
-
-    const isGBP = currentCurrency === 'GBP';
-    // Build points per category from breakdown JSONB
-    const CATS = ['acciones','cripto','rsu','fiat'];
-    CATS.forEach(cat => { catData[cat].points = []; });
-
-    // Store dates for tooltip
-    chartSnapDates = snaps.map(s => new Date(s.captured_at));
-
-    // Build x-axis labels (show ~4 evenly spaced dates)
-    const labelEl = document.getElementById('chartXLabels');
-    if (labelEl && snaps.length > 0) {
-      const indices = [0, Math.floor(snaps.length/3), Math.floor(2*snaps.length/3), snaps.length-1];
-      const spans = labelEl.querySelectorAll('span');
-      indices.forEach((idx, i) => {
-        if (spans[i] && snaps[idx]) {
-          const d = new Date(snaps[idx].captured_at);
-          spans[i].textContent = d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
-        }
-      });
-    }
-
-    snaps.forEach(snap => {
-      const b = snap.breakdown || {};
-      const fxR = snap.fx_rate || 0.79;
-      // Handle both breakdown formats:
-      // New format: fiat_gbp = raw GBP amount, fiat_usd = raw USD amount (worker stores separately)
-      // Old format: may have only 'fiat' in USD
-      // To avoid double-counting: if fiat_gbp and fiat_usd exist, use those; otherwise fall back to 'fiat' USD
-      let fiatUSD;
-      if (b.fiat_gbp !== undefined || b.fiat_usd !== undefined) {
-        fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
-      } else {
-        fiatUSD = b.fiat || 0;  // fallback: already in USD
-      }
-      let fiatVal, accionesVal, criptoVal, rsuVal;
-      if (isGBP) {
-        fiatVal     = fiatUSD * fxR;
-        accionesVal = (b.acciones || 0) * fxR;
-        criptoVal   = (b.cripto   || 0) * fxR;
-        rsuVal      = (b.rsu      || 0) * fxR;
-      } else {
-        fiatVal     = fiatUSD;
-        accionesVal = (b.acciones || 0);
-        criptoVal   = (b.cripto   || 0);
-        rsuVal      = (b.rsu      || 0);
-      }
-      catData.acciones.points.push(accionesVal);
-      catData.cripto.points.push(criptoVal);
-      catData.rsu.points.push(rsuVal);
-      catData.fiat.points.push(fiatVal);
-      // fiat_locked: approximated as fixed ratio from breakdown (no per-snapshot data)
-      // Use current ratio of locked/fiat applied to historical fiat values
-      const lockedRatio = liveData && liveData.breakdown.fiat > 0
-        ? liveData.breakdown.fiat_locked / liveData.breakdown.fiat : 0;
-      catData.fiat_locked.points.push(fiatVal * lockedRatio);
-    });
-
-    drawChart();
-  } catch(e) {
-    console.error('Error loading chart data:', e);
-    drawChart();
-  }
+// In-memory cache for chart data — keyed by period+currency, lives for the page session.
+// Invalidated when the user switches GBP/USD so points get recomputed.
+const chartCache = {};
+function invalidateChartCache() {
+  Object.keys(chartCache).forEach(k => delete chartCache[k]);
 }
 
+// Load chart data from /api/chart/:period.
+// The server downsamples to ~180-365 points so we never pull 140k rows to the browser.
+// Results are cached: hitting the same pastilla twice is instant.
+async function loadChartData() {
+  const isGBP = currentCurrency === 'GBP';
+  const cacheKey = chartPeriod + '_' + (isGBP ? 'GBP' : 'USD');
+
+  let snaps;
+  if (chartCache[cacheKey]) {
+    console.log(`[loadChartData] period=${chartPeriod} → cache hit (${chartCache[cacheKey].length} pts)`);
+    snaps = chartCache[cacheKey];
+  } else {
+    try {
+      snaps = await fetch('/api/chart/' + chartPeriod).then(r => r.json());
+      console.log(`[loadChartData] period=${chartPeriod} fetched ${Array.isArray(snaps) ? snaps.length : 'err'} pts`);
+      if (Array.isArray(snaps) && snaps.length >= 2) {
+        chartCache[cacheKey] = snaps;
+      }
+    } catch(e) {
+      console.error('[loadChartData] fetch error:', e);
+      snaps = [];
+    }
+  }
+
+  if (!snaps || snaps.length < 2) {
+    ['acciones','cripto','rsu','fiat','fiat_locked'].forEach(cat => { catData[cat].points = []; });
+    drawChart();
+    return;
+  }
+
+  const CATS = ['acciones','cripto','rsu','fiat'];
+  CATS.forEach(cat => { catData[cat].points = []; });
+
+  // Store dates for tooltip
+  chartSnapDates = snaps.map(s => new Date(s.captured_at));
+
+  // Build x-axis labels (show ~4 evenly spaced dates)
+  const labelEl = document.getElementById('chartXLabels');
+  if (labelEl && snaps.length > 0) {
+    const indices = [0, Math.floor(snaps.length/3), Math.floor(2*snaps.length/3), snaps.length-1];
+    const spans = labelEl.querySelectorAll('span');
+    indices.forEach((idx, i) => {
+      if (spans[i] && snaps[idx]) {
+        const d = new Date(snaps[idx].captured_at);
+        spans[i].textContent = d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+      }
+    });
+  }
+
+  snaps.forEach(snap => {
+    const b = snap.breakdown || {};
+    const fxR = snap.fx_rate || 0.79;
+    let fiatUSD;
+    if (b.fiat_gbp !== undefined || b.fiat_usd !== undefined) {
+      fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+    } else {
+      fiatUSD = b.fiat || 0;
+    }
+    let fiatVal, accionesVal, criptoVal, rsuVal;
+    if (isGBP) {
+      fiatVal     = fiatUSD * fxR;
+      accionesVal = (b.acciones || 0) * fxR;
+      criptoVal   = (b.cripto   || 0) * fxR;
+      rsuVal      = (b.rsu      || 0) * fxR;
+    } else {
+      fiatVal     = fiatUSD;
+      accionesVal = (b.acciones || 0);
+      criptoVal   = (b.cripto   || 0);
+      rsuVal      = (b.rsu      || 0);
+    }
+    catData.acciones.points.push(accionesVal);
+    catData.cripto.points.push(criptoVal);
+    catData.rsu.points.push(rsuVal);
+    catData.fiat.points.push(fiatVal);
+    const lockedRatio = liveData && liveData.breakdown.fiat > 0
+      ? liveData.breakdown.fiat_locked / liveData.breakdown.fiat : 0;
+    catData.fiat_locked.points.push(fiatVal * lockedRatio);
+  });
+
+  drawChart();
+}
 let chartSnapDates = [];  // populated by loadChartData
 let chartLastCoords = [];  // last drawn line coords for hover dot (totalMode)
 let chartAllCatCoords = {};  // individual mode: cat -> coords array

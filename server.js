@@ -65,6 +65,122 @@ app.all('/api/db/*', async (req, res) => {
   }
 });
 
+// ── Portfolio chart data with server-side downsampling ───────────────────────
+// Returns ~180-365 points regardless of period, so the frontend never needs
+// to fetch 140k raw rows. Each period uses a different sampling resolution.
+//
+// Sampling strategy (SQL: take the last snapshot in each bucket):
+//   1S  → 1 point per hour        (~168 pts)
+//   1M  → 1 point per 4 hours     (~180 pts)
+//   3M  → 2 points per day        (~180 pts, anchored at 09:00 and 21:00 UTC)
+//   6M  → 1 point per day         (~180 pts)
+//   1A  → 1 point per day         (~365 pts)
+
+app.get('/api/chart/:period', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const period = req.params.period; // '1S' | '1M' | '3M' | '6M' | '1A'
+  const periodDays = { '1S': 7, '1M': 30, '3M': 90, '6M': 180, '1A': 365 };
+  const days = periodDays[period];
+  if (!days) return res.status(400).json({ error: 'Invalid period' });
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  // Build the SQL bucket expression depending on resolution
+  // For 3M we want 2 anchors per day: 09:00 UTC and 21:00 UTC.
+  // We achieve this by bucketing into 12-hour slots offset by 9h from midnight UTC.
+  // For all other periods we use uniform hour-width buckets.
+  let bucketExpr;
+  if (period === '1S') {
+    // Truncate to hour
+    bucketExpr = `date_trunc('hour', captured_at)`;
+  } else if (period === '1M') {
+    // Truncate to 4-hour block (00, 04, 08, 12, 16, 20)
+    bucketExpr = `date_trunc('hour', captured_at) - (EXTRACT(hour FROM captured_at)::int % 4) * interval '1 hour'`;
+  } else if (period === '3M') {
+    // 12-hour buckets anchored at 09:00 and 21:00 UTC
+    // shift by -9h → truncate to 12h → shift back by +9h
+    bucketExpr = `date_trunc('hour', captured_at - interval '9 hours' - (EXTRACT(hour FROM (captured_at - interval '9 hours'))::int % 12) * interval '1 hour') + interval '9 hours'`;
+  } else {
+    // 6M and 1A: daily
+    bucketExpr = `date_trunc('day', captured_at)`;
+  }
+
+  // Use Supabase RPC or raw PostgREST? PostgREST doesn't support GROUP BY directly,
+  // so we use the Supabase SQL endpoint (POST /rest/v1/rpc/... requires a function).
+  // Instead: fetch with a large limit and downsample in Node — still way cheaper
+  // than sending 140k rows to the browser. Max rows per period:
+  //   1S: 7d × 96 snaps/day = 672 rows
+  //   1M: 30d × 96 = 2,880 rows
+  //   3M: 90d × 96 = 8,640 rows
+  //   6M: 180d × 96 = 17,280 rows
+  //   1A: 365d × 96 = 35,040 rows
+  // All well within a single fetch at 50k limit.
+
+  const FETCH_LIMIT = 50000;
+  const supaUrl = `${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.asc&captured_at=gte.${since}&limit=${FETCH_LIMIT}`;
+
+  try {
+    const sbRes = await fetch(supaUrl, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Accept': 'application/json',
+      }
+    });
+
+    if (!sbRes.ok) {
+      const err = await sbRes.text();
+      console.error('[chart] supabase error:', err.slice(0, 300));
+      return res.status(sbRes.status).json({ error: err.slice(0, 200) });
+    }
+
+    const rows = await sbRes.json();
+
+    // Downsample in Node: for each time bucket keep the last row in that bucket
+    function getBucket(isoStr) {
+      const d = new Date(isoStr);
+      const h = d.getUTCHours();
+      if (period === '1S') {
+        // bucket key = YYYY-MM-DDTHH
+        return isoStr.slice(0, 13);
+      } else if (period === '1M') {
+        // bucket key = YYYY-MM-DDTH (floored to 4h block)
+        const block = Math.floor(h / 4) * 4;
+        return `${isoStr.slice(0, 10)}T${String(block).padStart(2, '0')}`;
+      } else if (period === '3M') {
+        // 12h buckets anchored at 09 and 21 UTC
+        // shift = hours since last anchor (09 or 21)
+        const shiftedH = (h - 9 + 24) % 24; // hours since 09:00 UTC
+        const anchor = shiftedH < 12 ? 9 : 21;
+        return `${isoStr.slice(0, 10)}T${String(anchor).padStart(2, '0')}`;
+      } else {
+        // daily: YYYY-MM-DD
+        return isoStr.slice(0, 10);
+      }
+    }
+
+    // Keep last row per bucket (rows are asc, so later rows overwrite earlier)
+    const bucketMap = new Map();
+    for (const row of rows) {
+      bucketMap.set(getBucket(row.captured_at), row);
+    }
+
+    // Sort buckets chronologically and return values
+    const sampled = Array.from(bucketMap.values())
+      .sort((a, b) => a.captured_at < b.captured_at ? -1 : 1);
+
+    console.log(`[chart] period=${period} raw=${rows.length} sampled=${sampled.length}`);
+    res.json(sampled);
+
+  } catch (e) {
+    console.error('[chart] fetch error:', e.message);
+    res.status(502).json({ error: 'Supabase unreachable' });
+  }
+});
+
 // ── Market data via yahoo-finance2 ──────────────────────────────────────────
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
