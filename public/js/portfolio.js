@@ -722,8 +722,9 @@ function renderPortfolio() {
   // Render P&L attribution
   renderPnlAttribution();
 
-  // Load chart data from Supabase
+  // Load active period chart, then preload all others in background
   loadChartData();
+  preloadAllPeriods();
 }
 
 // ── P&L ATTRIBUTION CHART ──────────────────────────────────────────────
@@ -2035,7 +2036,7 @@ function setCurrency(cur) {
   document.getElementById('btnGBP').style.color = isGBP ? '#fff' : 'var(--muted)';
   document.getElementById('btnUSD').style.background = !isGBP ? 'var(--accent)' : 'transparent';
   document.getElementById('btnUSD').style.color = !isGBP ? '#fff' : 'var(--muted)';
-  invalidateChartCache(); // raw data stays the same but GBP/USD conversion changes
+  // No cache invalidation needed — cache stores raw snaps, conversion happens at draw time
   renderPortfolio();
   renderEquityPie();
   renderAssetPie();
@@ -2105,56 +2106,62 @@ function setYAxis(min, max) {
 
 // In-memory cache for chart data — keyed by period+currency, lives for the page session.
 // Invalidated when the user switches GBP/USD so points get recomputed.
-const chartCache = {};
+// ── Chart cache ────────────────────────────────────────────────────────────
+// Stores raw snaps (server-downsampled) keyed by period only — no currency suffix.
+// Conversion GBP/USD is done at draw time from the raw snaps, so switching
+// currency never requires a refetch.
+const chartCache = {};  // { '1S': [...snaps], '1M': [...snaps], ... }
+
+// Fetch one period from the server and store in cache. Returns the snaps array.
+async function fetchPeriod(period) {
+  if (chartCache[period]) return chartCache[period];
+  try {
+    const snaps = await fetch('/api/chart/' + period).then(r => r.json());
+    if (Array.isArray(snaps) && snaps.length >= 2) {
+      chartCache[period] = snaps;
+      console.log(`[chart] period=${period} fetched ${snaps.length} pts`);
+    } else {
+      console.warn(`[chart] period=${period} returned ${Array.isArray(snaps) ? snaps.length : 'err'} pts`);
+    }
+    return snaps || [];
+  } catch(e) {
+    console.error(`[chart] period=${period} fetch error:`, e);
+    return [];
+  }
+}
+
+// Preload all 5 periods in parallel in the background.
+// Called once after loadPortfolio() completes so it doesn't block the initial render.
+async function preloadAllPeriods() {
+  const PERIODS = ['1S', '1M', '3M', '6M', '1A'];
+  await Promise.all(PERIODS.map(p => fetchPeriod(p)));
+  console.log('[chart] all periods preloaded');
+}
+
+// Invalidate cache (used when data needs refreshing — e.g. manual position edit).
+// Currency switches no longer need this since conversion is done at draw time.
 function invalidateChartCache() {
   Object.keys(chartCache).forEach(k => delete chartCache[k]);
 }
 
-// Load chart data from /api/chart/:period.
-// The server downsamples to ~180-365 points so we never pull 140k rows to the browser.
-// Results are cached: hitting the same pastilla twice is instant.
-async function loadChartData() {
+// Convert raw snaps to catData points for the given currency, then draw.
+function applySnapsToCatData(snaps) {
   const isGBP = currentCurrency === 'GBP';
-  const cacheKey = chartPeriod + '_' + (isGBP ? 'GBP' : 'USD');
-
-  let snaps;
-  if (chartCache[cacheKey]) {
-    console.log(`[loadChartData] period=${chartPeriod} → cache hit (${chartCache[cacheKey].length} pts)`);
-    snaps = chartCache[cacheKey];
-  } else {
-    try {
-      snaps = await fetch('/api/chart/' + chartPeriod).then(r => r.json());
-      console.log(`[loadChartData] period=${chartPeriod} fetched ${Array.isArray(snaps) ? snaps.length : 'err'} pts`);
-      if (Array.isArray(snaps) && snaps.length >= 2) {
-        chartCache[cacheKey] = snaps;
-      }
-    } catch(e) {
-      console.error('[loadChartData] fetch error:', e);
-      snaps = [];
-    }
-  }
-
-  if (!snaps || snaps.length < 2) {
-    ['acciones','cripto','rsu','fiat','fiat_locked'].forEach(cat => { catData[cat].points = []; });
-    drawChart();
-    return;
-  }
-
-  const CATS = ['acciones','cripto','rsu','fiat'];
+  const CATS = ['acciones', 'cripto', 'rsu', 'fiat'];
   CATS.forEach(cat => { catData[cat].points = []; });
 
   // Store dates for tooltip
   chartSnapDates = snaps.map(s => new Date(s.captured_at));
 
-  // Build x-axis labels (show ~4 evenly spaced dates)
+  // Build x-axis labels (~4 evenly spaced)
   const labelEl = document.getElementById('chartXLabels');
   if (labelEl && snaps.length > 0) {
-    const indices = [0, Math.floor(snaps.length/3), Math.floor(2*snaps.length/3), snaps.length-1];
+    const indices = [0, Math.floor(snaps.length / 3), Math.floor(2 * snaps.length / 3), snaps.length - 1];
     const spans = labelEl.querySelectorAll('span');
     indices.forEach((idx, i) => {
       if (spans[i] && snaps[idx]) {
         const d = new Date(snaps[idx].captured_at);
-        spans[i].textContent = d.toLocaleDateString('es-AR', { day:'numeric', month:'short' });
+        spans[i].textContent = d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
       }
     });
   }
@@ -2162,6 +2169,7 @@ async function loadChartData() {
   snaps.forEach(snap => {
     const b = snap.breakdown || {};
     const fxR = snap.fx_rate || 0.79;
+    // Fiat: handle old format (fiat in USD) and new format (fiat_gbp + fiat_usd stored separately)
     let fiatUSD;
     if (b.fiat_gbp !== undefined || b.fiat_usd !== undefined) {
       fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
@@ -2188,9 +2196,35 @@ async function loadChartData() {
       ? liveData.breakdown.fiat_locked / liveData.breakdown.fiat : 0;
     catData.fiat_locked.points.push(fiatVal * lockedRatio);
   });
+}
 
+// Load chart data for the active period.
+// Serves from cache if available (instant), otherwise fetches from server.
+// Since the cache stores raw snaps, currency switches just re-call this —
+// no refetch needed, applySnapsToCatData handles the conversion on the fly.
+async function loadChartData() {
+  const cached = chartCache[chartPeriod];
+
+  if (cached) {
+    console.log(`[chart] period=${chartPeriod} → cache hit (${cached.length} pts)`);
+    applySnapsToCatData(cached);
+    drawChart();
+    return;
+  }
+
+  // Not cached yet (edge case: preload still in flight or failed)
+  const snaps = await fetchPeriod(chartPeriod);
+
+  if (!snaps || snaps.length < 2) {
+    ['acciones', 'cripto', 'rsu', 'fiat', 'fiat_locked'].forEach(cat => { catData[cat].points = []; });
+    drawChart();
+    return;
+  }
+
+  applySnapsToCatData(snaps);
   drawChart();
 }
+
 let chartSnapDates = [];  // populated by loadChartData
 let chartLastCoords = [];  // last drawn line coords for hover dot (totalMode)
 let chartAllCatCoords = {};  // individual mode: cat -> coords array
