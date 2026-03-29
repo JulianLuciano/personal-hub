@@ -2146,27 +2146,35 @@ function invalidateChartCache() {
 
 // Convert raw snaps to catData points for the given currency, then draw.
 function applySnapsToCatData(snaps) {
+  // Strip weekend snapshots (UTC day: 0 = Sunday, 6 = Saturday).
+  // Remaining points are packed together — no gaps, no placeholders.
+  // X axis always spans exactly the data available.
+  const weekdaySnaps = snaps.filter(s => {
+    const day = new Date(s.captured_at).getUTCDay();
+    return day !== 0 && day !== 6;
+  });
+
   const isGBP = currentCurrency === 'GBP';
   const CATS = ['acciones', 'cripto', 'rsu', 'fiat'];
   CATS.forEach(cat => { catData[cat].points = []; });
 
   // Store dates for tooltip
-  chartSnapDates = snaps.map(s => new Date(s.captured_at));
+  chartSnapDates = weekdaySnaps.map(s => new Date(s.captured_at));
 
   // Build x-axis labels (~4 evenly spaced)
   const labelEl = document.getElementById('chartXLabels');
-  if (labelEl && snaps.length > 0) {
-    const indices = [0, Math.floor(snaps.length / 3), Math.floor(2 * snaps.length / 3), snaps.length - 1];
+  if (labelEl && weekdaySnaps.length > 0) {
+    const indices = [0, Math.floor(weekdaySnaps.length / 3), Math.floor(2 * weekdaySnaps.length / 3), weekdaySnaps.length - 1];
     const spans = labelEl.querySelectorAll('span');
     indices.forEach((idx, i) => {
-      if (spans[i] && snaps[idx]) {
-        const d = new Date(snaps[idx].captured_at);
+      if (spans[i] && weekdaySnaps[idx]) {
+        const d = new Date(weekdaySnaps[idx].captured_at);
         spans[i].textContent = d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
       }
     });
   }
 
-  snaps.forEach(snap => {
+  weekdaySnaps.forEach(snap => {
     const b = snap.breakdown || {};
     const fxR = snap.fx_rate || 0.79;
     // Fiat: handle old format (fiat in USD) and new format (fiat_gbp + fiat_usd stored separately)
