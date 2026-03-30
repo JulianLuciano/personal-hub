@@ -672,8 +672,8 @@ function renderPortfolio() {
     let subLabel;
     if (meta.showTicker) {
       subLabel = pos.ticker + ' · <span class="asset-sub-qty">' + qtyStr + '</span>';
-    } else if (meta.rsu) {
-      subLabel = 'Meta · <span class="asset-sub-qty">' + Number(pos.qty).toFixed(3) + '</span>';
+    } else if (pos.ticker === 'RSU_META') {
+      subLabel = 'META · <span class="asset-sub-qty">' + Number(pos.qty).toFixed(3) + '</span>';
     } else {
       const lockedBadge = isLockedFiat ? ' · <span style="font-size:10px;color:#2a8f9f;background:rgba(42,143,159,0.15);padding:1px 5px;border-radius:4px">bloqueado</span>' : '';
       subLabel = '<span class="asset-sub-qty">' + (pos.currency === 'GBP' ? '£' + pos.qty.toLocaleString('es-AR') : '$' + pos.qty.toLocaleString('es-AR')) + '</span>' + lockedBadge;
