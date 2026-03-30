@@ -3214,7 +3214,7 @@ async function drawPosChart(ticker, meta) {
   // New worker stores DB tickers; old worker stored Yahoo tickers for some
   // Query both variants to handle historical data
   const snapTickerAlt = ticker === 'BRK.B' ? 'BRK-B' : ticker === 'BTC' ? 'BTC-USD' : null;
-  const snapTicker = ticker === 'RSU_META' ? 'META' : ticker;
+  const snapTicker = ticker;
 
   try {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
