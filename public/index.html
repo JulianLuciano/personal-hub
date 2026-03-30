@@ -968,6 +968,20 @@
           <div style="font-family:var(--font-num);font-size:18px;font-weight:800" id="posModalShare">—</div>
         </div>
       </div>
+
+      <!-- Vesting button — only shown for RSU_META -->
+      <div id="posModalVestingBtn" style="display:none">
+        <button onclick="closePosDetail();openRSU()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;color:var(--text)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">📅</span>
+            <div style="text-align:left">
+              <div style="font-size:13px;font-weight:600">Ver schedule de vesting</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:1px">Próximos vests y progreso RSU</div>
+            </div>
+          </div>
+          <span style="font-size:16px;color:var(--muted)">›</span>
+        </button>
+      </div>
     </div>
   </div>
 

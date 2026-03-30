@@ -204,7 +204,7 @@ const TICKER_META = {
   'NDIA.L':          { name: 'India ETF',          logo: '🇮🇳', logoUrl: '/logos/ndia.png',   cat: 'acciones', showTicker: true },
   'BTC':             { name: 'Bitcoin',            logo: '₿',  logoUrl: '/logos/btc.png',    cat: 'cripto',   showTicker: true },
   'ADA':             { name: 'ADA Cardano',        logo: '🔵', logoUrl: '/logos/ada.png',    cat: 'cripto',   showTicker: true },
-  'RSU_META':        { name: 'META',               logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',      showTicker: false, rsu: true },
+  'RSU_META':        { name: 'META',               logo: '🏆', logoUrl: '/logos/meta.png',   cat: 'rsu',      showTicker: false },
   'GBP_LIQUID':      { name: 'Libras',             logo: '💷', logoUrl: '/logos/gbp.png',    cat: 'fiat',     showTicker: false },
   'GBP_RECEIVABLE':  { name: 'Deuda a cobrar',     logo: '📋', logoUrl: null,                cat: 'fiat',     showTicker: false },
   'USD_CASH':        { name: 'USD Cash',           logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',     showTicker: false },

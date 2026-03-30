@@ -3191,6 +3191,10 @@ async function openPosDetail(ticker) {
     }
   }
 
+  // Show vesting button only for RSU_META
+  const vestBtn = document.getElementById('posModalVestingBtn');
+  if (vestBtn) vestBtn.style.display = ticker === 'RSU_META' ? 'block' : 'none';
+
   // Render monetary values
   renderPosModalValues(ticker);
 
