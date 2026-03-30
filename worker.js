@@ -98,8 +98,15 @@ async function run() {
     }
   }
 
-  // 7. Save price snapshots (all in USD now)
-  const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({ ticker, price_usd }));
+  // 7. Save price snapshots (all in USD) — also store fx_rate and price_gbp at capture time
+  // fx_rate: 10 decimal places (consistent with portfolio_snapshots)
+  // price_gbp: 8 decimal places (sufficient precision for all asset types including crypto)
+  const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({
+    ticker,
+    price_usd,
+    fx_rate:   Math.round(fxRate * 1e10) / 1e10,
+    price_gbp: Math.round(price_usd * fxRate * 1e8) / 1e8,
+  }));
   const { error: snapError } = await supabase
     .from('price_snapshots')
     .insert(snapshots);
@@ -140,7 +147,7 @@ async function run() {
     breakdown[k] = Math.round(breakdown[k] * 100) / 100;
   });
 
-  // 9. Save portfolio snapshot (writes to portfolio_snapshots — same table, driven by positions_dev)
+  // 9. Save portfolio snapshot
   const { error: portError } = await supabase
     .from('portfolio_snapshots')
     .insert({
