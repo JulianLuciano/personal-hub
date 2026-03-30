@@ -3098,6 +3098,20 @@ function renderPosModalValues(ticker) {
     const val = v * rate;
     return sym + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
+  // Day change — currency-sensitive: FX effect means USD % ≠ GBP %
+  const dayEl = document.getElementById('posModalDayChg');
+  if (dayEl) {
+    const dayPctVal = isGBP ? (asset.dayPctGBP ?? asset.dayPct) : asset.dayPct;
+    if (dayPctVal !== null && dayPctVal !== undefined) {
+      const rounded = parseFloat(dayPctVal.toFixed(2));
+      dayEl.textContent = (rounded >= 0 ? '+' : '') + rounded.toFixed(2) + '%';
+      dayEl.style.color = rounded > 0 ? 'var(--accent3)' : rounded < 0 ? 'var(--accent2)' : 'var(--muted)';
+    } else {
+      dayEl.textContent = '\u2014';
+      dayEl.style.color = 'var(--muted)';
+    }
+  }
+
   // Price: priceUSD is always in USD (worker converts LSE GBP→USD before storing)
   // Display in selected currency
   const priceDisplay = priceUSD ? priceUSD * rate : null;
@@ -3176,21 +3190,6 @@ async function openPosDetail(ticker) {
   document.getElementById('posModalName').textContent = meta.name;
   document.getElementById('posModalTicker').textContent = ticker;
 
-  // Day change (% is currency-neutral)
-  const asset = liveData && liveData.assets.find(a => a.pos.ticker === ticker);
-  if (asset) {
-    const dayEl = document.getElementById('posModalDayChg');
-    const { dayPct } = asset;
-    if (dayPct !== null && dayPct !== undefined) {
-      const rounded = parseFloat(dayPct.toFixed(2));
-      dayEl.textContent = (rounded >= 0 ? '+' : '') + rounded.toFixed(2) + '%';
-      dayEl.style.color = rounded > 0 ? 'var(--accent3)' : rounded < 0 ? 'var(--accent2)' : 'var(--muted)';
-    } else {
-      dayEl.textContent = '\u2014';
-      dayEl.style.color = 'var(--muted)';
-    }
-  }
-
   // Show vesting button only for RSU_META
   const vestBtn = document.getElementById('posModalVestingBtn');
   if (vestBtn) vestBtn.style.display = ticker === 'RSU_META' ? 'block' : 'none';
@@ -3214,7 +3213,7 @@ async function drawPosChart(ticker, meta) {
   // New worker stores DB tickers; old worker stored Yahoo tickers for some
   // Query both variants to handle historical data
   const snapTickerAlt = ticker === 'BRK.B' ? 'BRK-B' : ticker === 'BTC' ? 'BTC-USD' : null;
-  const snapTicker = ticker;
+  const snapTicker = ticker === 'RSU_META' ? 'META' : ticker;
 
   try {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
