@@ -3235,13 +3235,34 @@ async function drawPosChart(ticker, meta) {
       return;
     }
 
+    // Strip weekend rows — same logic as applySnapsToCatData in the portfolio chart.
+    // Remaining points are packed together with no gaps; axes adjust to available data.
+    const weekdayRows = rows.filter(r => {
+      const day = new Date(r.captured_at).getUTCDay();
+      return day !== 0 && day !== 6;
+    });
+
+    if (weekdayRows.length < 2) {
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
+      canvas.width = Math.floor(W0 * dpr);
+      canvas.height = 60 * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.font = '11px DM Sans';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sin datos suficientes', canvas.parentElement.offsetWidth / 2, 30);
+      return;
+    }
+
     let prices;
     if (posModalCurrency === 'GBP') {
       // Use price_gbp stored at capture time — exact FX, no approximation needed
       // Fall back to price_usd * FX_RATE for old rows that predate the column (price_gbp = null)
-      prices = rows.map(r => r.price_gbp !== null ? Number(r.price_gbp) : Number(r.price_usd) * FX_RATE);
+      prices = weekdayRows.map(r => r.price_gbp !== null ? Number(r.price_gbp) : Number(r.price_usd) * FX_RATE);
     } else {
-      prices = rows.map(r => Number(r.price_usd));
+      prices = weekdayRows.map(r => Number(r.price_usd));
     }
 
     const dpr = window.devicePixelRatio || 1;
@@ -3280,9 +3301,9 @@ async function drawPosChart(ticker, meta) {
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
     ctx.strokeStyle = lineColor; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
 
-    // Date label
-    if (rows.length > 0) {
-      const startDate = new Date(rows[0].captured_at);
+    // Date label — use first weekday row after weekend stripping
+    if (weekdayRows.length > 0) {
+      const startDate = new Date(weekdayRows[0].captured_at);
       document.getElementById('posModalChartStart').textContent =
         startDate.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
     }
