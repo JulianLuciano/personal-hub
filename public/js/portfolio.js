@@ -3217,7 +3217,10 @@ async function drawPosChart(ticker, meta) {
     const tickerFilter = snapTickerAlt
       ? 'ticker=in.(' + snapTicker + ',' + snapTickerAlt + ')'
       : 'ticker=eq.' + snapTicker;
-    const rows = await sbFetch('/rest/v1/price_snapshots?select=price_usd,captured_at&' + tickerFilter + '&order=captured_at.asc&captured_at=gte.' + since);
+
+    // price_gbp is now stored directly in price_snapshots by the worker —
+    // no need to join portfolio_snapshots and approximate FX by timestamp
+    const rows = await sbFetch('/rest/v1/price_snapshots?select=price_usd,price_gbp,captured_at&' + tickerFilter + '&order=captured_at.asc&captured_at=gte.' + since);
     if (!rows || rows.length < 2) {
       const ctx = canvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
@@ -3234,27 +3237,11 @@ async function drawPosChart(ticker, meta) {
 
     let prices;
     if (posModalCurrency === 'GBP') {
-      // Fetch historical fx_rates from portfolio_snapshots for the same window
-      // so each price_usd is multiplied by the fx at that moment, not today's fx
-      const fxRows = await sbFetch(
-        '/rest/v1/portfolio_snapshots?select=captured_at,fx_rate&order=captured_at.asc&captured_at=gte.' + since
-      );
-      // Build sorted array of {ts, fx}
-      const fxSeries = (fxRows || []).map(r => ({ ts: new Date(r.captured_at).getTime(), fx: r.fx_rate }));
-      // For each price row, find closest fx_rate by timestamp
-      prices = rows.map(r => {
-        const ts = new Date(r.captured_at).getTime();
-        let closest = fxSeries[0];
-        let minDiff = Infinity;
-        for (const f of fxSeries) {
-          const d = Math.abs(f.ts - ts);
-          if (d < minDiff) { minDiff = d; closest = f; }
-        }
-        const fx = closest ? closest.fx : FX_RATE;
-        return r.price_usd * fx;
-      });
+      // Use price_gbp stored at capture time — exact FX, no approximation needed
+      // Fall back to price_usd * FX_RATE for old rows that predate the column (price_gbp = null)
+      prices = rows.map(r => r.price_gbp !== null ? Number(r.price_gbp) : Number(r.price_usd) * FX_RATE);
     } else {
-      prices = rows.map(r => r.price_usd);
+      prices = rows.map(r => Number(r.price_usd));
     }
 
     const dpr = window.devicePixelRatio || 1;
