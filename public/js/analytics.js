@@ -1194,6 +1194,25 @@ function renderCorrelationHeatmap(rows) {
   }
 }
 
+// ── CLIENT-SIDE STATS UTILS ──────────────────────────────────────────────────
+function pearsonCorrelation(a, b) {
+  const n = a.length;
+  if (n < 10 || n !== b.length) return null;
+  const meanA = a.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
+  let num = 0, da2 = 0, db2 = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
+    num += da * db;
+    da2 += da * da;
+    db2 += db * db;
+  }
+  const denom = Math.sqrt(da2 * db2);
+  if (denom === 0) return null;
+  return Math.round((num / denom) * 1000) / 1000;
+}
+
 // ── CORRELATION VS PORTFOLIO ──────────────────────────────────────────────────
 
 async function loadCorrVsPortfolio(period) {
