@@ -55,6 +55,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en Analytics (Health Score, Monte Carlo) | `analytics.js` |
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
+| Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
 | Bug en notificaciones push (hábitos o agua) | `notification-worker.js` + `sw-habits.js` |
@@ -78,8 +79,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
 | `analytics.js` | Health Score engine + Monte Carlo engine + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
-| `ai.js` | Chat con Claude: builders de contexto, streaming, rendering de respuestas. |
-| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos. |
+| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas. |
+| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Muestra notificaciones con action buttons (agua: ✓ Sí tomé / ✗ No tomé). Responde clicks llamando a endpoints del server. |
@@ -332,26 +333,51 @@ Formulario para registrar transacciones manualmente (~522 líneas).
 ---
 
 ### `js/ai.js`
-Chat con Claude integrado en la app (~493 líneas).
+Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto para el system prompt, el logging de conversaciones a Supabase, y el rendering de respuestas.
 
-**Contexto builders** (arman el prompt de sistema con datos reales del portfolio):
-- `buildPortfolioContext()` — lista de posiciones con valores, P&L, pesos en el portfolio
-- `buildHealthContext()` — sub-scores del Health Score actual
-- `buildMacroContext()` — datos macro (FX rate, índices si están disponibles)
-- `buildWatchlistContext()` — activos en watchlist con precios
-- `buildMarketContext()` — estado de mercados (abierto/cerrado, variaciones del día)
+**Configuración:**
+- `AI_CONTEXT_WINDOW = 8` — cuántos mensajes se pasan como contexto en cada turn. **Cambiar este único valor** para ajustar el sliding window en toda la app.
+- `AI_MODELS` — mapa `{ sonnet: 'claude-sonnet-4-6', opus: 'claude-opus-4-6' }`.
+- `max_tokens: 3000` para ambos modelos.
+
+**Contexto builders** (arman el system prompt con datos reales del portfolio):
+- `buildPortfolioContext()` — posiciones con valores, P&L, pesos, cost basis, vest schedule RSU
+- `buildHealthContext()` — sub-scores del Health Score actual (HHI, beta, PE, currency, concentración, income)
+- `buildMacroContext()` — datos macro en TSV (VIX, US10Y, FX, índices) con cambios 7d/30d y tendencia
+- `buildWatchlistBase()` — ~14 tickers de referencia fija (SPY, QQQ, BTC, NVDA, etc.) en TSV
+- `buildWatchlistExtended()` — ~50 tickers adicionales por grupo temático; solo se incluye si el mensaje del usuario activa `needsExtendedWatchlist()`
+- `buildMarketContext()` — fundamentals de posiciones del portfolio (beta, PE, 52w, MA, analyst targets)
+
+**Quick pills (chat):**
+- Las 5 pills copian el texto al input en vez de enviarlo directamente, para que el usuario pueda editar antes de mandar.
+- `aiCopyToInput(msg)` — copia al textarea, ajusta altura, hace focus y mueve el cursor al final.
+- `aiQuick(msg)` — envía directamente (mantenido para uso programático).
+- Pills actuales: Composición · Riesgo · Diversificación · P&L · 💰 Invertir (template con monto editable).
 
 **Chat UI:**
-- `openAIChat()` — abre el modal y configura los quick buttons contextuales
-- `closeAIChat()` — cierra el modal
-- `aiSendMsg()` — envía el mensaje, muestra el typing indicator, llama a la API
-- `aiQuick(msg)` — envía un mensaje predefinido desde los quick buttons
-- `setAiModel(m)` — cambia el modelo (Haiku / Sonnet / Opus)
-- `getAnthropicKey()` — obtiene la API key desde el servidor via `/api/anthropic-key`
+- `openAIChat()` / `closeAIChat()` — abre y cierra el modal
+- `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat`, filtra thinking blocks de Opus, loggea a Supabase
+- `setAiModel(m)` — cambia entre Sonnet y Opus con feedback visual
+- `aiRenderMarkdown(text)` — parsea tablas, bold, italic, headers y listas para renderizar en HTML
 
-**Rendering:**
-- Las respuestas se parsean para detectar tablas, listas y código, y se renderizan con HTML apropiado
-- Soporte para streaming si está disponible
+**Thinking blocks (Opus):**
+- Las respuestas de Opus pueden incluir bloques `{type:'thinking'}` antes del texto. El cliente filtra con `.find(b => b.type === 'text')` para no mostrar ni loggear el razonamiento interno.
+
+**Logging de conversaciones (fire-and-forget, no bloquea el chat):**
+- `aiConversationId` — UUID de la conversación activa; `null` al cargar la página (cada reload = nueva conversación).
+- `aiMessageSeq` — contador 0-based que se incrementa con cada mensaje loggeado.
+- `aiEnsureConversation(model, firstMsg)` — crea la fila en `ai_conversations` en el primer mensaje del usuario; los primeros 80 chars del mensaje se usan como título.
+- `aiLogMessage({role, content, model, input_tokens, output_tokens})` — inserta una fila en `ai_messages`. Devuelve el UUID asignado.
+- `aiLogContextLinks(turn_msg_seq, context_seqs)` — inserta N filas en `ai_context_links` (una por cada mensaje incluido como contexto en ese turn). Permite reconstruir exactamente qué vio el modelo en cualquier turn pasado.
+
+**Flujo de logging en cada turn:**
+1. `aiEnsureConversation()` (solo si es el primer mensaje).
+2. Se captura `userMsgSeq = aiMessageSeq` antes del log.
+3. Se calcula `contextSeqs`: los índices en `aiHistory` de los mensajes que van en el slice (últimos `AI_CONTEXT_WINDOW`).
+4. `aiLogMessage({ role: 'user', ... })` → inserta el mensaje del usuario.
+5. Se hace el API call con `contextSlice`.
+6. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', ... input_tokens, output_tokens })`.
+7. `aiLogContextLinks(userMsgSeq, contextSeqs)` → registra el contexto de ese turn.
 
 ---
 
@@ -362,7 +388,14 @@ Servidor Express. Puntos clave:
 - `POST /api/transactions` — inserta en la tabla transactions y dispara recálculo
 - `POST /api/ocr-transaction` — recibe imagen base64, llama a Claude Vision, devuelve JSON con datos de la transacción
 - `GET /api/price/:ticker` — proxy hacia Yahoo Finance para obtener precio actual
-- `GET /api/anthropic-key` — devuelve la API key de Anthropic para el chat
+- `GET /api/chart/:period` — downsampling server-side de portfolio_snapshots (1S/1M/3M/6M/1A → ~180 pts)
+
+**Endpoints de chat history:**
+- `POST /api/ai-conversations` — crea fila en `ai_conversations`, devuelve `{ id }` (UUID)
+- `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens? }`
+- `POST /api/ai-context-links` — bulk-insert de `{ conversation_id, turn_msg_seq, context_seqs: [int] }` — una fila por cada mensaje que estuvo en contexto en ese turn
+- `GET /api/ai-conversations` — lista conversaciones ordenadas por fecha desc (param `limit`, default 30, max 100)
+- `GET /api/ai-conversations/:id/messages` — todos los mensajes de una conversación ordenados por `seq`
 
 **Endpoints de push (VAPID):**
 - `GET /api/push/vapid-public-key` — devuelve la clave pública VAPID al frontend para la suscripción.
@@ -521,15 +554,61 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `water_logs` | Transacciones de agua del día. Acepta `amount_ml` negativos (correcciones). El total del día es la suma de todas las filas. |
 | `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
+| `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count`. |
+| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `created_at`. |
+| `ai_context_links` | Una fila por cada (turn, mensaje-en-contexto). Campos: `conversation_id`, `turn_msg_seq` (seq del user msg que disparó el turn), `context_msg_seq` (seq de cada mensaje incluido). Permite reconstruir exactamente qué vio el modelo en cualquier turn. |
+
+### Schema de las tablas de chat history
+
+```sql
+CREATE TABLE ai_conversations (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  model         TEXT,
+  title         TEXT,
+  message_count INT DEFAULT 0
+);
+
+CREATE TABLE ai_messages (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  seq             INT NOT NULL,
+  role            TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  model           TEXT,
+  input_tokens    INT,
+  output_tokens   INT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON ai_messages(conversation_id, seq);
+
+CREATE TABLE ai_context_links (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  turn_msg_seq    INT NOT NULL,
+  context_msg_seq INT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON ai_context_links(conversation_id, turn_msg_seq);
+```
+
+### Cómo consultar el contexto de un turn específico
+
+```sql
+-- ¿Qué mensajes vio el modelo en el turn del mensaje seq=20?
+SELECT m.seq, m.role, m.content
+FROM ai_context_links cl
+JOIN ai_messages m ON m.conversation_id = cl.conversation_id AND m.seq = cl.context_msg_seq
+WHERE cl.conversation_id = '<uuid>'
+  AND cl.turn_msg_seq = 20
+ORDER BY m.seq;
+```
 
 ### Reglas importantes
 - Las posiciones con `managed_by = 'transactions'` son calculadas automáticamente por `recalculator.js`. **No editarlas a mano en Supabase.**
 - Las posiciones con `managed_by = 'manual'` (cash, rent deposit, etc.) se editan directo en Supabase.
 - El worker siempre convierte precios a USD antes de guardar en `price_snapshots`.
 - El campo `pricing_currency` en `positions` indica si el activo cotiza en GBP (ej: VWRP.L) o USD.
-
----
-
 
 ---
 
