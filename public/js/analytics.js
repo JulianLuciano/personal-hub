@@ -1083,13 +1083,14 @@ function renderCorrelationHeatmap(rows) {
   });
 
   const N = tickers.length;
-  // Measure available width — fall back to card width if wrap reports 0 (subtab just became visible)
+  // Measure available width — read from wrap, fall back to card - padding
   const wrapEl = document.getElementById('corrHeatmapWrap');
   const cardEl = wrapEl ? wrapEl.closest('.mc-card') : null;
   const rawW = wrapEl ? wrapEl.clientWidth : 0;
   const AVAILABLE = rawW > 0 ? rawW : (cardEl ? cardEl.clientWidth - 32 : 320);
   const LABEL_W = 44;
-  const CELL = Math.max(22, Math.min(36, Math.floor((AVAILABLE - LABEL_W) / N)));
+  // Fill the full available width — no artificial min/max on cell size
+  const CELL = Math.floor((AVAILABLE - LABEL_W) / N);
 
   // Color coding based on absolute correlation value — sign doesn't matter for diversification
   // Thresholds: 0.0–0.3 green, 0.3–0.6 yellow, 0.6–1.0 red
@@ -1132,14 +1133,14 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — width:auto so it only takes as much space as needed, centered
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:100%;table-layout:fixed">`;
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:100%;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
   html += `<th style="width:${LABEL_W}px"></th>`;
   tickers.forEach(t => {
     html += `<th style="width:${CELL}px;height:${CELL}px;text-align:center;font-weight:600;color:var(--muted);padding:2px 1px;vertical-align:bottom;overflow:hidden">
-      <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:${Math.max(6, CELL - 20)}px;line-height:1;max-height:40px;overflow:hidden;white-space:nowrap">${dispTicker(t)}</div>
+      <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:${Math.max(6, Math.min(10, CELL - 20))}px;line-height:1;max-height:40px;overflow:hidden;white-space:nowrap">${dispTicker(t)}</div>
     </th>`;
   });
   html += '</tr></thead><tbody>';
@@ -1147,7 +1148,7 @@ function renderCorrelationHeatmap(rows) {
   // Data rows
   tickers.forEach((ta, i) => {
     html += '<tr>';
-    html += `<td style="width:${LABEL_W}px;padding-right:4px;text-align:right;font-weight:600;color:var(--muted);font-size:${Math.max(6, CELL - 20)}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dispTicker(ta)}</td>`;
+    html += `<td style="width:${LABEL_W}px;padding-right:4px;text-align:right;font-weight:600;color:var(--muted);font-size:${Math.max(6, Math.min(10, CELL - 20))}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dispTicker(ta)}</td>`;
     tickers.forEach((tb, j) => {
       const key = `${ta}|${tb}`;
       const c = corrMap[key] ?? corrMap[`${tb}|${ta}`] ?? (ta === tb ? 1.0 : null);
