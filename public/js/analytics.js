@@ -1218,8 +1218,9 @@ async function loadCorrVsPortfolio(period) {
     if (portfolioTickers.length < 2) { el.innerHTML = '<div style="color:var(--muted)">Insuficientes posiciones</div>'; return; }
 
     // Fetch daily_returns for all portfolio tickers
-    const tickerFilter = portfolioTickers.map(t => `ticker.eq.${t}`).join(',');
-    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(${tickerFilter})&date=gte.${cutoffStr}&order=date.asc&limit=5000`);
+    // Use PostgREST "in" operator instead of "or" — more reliable through the Express proxy
+    const tickerList = portfolioTickers.join(',');
+    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&ticker=in.(${tickerList})&date=gte.${cutoffStr}&order=date.asc&limit=5000`);
     if (!Array.isArray(rows) || rows.length === 0) {
       el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">Sin datos aún — el worker los generará hoy</div>';
       return;
@@ -1342,7 +1343,7 @@ async function openScatterModal(tickerA, tickerB, period) {
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
   try {
-    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(ticker.eq.${tickerA},ticker.eq.${tickerB})&date=gte.${cutoffStr}&order=date.asc&limit=2000`);
+    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&ticker=in.(${tickerA},${tickerB})&date=gte.${cutoffStr}&order=date.asc&limit=2000`);
 
     const mapA = {}, mapB = {};
     rows.forEach(r => {
@@ -1534,9 +1535,9 @@ async function fetchPerfData() {
     : [];
 
   const allTickers = [...new Set([...portfolioTickers, ...PERF_BENCHMARKS.map(b => b.ticker)])];
-  const tickerFilter = allTickers.map(t => `ticker.eq.${t}`).join(',');
+  const tickerList = allTickers.join(',');
 
-  const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(${tickerFilter})&date=gte.${cutoffStr}&order=date.asc&limit=20000`);
+  const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&ticker=in.(${tickerList})&date=gte.${cutoffStr}&order=date.asc&limit=20000`);
   if (!Array.isArray(rows) || rows.length === 0) return;
 
   // Group by ticker
