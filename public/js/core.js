@@ -380,6 +380,8 @@ function initAllModals() {
   initDragClose('rsuModal', closeRSU);
   initDragClose('aiModal', closeAIChat);
   initDragClose('healthDetailModal', closeHealthDetail);
+  initDragClose('scatterModal', closeScatterModal);
+  initDragClose('perfDetailModal', closePerfDetail);
 }
 document.addEventListener('DOMContentLoaded', initAllModals);
 

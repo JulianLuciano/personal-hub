@@ -16,10 +16,12 @@ function switchAnalyticsTab(tab, btn) {
   document.querySelectorAll('.analytics-subtab').forEach(s => s.classList.remove('active'));
   document.getElementById(
     tab === 'health' ? 'analyticsHealth' :
-    tab === 'corr'   ? 'analyticsCorr'   : 'analyticsSims'
+    tab === 'corr'   ? 'analyticsCorr'   :
+    tab === 'perf'   ? 'analyticsPerf'   : 'analyticsSims'
   ).classList.add('active');
   if (tab === 'health' && typeof renderHealthScore === 'function') renderHealthScore();
-  if (tab === 'corr') loadCorrelation();   // ← agregar esta línea
+  if (tab === 'corr') loadCorrelation();
+  if (tab === 'perf') loadPerformance();
   if (tab === 'sims' && !mcAutoRan && typeof mcRun === 'function') {
     mcAutoRan = true;
     setTimeout(() => { const btn = document.getElementById('mcRunBtn'); if (btn) btn.click(); }, 100);
@@ -1155,7 +1157,12 @@ function renderCorrelationHeatmap(rows) {
       const textCol = isSelf ? 'var(--muted)' : corrTextColor(c);
       const val = c !== null ? (isSelf ? '—' : c.toFixed(2)) : '?';
       const title = isSelf ? ta : `${dispTicker(ta)} vs ${dispTicker(tb)}: ${c !== null ? c.toFixed(3) : 'N/A'}`;
-      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
+      const clickAttr = isSelf ? '' : ` onclick="openScatterModal('${ta}','${tb}',${corrActivePeriod})" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:pointer;vertical-align:middle;overflow:hidden"`;
+      if (isSelf) {
+        html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
+      } else {
+        html += `<td title="${title}"${clickAttr}>${val}</td>`;
+      }
     });
     html += '</tr>';
   });
@@ -1182,4 +1189,823 @@ function renderCorrelationHeatmap(rows) {
     const low  = `<span style="color:#43e97b;font-weight:700">${dispTicker(minPair[0])} / ${dispTicker(minPair[1])}</span> (${minCorr.toFixed(2)})`;
     insightEl.innerHTML = `Mayor correlación: ${high} &nbsp;·&nbsp; Menor: ${low}`;
   }
+}
+
+// ── CORRELATION VS PORTFOLIO ──────────────────────────────────────────────────
+
+async function loadCorrVsPortfolio(period) {
+  const el = document.getElementById('corrVsPortList');
+  const labelEl = document.getElementById('corrVsPortPeriodLabel');
+  if (!el) return;
+
+  // Use already-loaded daily_returns data if available, else fetch
+  // daily_returns for portfolio tickers from Supabase
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (period + 10)); // small buffer
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  try {
+    // Get portfolio tickers (non-fiat, non-benchmark)
+    if (!liveData) { el.innerHTML = '<div style="color:var(--muted)">Sin datos de portfolio</div>'; return; }
+    const EXCLUDED = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+    const portfolioTickers = liveData.assets
+      .filter(a => a.pos.category !== 'fiat' && !EXCLUDED.has(a.pos.ticker) && a.valueUSD > 0.5)
+      .map(a => a.pos.ticker);
+
+    if (portfolioTickers.length < 2) { el.innerHTML = '<div style="color:var(--muted)">Insuficientes posiciones</div>'; return; }
+
+    // Fetch daily_returns for all portfolio tickers
+    const tickerFilter = portfolioTickers.map(t => `ticker.eq.${t}`).join(',');
+    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(${tickerFilter})&date=gte.${cutoffStr}&order=date.asc&limit=5000`);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">Sin datos aún — el worker los generará hoy</div>';
+      return;
+    }
+
+    // Group returns by ticker and date
+    const byTicker = {};
+    rows.forEach(r => {
+      if (!byTicker[r.ticker]) byTicker[r.ticker] = {};
+      byTicker[r.ticker][r.date] = r.return_pct;
+    });
+
+    // Get common dates across all tickers (last `period` days)
+    const allDates = [...new Set(rows.map(r => r.date))].sort();
+    const periodDates = allDates.slice(-period);
+    if (periodDates.length < 20) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">Datos insuficientes para este período</div>';
+      return;
+    }
+
+    // Build portfolio daily return (equal-weighted across available tickers each day)
+    // Uses actual weights from liveData for weighted average
+    const totalInvested = portfolioTickers.reduce((s, t) => {
+      const a = liveData.assets.find(a => a.pos.ticker === t);
+      return s + (a ? a.valueUSD : 0);
+    }, 0);
+    const weights = {};
+    portfolioTickers.forEach(t => {
+      const a = liveData.assets.find(a => a.pos.ticker === t);
+      weights[t] = a && totalInvested > 0 ? a.valueUSD / totalInvested : 0;
+    });
+
+    const portfolioReturns = {};
+    periodDates.forEach(date => {
+      let wSum = 0, wRet = 0;
+      portfolioTickers.forEach(t => {
+        if (byTicker[t]?.[date] != null) {
+          wRet += byTicker[t][date] * weights[t];
+          wSum += weights[t];
+        }
+      });
+      if (wSum > 0.3) portfolioReturns[date] = wRet / wSum;
+    });
+
+    const portDates = Object.keys(portfolioReturns).sort();
+    if (portDates.length < 20) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px">Datos insuficientes</div>';
+      return;
+    }
+    const portReturnArr = portDates.map(d => portfolioReturns[d]);
+
+    // Calculate Pearson correlation of each ticker vs portfolio
+    function corrVsPort(ticker) {
+      const pairs = portDates
+        .filter(d => byTicker[ticker]?.[d] != null)
+        .map(d => [byTicker[ticker][d], portfolioReturns[d]]);
+      if (pairs.length < 20) return null;
+      const a = pairs.map(p => p[0]);
+      const b = pairs.map(p => p[1]);
+      return pearsonCorrelation(a, b);
+    }
+
+    // Build rows sorted by correlation desc
+    const results = portfolioTickers
+      .map(t => ({ ticker: t, corr: corrVsPort(t) }))
+      .filter(r => r.corr !== null)
+      .sort((a, b) => b.corr - a.corr);
+
+    if (labelEl) labelEl.textContent = `${period}d · ${portDates.length} días`;
+
+    function corrColor(c) {
+      const abs = Math.abs(c);
+      if (abs >= 0.8) return '#ff4d6d';
+      if (abs >= 0.6) return '#f7b731';
+      return '#43e97b';
+    }
+
+    function dispT(t) { return t.replace('RSU_META', 'META').replace('.L', ''); }
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:5px 4px;color:var(--muted);font-size:10px">Posición</th><th style="text-align:right;padding:5px 4px;color:var(--muted);font-size:10px">Corr vs Portfolio</th><th style="text-align:right;padding:5px 4px;color:var(--muted);font-size:10px">Peso</th></tr>';
+    results.forEach(({ ticker, corr }) => {
+      const w = weights[ticker] || 0;
+      const col = corrColor(corr);
+      const interpretation = corr >= 0.8 ? 'Alta — poca diversificación' : corr >= 0.6 ? 'Media' : 'Baja — diversifica bien';
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:7px 4px;font-weight:600">${dispT(ticker)}</td>
+        <td style="text-align:right;padding:7px 4px;font-family:var(--font-num);font-weight:700;color:${col}">${corr.toFixed(3)}<span style="font-size:9px;color:var(--muted);font-weight:400;margin-left:5px">${interpretation}</span></td>
+        <td style="text-align:right;padding:7px 4px;color:var(--muted)">${(w * 100).toFixed(1)}%</td>
+      </tr>`;
+    });
+    html += '</table>';
+    el.innerHTML = html;
+
+  } catch (e) {
+    console.error('loadCorrVsPortfolio error:', e);
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Error cargando datos</div>';
+  }
+}
+
+// Hook into loadCorrelation so it also loads vs-portfolio section
+const _origLoadCorrelation = loadCorrelation;
+async function loadCorrelation(period) {
+  await _origLoadCorrelation(period);
+  loadCorrVsPortfolio(corrActivePeriod);
+}
+
+// ── SCATTER PLOT MODAL ────────────────────────────────────────────────────────
+
+let scatterChartInstance = null;
+
+async function openScatterModal(tickerA, tickerB, period) {
+  const modal = document.getElementById('scatterModal');
+  const titleEl = document.getElementById('scatterModalTitle');
+  const subEl = document.getElementById('scatterModalSub');
+  const statsEl = document.getElementById('scatterStats');
+
+  function dispT(t) { return t.replace('RSU_META', 'META').replace('.L', ''); }
+  titleEl.textContent = `${dispT(tickerA)} vs ${dispT(tickerB)}`;
+  subEl.textContent = `Retornos diarios — últimos ${period}d`;
+  statsEl.innerHTML = '<span style="color:var(--muted);font-size:12px">Cargando...</span>';
+  modal.classList.add('open');
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (period + 10));
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  try {
+    const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(ticker.eq.${tickerA},ticker.eq.${tickerB})&date=gte.${cutoffStr}&order=date.asc&limit=2000`);
+
+    const mapA = {}, mapB = {};
+    rows.forEach(r => {
+      if (r.ticker === tickerA) mapA[r.date] = r.return_pct;
+      if (r.ticker === tickerB) mapB[r.date] = r.return_pct;
+    });
+
+    // Inner join on common dates, last `period` days
+    const commonDates = Object.keys(mapA).filter(d => mapB[d] != null).sort().slice(-period);
+    if (commonDates.length < 10) {
+      statsEl.innerHTML = '<span style="color:var(--muted);font-size:12px">Datos insuficientes</span>';
+      return;
+    }
+
+    const points = commonDates.map(d => ({ x: mapA[d] * 100, y: mapB[d] * 100, date: d }));
+    const aArr = points.map(p => p.x);
+    const bArr = points.map(p => p.y);
+
+    // Stats
+    const corr = pearsonCorrelation(aArr.map(v => v / 100), bArr.map(v => v / 100));
+
+    // Linear regression for trendline
+    const n = aArr.length;
+    const meanA = aArr.reduce((s, v) => s + v, 0) / n;
+    const meanB = bArr.reduce((s, v) => s + v, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (aArr[i] - meanA) * (bArr[i] - meanB); den += (aArr[i] - meanA) ** 2; }
+    const slope = den !== 0 ? num / den : 0;
+    const intercept = meanB - slope * meanA;
+    const xMin = Math.min(...aArr), xMax = Math.max(...aArr);
+    const trendline = [{ x: xMin, y: slope * xMin + intercept }, { x: xMax, y: slope * xMax + intercept }];
+
+    const isDarkMode = !document.documentElement.classList.contains('light');
+    const tc = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+    const gc = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+    if (scatterChartInstance) scatterChartInstance.destroy();
+    const cvs = document.getElementById('scatterChart');
+    scatterChartInstance = new Chart(cvs, {
+      data: {
+        datasets: [
+          {
+            type: 'scatter',
+            label: 'Retornos',
+            data: points,
+            backgroundColor: 'rgba(108,99,255,0.55)',
+            pointRadius: 3.5,
+            pointHoverRadius: 5,
+          },
+          {
+            type: 'line',
+            label: 'Tendencia',
+            data: trendline,
+            borderColor: 'rgba(247,183,49,0.8)',
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            pointRadius: 0,
+            fill: false,
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: isDarkMode ? '#1c1c26' : '#fff',
+            titleColor: tc, bodyColor: tc,
+            callbacks: {
+              title: ctx => ctx[0].raw.date || '',
+              label: ctx => ctx.datasetIndex === 0
+                ? [`${dispT(tickerA)}: ${ctx.raw.x.toFixed(2)}%`, `${dispT(tickerB)}: ${ctx.raw.y.toFixed(2)}%`]
+                : null,
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: `${dispT(tickerA)} retorno diario (%)`, color: tc, font: { size: 9 } },
+            grid: { color: gc }, ticks: { color: tc, font: { size: 9 }, callback: v => v.toFixed(1) + '%' }
+          },
+          y: {
+            title: { display: true, text: `${dispT(tickerB)} retorno diario (%)`, color: tc, font: { size: 9 } },
+            grid: { color: gc }, ticks: { color: tc, font: { size: 9 }, callback: v => v.toFixed(1) + '%' }
+          }
+        }
+      }
+    });
+
+    const corrColor = corr >= 0.7 ? '#ff4d6d' : corr >= 0.4 ? '#f7b731' : '#43e97b';
+    statsEl.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="background:var(--surface2);border-radius:10px;padding:10px 14px;flex:1;min-width:80px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Correlación</div>
+          <div style="font-family:var(--font-num);font-size:18px;font-weight:800;color:${corrColor}">${corr !== null ? corr.toFixed(3) : '—'}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:10px;padding:10px 14px;flex:1;min-width:80px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Pendiente</div>
+          <div style="font-family:var(--font-num);font-size:18px;font-weight:800">${slope.toFixed(2)}x</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:10px;padding:10px 14px;flex:1;min-width:80px">
+          <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Días</div>
+          <div style="font-family:var(--font-num);font-size:18px;font-weight:800">${n}</div>
+        </div>
+      </div>`;
+
+  } catch (e) {
+    console.error('openScatterModal error:', e);
+    statsEl.innerHTML = '<span style="color:var(--muted);font-size:12px">Error cargando datos</span>';
+  }
+}
+
+function closeScatterModal() {
+  document.getElementById('scatterModal').classList.remove('open');
+  if (scatterChartInstance) { scatterChartInstance.destroy(); scatterChartInstance = null; }
+}
+
+// ── PERFORMANCE TAB ───────────────────────────────────────────────────────────
+
+const PERF_BENCHMARKS = [
+  { ticker: 'SPY',    label: 'SPY',  color: '#43e97b' },
+  { ticker: 'QQQ',    label: 'QQQ',  color: '#4fc3f7' },
+  { ticker: 'TLT',    label: 'TLT',  color: '#f7b731' },
+  { ticker: 'VWRP.L', label: 'VWRP', color: '#ff6584' },
+];
+const PERF_PORTFOLIO_COLOR = '#6c63ff';
+const PERF_RF_ANNUAL = 0.043; // ~4.3% risk-free (approx US T-bill)
+
+let perfActivePeriod = 90;
+let pmePeriod = 90;
+let perfAllReturns = null;  // cache: { ticker: { date: return_pct } }
+let perfTransactions = null;
+let perfChart = null;
+let perfRollingChart = null;
+
+async function loadPerformance(period) {
+  if (period !== undefined) perfActivePeriod = period;
+
+  // Update pill active state
+  document.querySelectorAll('[data-perfperiod]').forEach(p => {
+    p.classList.toggle('active', parseInt(p.dataset.perfperiod) === perfActivePeriod);
+  });
+
+  // Show loading state
+  document.getElementById('perfSharpeVal').textContent = '…';
+  document.getElementById('perfSortinoVal').textContent = '…';
+
+  try {
+    // Fetch all data once and cache
+    if (!perfAllReturns) {
+      await fetchPerfData();
+    }
+    if (!perfAllReturns) {
+      showPerfError('Sin datos de retornos — el worker los generará hoy');
+      return;
+    }
+
+    renderSharpeAndSortino();
+    renderRollingSharpe();
+    // PME renders separately via setPmePeriod
+    renderPME();
+
+  } catch (e) {
+    console.error('loadPerformance error:', e);
+    showPerfError('Error cargando datos de performance');
+  }
+}
+
+function showPerfError(msg) {
+  document.getElementById('perfSharpeVal').textContent = '—';
+  document.getElementById('perfSortinoVal').textContent = '—';
+  const st = document.getElementById('perfRatiosStatus');
+  st.textContent = msg;
+  st.style.display = 'block';
+}
+
+async function fetchPerfData() {
+  // Fetch daily_returns for portfolio tickers + benchmarks
+  // 400d to cover all periods + rolling sharpe window
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 400);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const EXCLUDED_FIAT = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+  const portfolioTickers = liveData
+    ? liveData.assets
+        .filter(a => a.pos.category !== 'fiat' && !EXCLUDED_FIAT.has(a.pos.ticker) && a.valueUSD > 0.5)
+        .map(a => a.pos.ticker)
+    : [];
+
+  const allTickers = [...new Set([...portfolioTickers, ...PERF_BENCHMARKS.map(b => b.ticker)])];
+  const tickerFilter = allTickers.map(t => `ticker.eq.${t}`).join(',');
+
+  const rows = await sbFetch(`/rest/v1/daily_returns?select=ticker,date,return_pct&or=(${tickerFilter})&date=gte.${cutoffStr}&order=date.asc&limit=20000`);
+  if (!Array.isArray(rows) || rows.length === 0) return;
+
+  // Group by ticker
+  perfAllReturns = {};
+  rows.forEach(r => {
+    if (!perfAllReturns[r.ticker]) perfAllReturns[r.ticker] = {};
+    perfAllReturns[r.ticker][r.date] = r.return_pct;
+  });
+
+  // Fetch transactions (for PME cash flows) — buy/vest only, exclude cash/fiat
+  const txRows = await sbFetch('/rest/v1/transactions?select=ticker,date,amount_usd,type&order=date.asc&limit=2000');
+  perfTransactions = Array.isArray(txRows)
+    ? txRows.filter(t => t.type === 'buy' || t.type === 'vest')
+    : [];
+}
+
+// Build portfolio daily returns (weighted) for a given date range
+function buildPortfolioReturns(dates) {
+  const EXCLUDED = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+  if (!liveData) return {};
+  const portfolioTickers = liveData.assets
+    .filter(a => a.pos.category !== 'fiat' && !EXCLUDED.has(a.pos.ticker) && a.valueUSD > 0.5)
+    .map(a => a.pos.ticker);
+
+  const totalInvested = portfolioTickers.reduce((s, t) => {
+    const a = liveData.assets.find(a => a.pos.ticker === t);
+    return s + (a ? a.valueUSD : 0);
+  }, 0);
+
+  const portReturns = {};
+  dates.forEach(date => {
+    let wRet = 0, wSum = 0;
+    portfolioTickers.forEach(t => {
+      const r = perfAllReturns[t]?.[date];
+      if (r != null) {
+        const a = liveData.assets.find(a => a.pos.ticker === t);
+        const w = a && totalInvested > 0 ? a.valueUSD / totalInvested : 0;
+        wRet += r * w;
+        wSum += w;
+      }
+    });
+    if (wSum > 0.3) portReturns[date] = wRet / wSum;
+  });
+  return portReturns;
+}
+
+// Get sorted dates for a period ending today
+function getPeriodDates(periodDays) {
+  const allDates = [...new Set(
+    Object.values(perfAllReturns).flatMap(m => Object.keys(m))
+  )].sort();
+
+  if (periodDays === 0) {
+    // YTD
+    const ytdStart = new Date().getFullYear() + '-01-01';
+    return allDates.filter(d => d >= ytdStart);
+  }
+  return allDates.slice(-periodDays);
+}
+
+function computeRatios(returnArr, rfAnnual) {
+  const n = returnArr.length;
+  if (n < 10) return { sharpe: null, sortino: null };
+  const rfDaily = rfAnnual / 252;
+  const mean = returnArr.reduce((s, v) => s + v, 0) / n;
+  const excessMean = mean - rfDaily;
+  const variance = returnArr.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  const stdDev = Math.sqrt(variance);
+  const downsideReturns = returnArr.filter(r => r < rfDaily);
+  const downsideVar = downsideReturns.length > 0
+    ? downsideReturns.reduce((s, v) => s + (v - rfDaily) ** 2, 0) / n
+    : 0;
+  const downsideStd = Math.sqrt(downsideVar);
+  const annualFactor = Math.sqrt(252);
+  const sharpe  = stdDev > 0 ? (excessMean / stdDev) * annualFactor : null;
+  const sortino = downsideStd > 0 ? (excessMean / downsideStd) * annualFactor : null;
+  return { sharpe, sortino };
+}
+
+function ratioColor(v) {
+  if (v === null) return 'var(--text)';
+  if (v >= 1.5) return '#43e97b';
+  if (v >= 0.5) return '#f7b731';
+  return '#ff4d6d';
+}
+
+function ratioLabel(v, type) {
+  if (v === null) return '—';
+  if (type === 'sharpe') {
+    if (v >= 2)   return 'Excelente (>2)';
+    if (v >= 1)   return 'Bueno (>1)';
+    if (v >= 0)   return 'Moderado';
+    return 'Negativo — mercado bajista';
+  }
+  if (v >= 2)   return 'Excelente — poca vol. negativa';
+  if (v >= 1)   return 'Bueno';
+  if (v >= 0)   return 'Moderado';
+  return 'Negativo';
+}
+
+function renderSharpeAndSortino() {
+  const dates = getPeriodDates(perfActivePeriod);
+  const portReturns = buildPortfolioReturns(dates);
+  const returnArr = Object.values(portReturns);
+
+  const { sharpe, sortino } = computeRatios(returnArr, PERF_RF_ANNUAL);
+
+  const sharpeEl = document.getElementById('perfSharpeVal');
+  const sortinoEl = document.getElementById('perfSortinoVal');
+  const shLblEl = document.getElementById('perfSharpeLabel');
+  const soLblEl = document.getElementById('perfSortinoLabel');
+  const statusEl = document.getElementById('perfRatiosStatus');
+
+  sharpeEl.textContent = sharpe !== null ? sharpe.toFixed(2) : '—';
+  sharpeEl.style.color = ratioColor(sharpe);
+  sortinoEl.textContent = sortino !== null ? sortino.toFixed(2) : '—';
+  sortinoEl.style.color = ratioColor(sortino);
+  shLblEl.textContent = ratioLabel(sharpe, 'sharpe');
+  soLblEl.textContent = ratioLabel(sortino, 'sortino');
+  shLblEl.style.color = ratioColor(sharpe);
+  soLblEl.style.color = ratioColor(sortino);
+  statusEl.style.display = 'none';
+}
+
+function renderRollingSharpe() {
+  const WINDOW = 90;
+  // Use all available dates for rolling chart (not filtered by perfActivePeriod)
+  const allDates = [...new Set(
+    Object.values(perfAllReturns).flatMap(m => Object.keys(m))
+  )].sort();
+  if (allDates.length < WINDOW + 5) {
+    document.getElementById('perfRollingEmpty').textContent = 'Datos insuficientes para rolling Sharpe';
+    return;
+  }
+
+  const portReturns = buildPortfolioReturns(allDates);
+  const portDates = Object.keys(portReturns).sort();
+  if (portDates.length < WINDOW + 5) {
+    document.getElementById('perfRollingEmpty').textContent = 'Datos insuficientes';
+    return;
+  }
+
+  const portArr = portDates.map(d => portReturns[d]);
+  const rollingDates = [], rollingSharpe = [];
+
+  for (let i = WINDOW - 1; i < portArr.length; i++) {
+    const window = portArr.slice(i - WINDOW + 1, i + 1);
+    const { sharpe } = computeRatios(window, PERF_RF_ANNUAL);
+    if (sharpe !== null) {
+      rollingDates.push(portDates[i]);
+      rollingSharpe.push(Math.round(sharpe * 100) / 100);
+    }
+  }
+
+  const isDarkMode = !document.documentElement.classList.contains('light');
+  const tc = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+  const gc = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+  document.getElementById('perfRollingEmpty').style.display = 'none';
+  const cvs = document.getElementById('perfRollingChart');
+  cvs.style.display = 'block';
+
+  if (perfRollingChart) perfRollingChart.destroy();
+
+  // Thin labels: only every ~30 days
+  const labels = rollingDates.map((d, i) => {
+    if (i % 30 === 0) {
+      const dt = new Date(d);
+      return dt.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+    }
+    return '';
+  });
+
+  perfRollingChart = new Chart(cvs, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          data: rollingSharpe,
+          borderColor: PERF_PORTFOLIO_COLOR,
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: {
+            target: { value: 0 },
+            above: 'rgba(108,99,255,0.12)',
+            below: 'rgba(255,77,109,0.10)',
+          },
+          tension: 0.3,
+        },
+        // Reference line at Sharpe = 1
+        {
+          data: new Array(rollingSharpe.length).fill(1),
+          borderColor: 'rgba(67,233,123,0.4)',
+          borderWidth: 1,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDarkMode ? '#1c1c26' : '#fff',
+          titleColor: tc, bodyColor: tc,
+          callbacks: {
+            title: ctx => rollingDates[ctx[0].dataIndex] || '',
+            label: ctx => ctx.datasetIndex === 0 ? `Sharpe: ${ctx.raw.toFixed(2)}` : null,
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: gc }, ticks: { color: tc, font: { size: 9 }, maxRotation: 0 } },
+        y: {
+          grid: { color: gc },
+          ticks: { color: tc, font: { size: 9 }, callback: v => v.toFixed(1) },
+          suggestedMin: -1, suggestedMax: 2,
+        }
+      }
+    }
+  });
+}
+
+// PME: portfolio index-100 vs benchmarks with same cash flows applied
+function setPmePeriod(period) {
+  pmePeriod = period;
+  document.querySelectorAll('[data-pmeperiod]').forEach(p => {
+    p.classList.toggle('active', parseInt(p.dataset.pmeperiod) === pmePeriod);
+  });
+  if (perfAllReturns) renderPME();
+}
+
+function renderPME() {
+  if (!perfAllReturns) return;
+
+  const dates = getPeriodDates(pmePeriod);
+  if (dates.length < 5) {
+    document.getElementById('pmeChartEmpty').textContent = 'Datos insuficientes';
+    return;
+  }
+  const startDate = dates[0];
+
+  // Portfolio index-100: weighted daily returns
+  const portReturns = buildPortfolioReturns(dates);
+  const portDates = dates.filter(d => portReturns[d] != null);
+  if (portDates.length < 5) {
+    document.getElementById('pmeChartEmpty').textContent = 'Datos insuficientes para el portfolio';
+    return;
+  }
+
+  // Cash flows from transactions within the period (for PME benchmark lines)
+  // Each cash flow is a buy/vest — we apply it to each benchmark as if you'd
+  // bought that benchmark instead on the same date
+  const cashFlows = (perfTransactions || [])
+    .filter(t => t.date >= startDate)
+    .map(t => ({ date: t.date, amountUSD: Math.abs(t.amount_usd || 0) }))
+    .filter(t => t.amountUSD > 0);
+
+  // Build index-100 for portfolio (pure return chain, no PME adjustment needed)
+  // The portfolio line already reflects true weights
+  function buildIndex100(ticker, dates) {
+    const m = perfAllReturns[ticker];
+    if (!m) return null;
+    const validDates = dates.filter(d => m[d] != null);
+    if (validDates.length < 5) return null;
+    let idx = 100;
+    return validDates.map(d => {
+      idx *= Math.exp(m[d]); // log return → price factor
+      return { x: d, y: Math.round(idx * 100) / 100 };
+    });
+  }
+
+  // Portfolio: build from weighted returns
+  let portIdx = 100;
+  const portLine = portDates.map(d => {
+    portIdx *= Math.exp(portReturns[d]);
+    return { x: d, y: Math.round(portIdx * 100) / 100 };
+  });
+
+  // Benchmarks: index-100 + cash flow bumps (PME)
+  // For each cash flow date, add the proportional amount to each benchmark's index
+  // This simulates investing the same cash flows into the benchmark
+  function buildPMELine(ticker, dates) {
+    const m = perfAllReturns[ticker];
+    if (!m) return null;
+    const validDates = dates.filter(d => m[d] != null);
+    if (validDates.length < 5) return null;
+
+    // Initial "investment" equivalent = 100 index units
+    let units = 100; // think of this as £100 worth at start
+    const initialValue = 100;
+    let currentValue = 100;
+
+    // Total initial invested (to scale new cash flows)
+    const totalInitialCashFlows = cashFlows
+      .filter(cf => cf.date >= startDate)
+      .reduce((s, cf) => s + cf.amountUSD, 0);
+
+    const result = [];
+    validDates.forEach(d => {
+      // Apply return
+      currentValue *= Math.exp(m[d]);
+      // Apply any cash flows on this date (add to benchmark)
+      cashFlows.filter(cf => cf.date === d).forEach(cf => {
+        // Scale cash flow relative to initial portfolio value
+        // If initial portfolio is ~X and cf is Y, add Y/X * 100 index units
+        if (totalInitialCashFlows > 0) {
+          currentValue += (cf.amountUSD / totalInitialCashFlows) * initialValue * Math.exp(m[d]);
+        }
+      });
+      result.push({ x: d, y: Math.round(currentValue * 100) / 100 });
+    });
+    return result;
+  }
+
+  const isDarkMode = !document.documentElement.classList.contains('light');
+  const tc = isDarkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+  const gc = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+  // Build datasets
+  const datasets = [];
+
+  // Portfolio line
+  datasets.push({
+    label: 'Portfolio',
+    data: portLine,
+    borderColor: PERF_PORTFOLIO_COLOR,
+    borderWidth: 2.5,
+    pointRadius: 0,
+    fill: false,
+    tension: 0.2,
+  });
+
+  // Benchmark lines
+  PERF_BENCHMARKS.forEach(bm => {
+    const line = buildPMELine(bm.ticker, dates);
+    if (!line) return;
+    datasets.push({
+      label: bm.label,
+      data: line,
+      borderColor: bm.color,
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+      tension: 0.2,
+      borderDash: [3, 2],
+    });
+  });
+
+  // Build legend
+  const legendEl = document.getElementById('pmeLegend');
+  const allLabels = [{ label: 'Portfolio', color: PERF_PORTFOLIO_COLOR }, ...PERF_BENCHMARKS];
+  legendEl.innerHTML = allLabels.map(l => `
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:16px;height:2px;background:${l.color};border-radius:1px;flex-shrink:0"></div>
+      <span style="font-size:10px;color:var(--muted)">${l.label}</span>
+    </div>`).join('');
+
+  document.getElementById('pmeChartEmpty').style.display = 'none';
+  const cvs = document.getElementById('pmeChart');
+  cvs.style.display = 'block';
+  if (perfChart) perfChart.destroy();
+
+  perfChart = new Chart(cvs, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDarkMode ? '#1c1c26' : '#fff',
+          titleColor: tc, bodyColor: tc,
+          callbacks: {
+            title: ctx => ctx[0]?.raw?.x || '',
+            label: ctx => `${ctx.dataset.label}: ${ctx.raw.y.toFixed(1)}`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'category',
+          grid: { color: gc },
+          ticks: {
+            color: tc, font: { size: 9 }, maxRotation: 0, maxTicksLimit: 7,
+            callback(val, i) {
+              // Show date label for first dataset's data points
+              const d = datasets[0]?.data[i]?.x;
+              if (!d) return '';
+              const dt = new Date(d);
+              return dt.toLocaleDateString('es-AR', { month: 'short', day: 'numeric' });
+            }
+          }
+        },
+        y: {
+          grid: { color: gc },
+          ticks: { color: tc, font: { size: 9 }, callback: v => v.toFixed(0) },
+        }
+      }
+    }
+  });
+}
+
+// Performance detail modals
+function openPerfDetail(type) {
+  const modal = document.getElementById('perfDetailModal');
+  const titleEl = document.getElementById('perfDetailTitle');
+  const bodyEl = document.getElementById('perfDetailBody');
+
+  const dates = getPeriodDates(perfActivePeriod);
+  const portReturns = buildPortfolioReturns(dates);
+  const returnArr = Object.values(portReturns);
+  const { sharpe, sortino } = computeRatios(returnArr, PERF_RF_ANNUAL);
+
+  if (type === 'sharpe') {
+    titleEl.textContent = 'Sharpe Ratio';
+    bodyEl.innerHTML = `
+      <div style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:16px">
+        Mide el retorno obtenido por unidad de riesgo total. Compara el retorno en exceso sobre la tasa libre de riesgo con la volatilidad total del portfolio (subidas y bajadas).
+        <br><br>
+        <strong>Fórmula:</strong> (Retorno anualizado − Tasa libre de riesgo) / Volatilidad anualizada
+        <br><br>
+        <strong>Tasa libre de riesgo usada:</strong> ${(PERF_RF_ANNUAL * 100).toFixed(1)}% (T-Bill US)
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface2);border-radius:12px;margin-bottom:12px">
+        <div style="font-family:var(--font-num);font-size:32px;font-weight:800;color:${ratioColor(sharpe)}">${sharpe !== null ? sharpe.toFixed(2) : '—'}</div>
+        <div>
+          <div style="font-size:12px;font-weight:600">${perfActivePeriod}d annualizado</div>
+          <div style="font-size:11px;color:${ratioColor(sharpe)};margin-top:2px">${ratioLabel(sharpe, 'sharpe')}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6">
+        <strong>&gt; 2</strong> — Excelente · <strong>1–2</strong> — Bueno · <strong>0–1</strong> — Moderado · <strong>&lt; 0</strong> — Negativo
+      </div>`;
+  }
+
+  if (type === 'sortino') {
+    titleEl.textContent = 'Sortino Ratio';
+    bodyEl.innerHTML = `
+      <div style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:16px">
+        Como el Sharpe, pero solo penaliza la volatilidad negativa (downside deviation). Es más relevante para un inversor real: no importa si el portfolio sube fuerte, solo si baja.
+        <br><br>
+        <strong>Fórmula:</strong> (Retorno anualizado − Tasa libre de riesgo) / Downside Deviation anualizada
+        <br><br>
+        Si Sortino &gt;&gt; Sharpe, tu volatilidad es mayormente al alza — buena señal.
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface2);border-radius:12px;margin-bottom:12px">
+        <div style="font-family:var(--font-num);font-size:32px;font-weight:800;color:${ratioColor(sortino)}">${sortino !== null ? sortino.toFixed(2) : '—'}</div>
+        <div>
+          <div style="font-size:12px;font-weight:600">${perfActivePeriod}d annualizado</div>
+          <div style="font-size:11px;color:${ratioColor(sortino)};margin-top:2px">${ratioLabel(sortino, 'sortino')}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6">
+        Sortino siempre es mayor o igual a Sharpe. La diferencia entre ambos mide cuánta de tu volatilidad es al alza.
+      </div>`;
+  }
+
+  modal.classList.add('open');
+}
+
+function closePerfDetail() {
+  document.getElementById('perfDetailModal').classList.remove('open');
 }

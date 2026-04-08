@@ -581,6 +581,7 @@
       <button class="analytics-pill active" onclick="switchAnalyticsTab('health', this)">Health</button>
       <button class="analytics-pill" onclick="switchAnalyticsTab('sims', this)">Simulaciones</button>
       <button class="analytics-pill" onclick="switchAnalyticsTab('corr', this)">Correlación</button>
+      <button class="analytics-pill" onclick="switchAnalyticsTab('perf', this)">Performance</button>
     </div>
 
     <!-- ═══ HEALTH SUB-TAB ═══ -->
@@ -847,8 +848,111 @@
         </div>
         <div id="corrInsight"></div>
       </div>
-    </div>
+
+      <!-- Position vs Portfolio correlation -->
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Correlación vs Portfolio</div>
+          <div id="corrVsPortPeriodLabel" style="font-size:10px;color:var(--muted)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Cuánto se mueve cada posición junto al portfolio total</div>
+        <div id="corrVsPortList" style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0">Cargando...</div>
+      </div>
+
+    </div><!-- end analyticsCorr -->
+
+    <!-- ═══ PERFORMANCE SUB-TAB ═══ -->
+    <div class="analytics-subtab" id="analyticsPerf">
+
+      <!-- Sharpe + Sortino cards -->
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Ratios de performance</div>
+          <div style="display:flex;gap:5px">
+            <button class="corr-period-pill active" data-perfperiod="90"  onclick="loadPerformance(90)">90d</button>
+            <button class="corr-period-pill"        data-perfperiod="180" onclick="loadPerformance(180)">180d</button>
+            <button class="corr-period-pill"        data-perfperiod="365" onclick="loadPerformance(365)">365d</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+          <div style="background:var(--surface2);border-radius:14px;padding:14px;cursor:pointer" onclick="openPerfDetail('sharpe')">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Sharpe Ratio <span style="display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;border:1px solid var(--border);font-size:7px;color:var(--muted);margin-left:3px;vertical-align:middle">i</span></div>
+            <div style="font-family:var(--font-num);font-size:24px;font-weight:800" id="perfSharpeVal">—</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px" id="perfSharpeLabel">—</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:14px;padding:14px;cursor:pointer" onclick="openPerfDetail('sortino')">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Sortino Ratio <span style="display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;border:1px solid var(--border);font-size:7px;color:var(--muted);margin-left:3px;vertical-align:middle">i</span></div>
+            <div style="font-family:var(--font-num);font-size:24px;font-weight:800" id="perfSortinoVal">—</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px" id="perfSortinoLabel">—</div>
+          </div>
+        </div>
+        <div id="perfRatiosStatus" style="font-size:11px;color:var(--muted);text-align:center;padding:8px 0;display:none"></div>
+      </div>
+
+      <!-- Rolling Sharpe chart -->
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Rolling Sharpe <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(ventana 90d)</span></div>
+        </div>
+        <div style="position:relative;width:100%;height:140px">
+          <div id="perfRollingEmpty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">Cargando...</div>
+          <canvas id="perfRollingChart" style="display:none;width:100%;height:100%"></canvas>
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:6px">Línea punteada = Sharpe 1.0 (referencia)</div>
+      </div>
+
+      <!-- PME vs benchmarks — índice 100 -->
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Portfolio vs Benchmarks</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="corr-period-pill" data-pmeperiod="30"  onclick="setPmePeriod(30)">30d</button>
+            <button class="corr-period-pill active" data-pmeperiod="90" onclick="setPmePeriod(90)">90d</button>
+            <button class="corr-period-pill" data-pmeperiod="180" onclick="setPmePeriod(180)">180d</button>
+            <button class="corr-period-pill" data-pmeperiod="365" onclick="setPmePeriod(365)">365d</button>
+            <button class="corr-period-pill" data-pmeperiod="0"   onclick="setPmePeriod(0)">YTD</button>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Índice 100 · portfolio invertido vs benchmarks con mismos cash flows</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px" id="pmeLegend"></div>
+        <div style="position:relative;width:100%;height:180px">
+          <div id="pmeChartEmpty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">Cargando...</div>
+          <canvas id="pmeChart" style="display:none;width:100%;height:100%"></canvas>
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:6px">La curva sube con aportes nuevos — compará pendiente, no nivel absoluto</div>
+      </div>
+
+    </div><!-- end analyticsPerf -->
+
   </div><!-- end panel-analytics -->
+
+  <!-- SCATTER PLOT MODAL -->
+  <div class="modal-overlay" id="scatterModal">
+    <div class="modal" style="max-height:80vh;overflow-y:auto;padding-bottom:32px">
+      <div class="modal-handle"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800" id="scatterModalTitle">—</div>
+        <button onclick="closeScatterModal()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1">×</button>
+      </div>
+      <div id="scatterModalSub" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>
+      <div style="position:relative;width:100%;height:220px">
+        <canvas id="scatterChart" style="width:100%;height:100%"></canvas>
+      </div>
+      <div style="margin-top:14px" id="scatterStats"></div>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE DETAIL MODAL -->
+  <div class="modal-overlay" id="perfDetailModal">
+    <div class="modal" style="max-height:75vh;overflow-y:auto;padding-bottom:32px">
+      <div class="modal-handle"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800" id="perfDetailTitle">—</div>
+        <button onclick="closePerfDetail()" style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1">×</button>
+      </div>
+      <div id="perfDetailBody"></div>
+    </div>
+  </div>
 
 
 
