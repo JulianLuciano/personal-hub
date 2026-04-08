@@ -1,6 +1,74 @@
 // ── AI CHAT ────────────────────────────────────────────────────────────────
 const aiHistory = [];
 
+// ── Chat history logging ──────────────────────────────────────────────────
+// How many messages to send as context on each turn.
+// Change this one constant to adjust the sliding window everywhere.
+const AI_CONTEXT_WINDOW = 8;
+
+let aiConversationId = null; // UUID — created on first message, reset on page load
+let aiMessageSeq     = 0;    // global sequence counter within a conversation
+
+// Creates the conversation row on first message. Returns the UUID or null on failure.
+async function aiEnsureConversation(model, firstMsg) {
+  if (aiConversationId) return aiConversationId;
+  try {
+    const r = await fetch('/api/ai-conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, title: firstMsg.slice(0, 80) }),
+    });
+    const d = await r.json();
+    aiConversationId = d.id || null;
+    aiMessageSeq = 0;
+  } catch(e) {
+    console.warn('[ai-log] failed to create conversation:', e.message);
+  }
+  return aiConversationId;
+}
+
+// Inserts one message row. Returns the server-assigned UUID (from response body), or null.
+async function aiLogMessage({ role, content, model, input_tokens, output_tokens }) {
+  if (!aiConversationId) return null;
+  try {
+    const r = await fetch('/api/ai-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: aiConversationId,
+        seq:             aiMessageSeq++,
+        role,
+        content,
+        model:         model         ?? null,
+        input_tokens:  input_tokens  ?? null,
+        output_tokens: output_tokens ?? null,
+      }),
+    });
+    const d = await r.json();
+    return d.id ?? null;
+  } catch(e) {
+    console.warn('[ai-log] failed to log message:', e.message);
+    return null;
+  }
+}
+
+// Records which messages were passed as context for a given turn.
+// turn_msg_seq: seq of the user message that triggered this turn.
+// context_seqs: array of seq numbers that were included in messages[] sent to the API.
+async function aiLogContextLinks(turn_msg_seq, context_seqs) {
+  if (!aiConversationId || turn_msg_seq == null || !context_seqs.length) return;
+  try {
+    await fetch('/api/ai-context-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: aiConversationId, turn_msg_seq, context_seqs }),
+    });
+  } catch(e) {
+    console.warn('[ai-log] failed to log context links:', e.message);
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function buildMacroContext() {
   const md = window._macroData || {};
   if (!Object.keys(md).length) return null;
@@ -540,14 +608,13 @@ async function aiSendMsg() {
   input.value = '';
   input.style.height = 'auto';
 
-  // Add user message
+  // Add user message to UI and history
   aiAddMsg('user', msg);
   aiHistory.push({ role: 'user', content: msg });
 
   // Thinking indicator with animated states
   const thinkingEl = aiAddMsg('thinking', '');
   thinkingEl.innerHTML = '<span class="ai-thinking-text">Analizando tu portfolio</span><span class="ai-dots"><span>.</span><span>.</span><span>.</span></span>';
-  // Cycle through thinking messages
   const thinkingMsgs = ['Analizando tu portfolio', 'Procesando datos', 'Calculando métricas', 'Preparando respuesta'];
   let tmIdx = 0;
   const tmInterval = setInterval(() => {
@@ -556,6 +623,26 @@ async function aiSendMsg() {
     if (textEl) textEl.textContent = thinkingMsgs[tmIdx];
   }, 1800);
   thinkingEl._tmInterval = tmInterval;
+
+  // ── Logging: ensure conversation exists, log user message ──
+  // Do this before the API call so we have the ID ready when the reply comes back.
+  // aiHistory at this point already includes the current user message as the last item.
+  // The context slice is the last AI_CONTEXT_WINDOW items of aiHistory *before* this push,
+  // which is aiHistory.slice(-(AI_CONTEXT_WINDOW + 1), -1) for context + current msg at end.
+  // Simpler: context = items at indices [len - AI_CONTEXT_WINDOW .. len-1] of current aiHistory.
+  const historySnapshot = aiHistory.slice(); // copy at this moment
+  const contextSlice    = historySnapshot.slice(-AI_CONTEXT_WINDOW); // what gets sent to API
+
+  // Compute the seq numbers of messages in contextSlice.
+  // seq in DB = position in aiHistory (0-based, same order as messages are logged).
+  // historySnapshot.length = total messages including current user msg.
+  // contextSlice starts at index: historySnapshot.length - contextSlice.length
+  const contextStartIdx = historySnapshot.length - contextSlice.length;
+  const contextSeqs = contextSlice.map((_, i) => contextStartIdx + i);
+
+  await aiEnsureConversation(AI_MODELS[aiModel], msg);
+  const userMsgSeq = aiMessageSeq; // capture BEFORE logging (aiLogMessage will increment it)
+  aiLogMessage({ role: 'user', content: msg });
 
   try {
     const wlBase     = buildWatchlistBase();
@@ -662,7 +749,7 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
         model: AI_MODELS[aiModel],
         max_tokens: 3000,
         system: systemPrompt,
-        messages: aiHistory.slice(-8) // keep last 8 turns for context
+        messages: contextSlice // already computed above
       })
     });
 
@@ -681,6 +768,17 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
     const reply = textBlock?.text || '(sin respuesta)';
     aiAddMsg('assistant', reply);
     aiHistory.push({ role: 'assistant', content: reply });
+
+    // ── Logging: record assistant reply + context links (fire-and-forget) ──
+    aiLogMessage({
+      role: 'assistant',
+      content: reply,
+      model: AI_MODELS[aiModel],
+      input_tokens:  data.usage?.input_tokens  ?? null,
+      output_tokens: data.usage?.output_tokens ?? null,
+    }).then(() => {
+      aiLogContextLinks(userMsgSeq, contextSeqs);
+    });
 
   } catch(e) {
     clearInterval(thinkingEl._tmInterval);

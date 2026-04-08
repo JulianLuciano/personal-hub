@@ -643,6 +643,154 @@ app.post('/api/ai-chat', async (req, res) => {
   }
 });
 
+// ── AI Chat History ───────────────────────────────────────────────────────────
+// SQL to run once in Supabase:
+//
+// CREATE TABLE ai_conversations (
+//   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//   started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+//   model         TEXT,
+//   title         TEXT,
+//   message_count INT DEFAULT 0
+// );
+//
+// CREATE TABLE ai_messages (
+//   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//   conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
+//   seq             INT NOT NULL,       -- 0-based, global within conversation
+//   role            TEXT NOT NULL,      -- 'user' | 'assistant'
+//   content         TEXT NOT NULL,
+//   model           TEXT,              -- only set on assistant messages
+//   input_tokens    INT,
+//   output_tokens   INT,
+//   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+// );
+// CREATE INDEX ON ai_messages(conversation_id, seq);
+//
+// -- Records exactly which messages were passed as context on each turn.
+// -- turn_msg_seq: seq of the user message that triggered the turn.
+// -- context_msg_seq: seq of each message included in messages[] sent to the API.
+// CREATE TABLE ai_context_links (
+//   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//   conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
+//   turn_msg_seq    INT NOT NULL,  -- the user message that triggered this turn
+//   context_msg_seq INT NOT NULL,  -- a message included as context in that turn
+//   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+// );
+// CREATE INDEX ON ai_context_links(conversation_id, turn_msg_seq);
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/ai-conversations  →  create new conversation, return { id }
+app.post('/api/ai-conversations', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { model, title } = req.body || {};
+  try {
+    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/ai_conversations`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({ model: model || null, title: title || null }),
+    });
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    const rows = await sbRes.json();
+    res.json({ id: rows[0]?.id });
+  } catch(e) {
+    console.error('[ai-conversations POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST /api/ai-messages  →  insert one message row, return { id }
+app.post('/api/ai-messages', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { conversation_id, seq, role, content, model, input_tokens, output_tokens } = req.body || {};
+  if (!conversation_id || seq == null || !role || !content) {
+    return res.status(400).json({ error: 'conversation_id, seq, role, content requeridos' });
+  }
+  try {
+    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/ai_messages`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({ conversation_id, seq, role, content,
+        model: model ?? null, input_tokens: input_tokens ?? null, output_tokens: output_tokens ?? null }),
+    });
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    const rows = await sbRes.json();
+    // Best-effort: increment message_count
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/increment_ai_msg_count`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conv_id: conversation_id }),
+    }).catch(() => {});
+    res.json({ id: rows[0]?.id ?? null });
+  } catch(e) {
+    console.error('[ai-messages POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST /api/ai-context-links
+// Body: { turn_msg_id (UUID, unused for now), conversation_id? }
+// Actual approach: client sends { conversation_id, turn_msg_seq, context_seqs: [int] }
+// We bulk-insert one row per context message.
+app.post('/api/ai-context-links', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { conversation_id, turn_msg_seq, context_seqs } = req.body || {};
+  if (!conversation_id || turn_msg_seq == null || !Array.isArray(context_seqs) || !context_seqs.length) {
+    return res.status(400).json({ error: 'conversation_id, turn_msg_seq, context_seqs requeridos' });
+  }
+  try {
+    const rows = context_seqs.map(s => ({ conversation_id, turn_msg_seq, context_msg_seq: s }));
+    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/ai_context_links`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(rows),
+    });
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    res.json({ ok: true, count: rows.length });
+  } catch(e) {
+    console.error('[ai-context-links POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-conversations  →  list conversations (newest first)
+app.get('/api/ai-conversations', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+  try {
+    const sbRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_conversations?select=id,started_at,model,title,message_count&order=started_at.desc&limit=${limit}`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+    );
+    res.json(await sbRes.json());
+  } catch(e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-conversations/:id/messages  →  all messages ordered by seq
+app.get('/api/ai-conversations/:id/messages', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  try {
+    const sbRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_messages?conversation_id=eq.${req.params.id}&order=seq.asc`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+    );
+    res.json(await sbRes.json());
+  } catch(e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── HABITS API ────────────────────────────────────────────────────────────────
 // Pegar estos endpoints en server.js, antes del catch-all app.get('*', ...)
 //
