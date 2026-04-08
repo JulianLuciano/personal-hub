@@ -1084,15 +1084,11 @@ function renderCorrelationHeatmap(rows) {
 
   const N = tickers.length;
   // Measure available width — read from wrap, fall back to card - padding
-  const wrapEl = document.getElementById('corrHeatmapWrap');
-  const cardEl = wrapEl ? wrapEl.closest('.mc-card') : null;
-  const rawW = wrapEl ? wrapEl.clientWidth : 0;
-  const AVAILABLE = rawW > 0 ? rawW : (cardEl ? cardEl.clientWidth - 32 : 320);
   const LABEL_W = 44;
-  // border-spacing:2px adds 2px on each side of every column (N data cols + 1 label col = N+1 gaps each side)
-  // Total spacing = (N + 1) * 2 * 2 = but simpler: table width = LABEL_W + N*CELL + (N+1)*2
-  // So CELL = (AVAILABLE - LABEL_W - (N+1)*2) / N
-  const CELL = Math.floor((AVAILABLE - LABEL_W - (N + 1) * 2) / N);
+  const panelEl = document.getElementById('panel-analytics');
+  const AVAILABLE = panelEl ? panelEl.clientWidth - 80 : 300;
+  // Fill the full available width — no artificial min/max on cell size
+  const CELL = Math.floor((AVAILABLE - LABEL_W) / N);
 
   // Color coding based on absolute correlation value — sign doesn't matter for diversification
   // Thresholds: 0.0–0.3 green, 0.3–0.6 yellow, 0.6–1.0 red
@@ -1135,7 +1131,7 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — width:auto so it only takes as much space as needed, centered
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:auto">`;
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:100%;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
