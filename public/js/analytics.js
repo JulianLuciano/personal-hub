@@ -1055,6 +1055,9 @@ async function loadCorrelation(period) {
 
   // Use rAF to ensure the subtab is visible and clientWidth is accurate
   requestAnimationFrame(() => renderCorrelationHeatmap(rows));
+
+  // Load position vs portfolio correlation (independent — doesn't block heatmap)
+  loadCorrVsPortfolio(corrActivePeriod);
 }
 
 function renderCorrelationHeatmap(rows) {
@@ -1317,12 +1320,6 @@ async function loadCorrVsPortfolio(period) {
   }
 }
 
-// Hook into loadCorrelation so it also loads vs-portfolio section
-const _origLoadCorrelation = loadCorrelation;
-async function loadCorrelation(period) {
-  await _origLoadCorrelation(period);
-  loadCorrVsPortfolio(corrActivePeriod);
-}
 
 // ── SCATTER PLOT MODAL ────────────────────────────────────────────────────────
 
