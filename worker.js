@@ -46,6 +46,135 @@ async function fetchFxRate() {
   return rate ? (1 / rate) : 0.79;
 }
 
+// ── CORRELATION MATRIX ────────────────────────────────────────────────────────
+
+async function fetchDailyReturns(yahooTicker, days = 90) {
+  // Fetch enough range to get ~90 trading days (90 calendar days ≈ 63 trading days,
+  // use 150d to be safe and always have ≥90 data points)
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1d&range=150d`;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const data = await res.json();
+    const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    const timestamps = data?.chart?.result?.[0]?.timestamp;
+    if (!closes || !timestamps) return null;
+
+    // Filter nulls (market closed days) and take last `days` valid closes
+    const valid = closes
+      .map((c, i) => ({ c, t: timestamps[i] }))
+      .filter(x => x.c != null && x.c > 0);
+
+    const slice = valid.slice(-days);
+    if (slice.length < 30) return null; // not enough data
+
+    // Log returns: ln(P_t / P_{t-1})
+    const returns = [];
+    for (let i = 1; i < slice.length; i++) {
+      returns.push(Math.log(slice[i].c / slice[i - 1].c));
+    }
+    return returns;
+  } catch (e) {
+    console.error(`fetchDailyReturns error for ${yahooTicker}:`, e.message);
+    return null;
+  }
+}
+
+function pearsonCorrelation(a, b) {
+  const n = Math.min(a.length, b.length);
+  if (n < 10) return null;
+  const xa = a.slice(-n), xb = b.slice(-n);
+  const meanA = xa.reduce((s, v) => s + v, 0) / n;
+  const meanB = xb.reduce((s, v) => s + v, 0) / n;
+  let num = 0, da2 = 0, db2 = 0;
+  for (let i = 0; i < n; i++) {
+    const da = xa[i] - meanA;
+    const db = xb[i] - meanB;
+    num += da * db;
+    da2 += da * da;
+    db2 += db * db;
+  }
+  const denom = Math.sqrt(da2 * db2);
+  if (denom === 0) return null;
+  return Math.round((num / denom) * 1000) / 1000; // 3 decimal places
+}
+
+async function runCorrelation(positions) {
+  // Check if we already ran today (UTC date)
+  const todayUTC = new Date().toISOString().slice(0, 10); // "2025-04-08"
+  const { data: existing } = await supabase
+    .from('correlation_matrix')
+    .select('calculated_at')
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    const lastRun = existing[0].calculated_at?.slice(0, 10);
+    if (lastRun === todayUTC) {
+      console.log('[Correlation] Ya se calculó hoy, saltando.');
+      return;
+    }
+  }
+
+  console.log('[Correlation] Calculando matriz de correlación (90d)...');
+
+  // Only investable, non-fiat tickers with qty > 0
+  const investable = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
+  const dbTickers = [...new Set(investable.map(p => p.ticker))];
+
+  // Fetch returns for all tickers
+  const returnsByTicker = {};
+  for (const dbTicker of dbTickers) {
+    const yahooTicker = toYahoo(dbTicker);
+    const returns = await fetchDailyReturns(yahooTicker, 90);
+    if (returns) {
+      returnsByTicker[dbTicker] = returns;
+      console.log(`[Correlation] ${dbTicker}: ${returns.length} returns`);
+    } else {
+      console.log(`[Correlation] ${dbTicker}: sin datos suficientes`);
+    }
+  }
+
+  const validTickers = Object.keys(returnsByTicker);
+  if (validTickers.length < 2) {
+    console.log('[Correlation] Menos de 2 tickers con datos, abortando.');
+    return;
+  }
+
+  // Compute all pairs (including self-correlation = 1.0)
+  const upserts = [];
+  for (let i = 0; i < validTickers.length; i++) {
+    for (let j = i; j < validTickers.length; j++) {
+      const ta = validTickers[i];
+      const tb = validTickers[j];
+      const corr = (i === j) ? 1.0 : pearsonCorrelation(returnsByTicker[ta], returnsByTicker[tb]);
+      if (corr === null) continue;
+
+      // Insert both directions for easy querying
+      upserts.push({ ticker_a: ta, ticker_b: tb, correlation: corr, period_days: 90 });
+      if (i !== j) {
+        upserts.push({ ticker_a: tb, ticker_b: ta, correlation: corr, period_days: 90 });
+      }
+    }
+  }
+
+  if (upserts.length === 0) {
+    console.log('[Correlation] No hay pares válidos.');
+    return;
+  }
+
+  // Upsert all pairs
+  const { error } = await supabase
+    .from('correlation_matrix')
+    .upsert(upserts, { onConflict: 'ticker_a,ticker_b' });
+
+  if (error) {
+    console.error('[Correlation] Error guardando matriz:', error);
+  } else {
+    console.log(`[Correlation] Guardados ${upserts.length} pares. ✓`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function run() {
   console.log(`[${new Date().toISOString()}] Worker arrancando...`);
 
@@ -158,6 +287,9 @@ async function run() {
     });
   if (portError) console.error('Error guardando portfolio_snapshot:', portError);
   else console.log(`Portfolio snapshot: $${Math.round(total_usd)} / £${Math.round(total_gbp)}`);
+
+  // 10. Correlation matrix — runs once per day, after price snapshots
+  await runCorrelation(positions);
 
   console.log(`[${new Date().toISOString()}] Worker terminado.`);
 }

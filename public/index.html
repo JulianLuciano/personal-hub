@@ -580,6 +580,7 @@
     <div style="display:flex;gap:6px;margin-bottom:20px">
       <button class="analytics-pill active" onclick="switchAnalyticsTab('health', this)">Health</button>
       <button class="analytics-pill" onclick="switchAnalyticsTab('sims', this)">Simulaciones</button>
+      <button class="analytics-pill" onclick="switchAnalyticsTab('corr', this)">Correlación</button>
     </div>
 
     <!-- ═══ HEALTH SUB-TAB ═══ -->
@@ -827,6 +828,21 @@
 
     </div>
   </div>
+
+<!-- ═══ CORRELACIÓN SUB-TAB ═══ -->
+<div class="analytics-subtab" id="analyticsCorr">
+  <div class="mc-card" style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Correlación de retornos</div>
+      <div id="corrPeriodLabel" style="font-size:10px;color:var(--muted)">90 días</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Rojo = se mueven juntos · Verde = se mueven opuesto</div>
+    <div id="corrHeatmapWrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <div id="corrHeatmap" style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>
+    </div>
+    <div style="margin-top:14px;font-size:10px;color:var(--muted);line-height:1.5" id="corrInsight"></div>
+  </div>
+</div>
 
   <div class="panel" id="panel-settings">
     <div class="profile-card">

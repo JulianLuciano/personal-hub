@@ -14,14 +14,15 @@ function switchAnalyticsTab(tab, btn) {
   document.querySelectorAll('.analytics-pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.analytics-subtab').forEach(s => s.classList.remove('active'));
-  document.getElementById(tab === 'health' ? 'analyticsHealth' : 'analyticsSims').classList.add('active');
+  document.getElementById(
+    tab === 'health' ? 'analyticsHealth' :
+    tab === 'corr'   ? 'analyticsCorr'   : 'analyticsSims'
+  ).classList.add('active');
   if (tab === 'health' && typeof renderHealthScore === 'function') renderHealthScore();
+  if (tab === 'corr') loadCorrelation();   // ← agregar esta línea
   if (tab === 'sims' && !mcAutoRan && typeof mcRun === 'function') {
     mcAutoRan = true;
-    setTimeout(() => {
-      const btn = document.getElementById('mcRunBtn');
-      if (btn) btn.click();
-    }, 100);
+    setTimeout(() => { const btn = document.getElementById('mcRunBtn'); if (btn) btn.click(); }, 100);
   }
 }
 
@@ -1000,3 +1001,154 @@ document.addEventListener('DOMContentLoaded', () => {
   })();
 });
 
+
+// ── CORRELATION HEATMAP ──────────────────────────────────────────────────────
+
+let corrLoaded = false;
+
+async function loadCorrelation() {
+  if (corrLoaded) return;
+  const wrap = document.getElementById('corrHeatmap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>';
+
+  try {
+    const res = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
+    const rows = await res.json();
+
+    if (!rows || rows.length === 0) {
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos aún — el worker los generará hoy</div>';
+      return;
+    }
+
+    // Update period label with date of last calculation
+    const lastCalc = rows[0]?.calculated_at;
+    if (lastCalc) {
+      const d = new Date(lastCalc);
+      const label = d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+      const el = document.getElementById('corrPeriodLabel');
+      if (el) el.textContent = `90 días · actualizado ${label}`;
+    }
+
+    renderCorrelationHeatmap(rows);
+    corrLoaded = true;
+  } catch (e) {
+    console.error('loadCorrelation error:', e);
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Error cargando datos</div>';
+  }
+}
+
+function renderCorrelationHeatmap(rows) {
+  // Build sorted ticker list (self-pairs give us all tickers)
+  const tickerSet = new Set();
+  rows.forEach(r => { tickerSet.add(r.ticker_a); tickerSet.add(r.ticker_b); });
+
+  // Sort: acciones first, then crypto, then rsu — match portfolio order
+  const CATEGORY_ORDER = ['acciones', 'rsu', 'cripto'];
+  const tickerMeta = window.liveData?.assets || [];
+  const categoryOf = {};
+  tickerMeta.forEach(a => {
+    const t = a.pos.ticker === 'RSU_META' ? 'RSU_META' : a.pos.ticker;
+    categoryOf[t] = a.pos.category;
+  });
+
+  const tickers = [...tickerSet].sort((a, b) => {
+    const ca = CATEGORY_ORDER.indexOf(categoryOf[a] || 'acciones');
+    const cb = CATEGORY_ORDER.indexOf(categoryOf[b] || 'acciones');
+    if (ca !== cb) return ca - cb;
+    return a.localeCompare(b);
+  });
+
+  // Build lookup map
+  const corrMap = {};
+  rows.forEach(r => {
+    corrMap[`${r.ticker_a}|${r.ticker_b}`] = r.correlation;
+  });
+
+  const N = tickers.length;
+  const CELL = Math.max(28, Math.min(40, Math.floor(280 / N))); // responsive cell size
+  const LABEL_W = 52;
+  const totalW = LABEL_W + N * CELL;
+
+  // Color interpolation: -1 → green, 0 → neutral, +1 → red
+  function corrColor(c) {
+    if (c === null) return 'var(--surface2)';
+    const isDarkMode = document.documentElement.classList.contains('light') ? false : true;
+    const alpha = Math.abs(c);
+    if (c > 0) {
+      // red family
+      const r = isDarkMode ? `rgba(255,77,109,${0.15 + alpha * 0.75})` : `rgba(220,38,38,${0.12 + alpha * 0.7})`;
+      return r;
+    } else {
+      // green family
+      const g = isDarkMode ? `rgba(67,233,123,${0.15 + alpha * 0.75})` : `rgba(22,163,74,${0.12 + alpha * 0.7})`;
+      return g;
+    }
+  }
+
+  function corrTextColor(c) {
+    if (c === null) return 'var(--muted)';
+    const abs = Math.abs(c);
+    if (abs < 0.25) return 'var(--muted)';
+    return c > 0 ? '#ff6584' : '#43e97b';
+  }
+
+  // Display name (strip _META suffix, shorten VWRP.L → VWRP)
+  function dispTicker(t) {
+    return t.replace('RSU_META', 'META').replace('.L', '');
+  }
+
+  // Build table HTML
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(8, CELL - 20)}px;min-width:${totalW}px">`;
+
+  // Header row
+  html += '<thead><tr>';
+  html += `<th style="width:${LABEL_W}px"></th>`;
+  tickers.forEach(t => {
+    html += `<th style="width:${CELL}px;height:${CELL}px;text-align:center;font-weight:600;color:var(--muted);white-space:nowrap;padding:2px 1px;vertical-align:bottom">
+      <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:${Math.max(7, CELL - 22)}px;line-height:1;max-height:44px;overflow:hidden">${dispTicker(t)}</div>
+    </th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  // Data rows
+  tickers.forEach((ta, i) => {
+    html += '<tr>';
+    // Row label
+    html += `<td style="padding-right:6px;text-align:right;font-weight:600;color:var(--muted);font-size:${Math.max(7, CELL - 22)}px;white-space:nowrap">${dispTicker(ta)}</td>`;
+    tickers.forEach((tb, j) => {
+      const key = `${ta}|${tb}`;
+      const c = corrMap[key] ?? corrMap[`${tb}|${ta}`] ?? (ta === tb ? 1.0 : null);
+      const isSelf = ta === tb;
+      const bg = isSelf ? 'var(--surface2)' : corrColor(c);
+      const textCol = isSelf ? 'var(--muted)' : corrTextColor(c);
+      const val = c !== null ? (isSelf ? '—' : c.toFixed(2)) : '?';
+      const title = isSelf ? ta : `${dispTicker(ta)} vs ${dispTicker(tb)}: ${c !== null ? c.toFixed(3) : 'N/A'}`;
+      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle">${val}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+
+  const wrap = document.getElementById('corrHeatmap');
+  wrap.innerHTML = html;
+
+  // Insight: find highest off-diagonal correlation pair
+  let maxCorr = -Infinity, maxPair = null;
+  let minCorr = Infinity, minPair = null;
+  rows.forEach(r => {
+    if (r.ticker_a === r.ticker_b) return;
+    // Only process each pair once (a < b alphabetically)
+    if (r.ticker_a > r.ticker_b) return;
+    if (r.correlation > maxCorr) { maxCorr = r.correlation; maxPair = [r.ticker_a, r.ticker_b]; }
+    if (r.correlation < minCorr) { minCorr = r.correlation; minPair = [r.ticker_a, r.ticker_b]; }
+  });
+
+  const insightEl = document.getElementById('corrInsight');
+  if (insightEl && maxPair && minPair) {
+    const high = `<span style="color:#ff6584;font-weight:700">${dispTicker(maxPair[0])} / ${dispTicker(maxPair[1])}</span> (${maxCorr.toFixed(2)})`;
+    const low  = `<span style="color:#43e97b;font-weight:700">${dispTicker(minPair[0])} / ${dispTicker(minPair[1])}</span> (${minCorr.toFixed(2)})`;
+    insightEl.innerHTML = `Mayor correlación: ${high} &nbsp;·&nbsp; Menor: ${low}`;
+  }
+}
