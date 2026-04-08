@@ -705,7 +705,7 @@ app.post('/api/ai-conversations', async (req, res) => {
 // POST /api/ai-messages  →  insert one message row, return { id }
 app.post('/api/ai-messages', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
-  const { conversation_id, seq, role, content, model, input_tokens, output_tokens } = req.body || {};
+  const { conversation_id, seq, role, content, model, input_tokens, output_tokens, context_start_seq } = req.body || {};
   if (!conversation_id || seq == null || !role || !content) {
     return res.status(400).json({ error: 'conversation_id, seq, role, content requeridos' });
   }
@@ -717,7 +717,8 @@ app.post('/api/ai-messages', async (req, res) => {
         'Content-Type': 'application/json', 'Prefer': 'return=representation',
       },
       body: JSON.stringify({ conversation_id, seq, role, content,
-        model: model ?? null, input_tokens: input_tokens ?? null, output_tokens: output_tokens ?? null }),
+        model: model ?? null, input_tokens: input_tokens ?? null, output_tokens: output_tokens ?? null,
+        context_start_seq: context_start_seq ?? null }),
     });
     if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
     const rows = await sbRes.json();
@@ -730,34 +731,6 @@ app.post('/api/ai-messages', async (req, res) => {
     res.json({ id: rows[0]?.id ?? null });
   } catch(e) {
     console.error('[ai-messages POST]', e.message);
-    res.status(502).json({ error: e.message });
-  }
-});
-
-// POST /api/ai-context-links
-// Body: { turn_msg_id (UUID, unused for now), conversation_id? }
-// Actual approach: client sends { conversation_id, turn_msg_seq, context_seqs: [int] }
-// We bulk-insert one row per context message.
-app.post('/api/ai-context-links', async (req, res) => {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
-  const { conversation_id, turn_msg_seq, context_seqs } = req.body || {};
-  if (!conversation_id || turn_msg_seq == null || !Array.isArray(context_seqs) || !context_seqs.length) {
-    return res.status(400).json({ error: 'conversation_id, turn_msg_seq, context_seqs requeridos' });
-  }
-  try {
-    const rows = context_seqs.map(s => ({ conversation_id, turn_msg_seq, context_msg_seq: s }));
-    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/ai_context_links`, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
-      },
-      body: JSON.stringify(rows),
-    });
-    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
-    res.json({ ok: true, count: rows.length });
-  } catch(e) {
-    console.error('[ai-context-links POST]', e.message);
     res.status(502).json({ error: e.message });
   }
 });

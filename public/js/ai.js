@@ -28,7 +28,7 @@ async function aiEnsureConversation(model, firstMsg) {
 }
 
 // Inserts one message row. Returns the server-assigned UUID (from response body), or null.
-async function aiLogMessage({ role, content, model, input_tokens, output_tokens }) {
+async function aiLogMessage({ role, content, model, input_tokens, output_tokens, context_start_seq }) {
   if (!aiConversationId) return null;
   try {
     const r = await fetch('/api/ai-messages', {
@@ -39,9 +39,10 @@ async function aiLogMessage({ role, content, model, input_tokens, output_tokens 
         seq:             aiMessageSeq++,
         role,
         content,
-        model:         model         ?? null,
-        input_tokens:  input_tokens  ?? null,
-        output_tokens: output_tokens ?? null,
+        model:              model              ?? null,
+        input_tokens:       input_tokens       ?? null,
+        output_tokens:      output_tokens      ?? null,
+        context_start_seq:  context_start_seq  ?? null,
       }),
     });
     const d = await r.json();
@@ -52,21 +53,6 @@ async function aiLogMessage({ role, content, model, input_tokens, output_tokens 
   }
 }
 
-// Records which messages were passed as context for a given turn.
-// turn_msg_seq: seq of the user message that triggered this turn.
-// context_seqs: array of seq numbers that were included in messages[] sent to the API.
-async function aiLogContextLinks(turn_msg_seq, context_seqs) {
-  if (!aiConversationId || turn_msg_seq == null || !context_seqs.length) return;
-  try {
-    await fetch('/api/ai-context-links', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: aiConversationId, turn_msg_seq, context_seqs }),
-    });
-  } catch(e) {
-    console.warn('[ai-log] failed to log context links:', e.message);
-  }
-}
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildMacroContext() {
@@ -632,17 +618,10 @@ async function aiSendMsg() {
   // Simpler: context = items at indices [len - AI_CONTEXT_WINDOW .. len-1] of current aiHistory.
   const historySnapshot = aiHistory.slice(); // copy at this moment
   const contextSlice    = historySnapshot.slice(-AI_CONTEXT_WINDOW); // what gets sent to API
-
-  // Compute the seq numbers of messages in contextSlice.
-  // seq in DB = position in aiHistory (0-based, same order as messages are logged).
-  // historySnapshot.length = total messages including current user msg.
-  // contextSlice starts at index: historySnapshot.length - contextSlice.length
-  const contextStartIdx = historySnapshot.length - contextSlice.length;
-  const contextSeqs = contextSlice.map((_, i) => contextStartIdx + i);
+  const contextStartSeq = historySnapshot.length - contextSlice.length; // seq of first context msg
 
   await aiEnsureConversation(AI_MODELS[aiModel], msg);
-  const userMsgSeq = aiMessageSeq; // capture BEFORE logging (aiLogMessage will increment it)
-  aiLogMessage({ role: 'user', content: msg });
+  aiLogMessage({ role: 'user', content: msg, context_start_seq: contextStartSeq });
 
   try {
     const wlBase     = buildWatchlistBase();
@@ -769,15 +748,14 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
     aiAddMsg('assistant', reply);
     aiHistory.push({ role: 'assistant', content: reply });
 
-    // ── Logging: record assistant reply + context links (fire-and-forget) ──
+    // ── Logging: record assistant reply (fire-and-forget) ──
     aiLogMessage({
       role: 'assistant',
       content: reply,
       model: AI_MODELS[aiModel],
-      input_tokens:  data.usage?.input_tokens  ?? null,
-      output_tokens: data.usage?.output_tokens ?? null,
-    }).then(() => {
-      aiLogContextLinks(userMsgSeq, contextSeqs);
+      input_tokens:      data.usage?.input_tokens  ?? null,
+      output_tokens:     data.usage?.output_tokens ?? null,
+      context_start_seq: contextStartSeq,
     });
 
   } catch(e) {
