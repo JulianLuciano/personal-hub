@@ -1004,37 +1004,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── CORRELATION HEATMAP ──────────────────────────────────────────────────────
 
-let corrLoaded = false;
+// All rows cached after first fetch — switching periods is instant
+let corrAllRows = null;
+let corrActivePeriod = 90;
 
-async function loadCorrelation() {
-  if (corrLoaded) return;
+async function loadCorrelation(period) {
+  if (period !== undefined) corrActivePeriod = period;
   const wrap = document.getElementById('corrHeatmap');
   if (!wrap) return;
-  wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>';
 
-  try {
-    const rows = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos aún — el worker los generará hoy</div>';
+  // First load: fetch all periods at once
+  if (!corrAllRows) {
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>';
+    try {
+      corrAllRows = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,period_days,calculated_at&order=ticker_a.asc');
+      if (!Array.isArray(corrAllRows) || corrAllRows.length === 0) {
+        wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos aún — el worker los generará hoy</div>';
+        corrAllRows = null;
+        return;
+      }
+    } catch (e) {
+      console.error('loadCorrelation error:', e);
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Error cargando datos</div>';
       return;
     }
-
-    // Update period label with date of last calculation
-    const lastCalc = rows[0]?.calculated_at;
-    if (lastCalc) {
-      const d = new Date(lastCalc);
-      const label = d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
-      const el = document.getElementById('corrPeriodLabel');
-      if (el) el.textContent = `90 días · actualizado ${label}`;
-    }
-
-    renderCorrelationHeatmap(rows);
-    corrLoaded = true;
-  } catch (e) {
-    console.error('loadCorrelation error:', e);
-    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Error cargando datos</div>';
   }
+
+  // Filter to active period
+  const rows = corrAllRows.filter(r => r.period_days === corrActivePeriod);
+  if (rows.length === 0) {
+    wrap.innerHTML = `<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos para ${corrActivePeriod}d aún</div>`;
+    return;
+  }
+
+  // Update date label
+  const lastCalc = rows[0]?.calculated_at;
+  if (lastCalc) {
+    const d = new Date(lastCalc);
+    const label = d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+    const el = document.getElementById('corrPeriodLabel');
+    if (el) el.textContent = `actualizado ${label}`;
+  }
+
+  // Update active pill styles
+  document.querySelectorAll('.corr-period-pill').forEach(p => {
+    const isActive = parseInt(p.dataset.period) === corrActivePeriod;
+    p.classList.toggle('active', isActive);
+    p.style.border = isActive ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
+    p.style.background = isActive ? 'rgba(108,99,255,0.15)' : 'none';
+    p.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
+  });
+
+  renderCorrelationHeatmap(rows);
 }
 
 function renderCorrelationHeatmap(rows) {
