@@ -1051,7 +1051,8 @@ async function loadCorrelation(period) {
     p.classList.toggle('active', parseInt(p.dataset.period) === corrActivePeriod);
   });
 
-  renderCorrelationHeatmap(rows);
+  // Use rAF to ensure the subtab is visible and clientWidth is accurate
+  requestAnimationFrame(() => renderCorrelationHeatmap(rows));
 }
 
 function renderCorrelationHeatmap(rows) {
