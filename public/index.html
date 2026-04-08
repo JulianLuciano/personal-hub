@@ -838,15 +838,15 @@
     </div>
     <!-- Period pills -->
     <div style="display:flex;gap:5px;margin-bottom:12px">
-      <button class="corr-period-pill active" data-period="90" onclick="loadCorrelation(90)" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid var(--accent);background:rgba(108,99,255,0.15);color:var(--accent);transition:all 0.2s">90d</button>
-      <button class="corr-period-pill" data-period="180" onclick="loadCorrelation(180)" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid var(--border);background:none;color:var(--muted);transition:all 0.2s">180d</button>
-      <button class="corr-period-pill" data-period="365" onclick="loadCorrelation(365)" style="padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid var(--border);background:none;color:var(--muted);transition:all 0.2s">365d</button>
+      <button class="corr-period-pill active" data-period="90" onclick="loadCorrelation(90)">90d</button>
+      <button class="corr-period-pill" data-period="180" onclick="loadCorrelation(180)">180d</button>
+      <button class="corr-period-pill" data-period="365" onclick="loadCorrelation(365)">365d</button>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:12px">🟢 &lt;0.3 baja · 🟡 0.3–0.6 media · 🔴 &gt;0.6 alta &nbsp;·&nbsp; valor absoluto</div>
-    <div id="corrHeatmapWrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <div id="corrHeatmap" style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>
+    <div id="corrHeatmapWrap">
+      <div id="corrHeatmap">Cargando...</div>
     </div>
-    <div style="margin-top:14px;font-size:10px;color:var(--muted);line-height:1.5" id="corrInsight"></div>
+    <div id="corrInsight"></div>
   </div>
 </div>
 

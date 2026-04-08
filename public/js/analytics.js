@@ -1046,13 +1046,9 @@ async function loadCorrelation(period) {
     if (el) el.textContent = `actualizado ${label}`;
   }
 
-  // Update active pill styles
+  // Update active pill — CSS handles styling via .active class
   document.querySelectorAll('.corr-period-pill').forEach(p => {
-    const isActive = parseInt(p.dataset.period) === corrActivePeriod;
-    p.classList.toggle('active', isActive);
-    p.style.border = isActive ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
-    p.style.background = isActive ? 'rgba(108,99,255,0.15)' : 'none';
-    p.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
+    p.classList.toggle('active', parseInt(p.dataset.period) === corrActivePeriod);
   });
 
   renderCorrelationHeatmap(rows);
