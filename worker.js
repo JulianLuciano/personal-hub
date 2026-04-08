@@ -46,10 +46,7 @@ async function fetchFxRate() {
   return rate ? (1 / rate) : 0.79;
 }
 
-// ── CORRELATION MATRIX ────────────────────────────────────────────────────────
-
-// GBP_CORR_TICKERS is built dynamically inside runCorrelation() from positions.pricing_currency
-// — consistent with GBP_PRICED_TICKERS used in the price snapshot logic
+// ── CORRELATION MATRIX + DAILY RETURNS ───────────────────────────────────────
 
 async function fetchDailyPriceMap(yahooTicker, range = '400d') {
   // Returns { 'YYYY-MM-DD': closePrice } — keyed by UTC date string for alignment
@@ -142,8 +139,40 @@ function pearsonCorrelation(a, b) {
   return Math.round((num / denom) * 1000) / 1000;
 }
 
-async function runCorrelation(positions) {
-  // Check if we already ran today (UTC date)
+// ── DAILY RETURNS ─────────────────────────────────────────────────────────────
+// Benchmarks always fetched regardless of whether they're in positions.
+// SPY may already be in positions — fetchDailyPriceMap is idempotent so no issue
+// fetching it twice; the priceMapByTicker entry just gets overwritten with same data.
+const BENCHMARK_TICKERS = ['SPY', 'QQQ', 'TLT', 'VWRP.L'];
+
+// Build daily returns upserts from a price map (FX-adjusted to USD already)
+// Returns array of { ticker, date, return_pct, close_usd }
+function buildDailyReturnRows(dbTicker, priceMapUSD) {
+  const dates = Object.keys(priceMapUSD).sort();
+  const rows = [];
+  for (let i = 1; i < dates.length; i++) {
+    const d0 = dates[i - 1];
+    const d1 = dates[i];
+    const p0 = priceMapUSD[d0];
+    const p1 = priceMapUSD[d1];
+    if (!p0 || !p1 || p0 <= 0) continue;
+    const logReturn = Math.log(p1 / p0);
+    // Discard obvious data errors (splits, gaps) — same threshold as correlation
+    if (Math.abs(logReturn) >= 0.20) continue;
+    rows.push({
+      ticker:     dbTicker,
+      date:       d1,
+      return_pct: Math.round(logReturn * 1e6) / 1e6, // 6 decimal places
+      close_usd:  Math.round(p1 * 1e6) / 1e6,
+    });
+  }
+  return rows;
+}
+
+async function runCorrelationAndReturns(positions) {
+  // Shared guard: check if we already ran today (UTC date)
+  // Uses correlation_matrix as the canonical "ran today" flag —
+  // both correlation and daily_returns are written in the same run.
   const todayUTC = new Date().toISOString().slice(0, 10);
   const { data: existing } = await supabase
     .from('correlation_matrix')
@@ -153,65 +182,115 @@ async function runCorrelation(positions) {
   if (existing && existing.length > 0) {
     const lastRun = existing[0].calculated_at?.slice(0, 10);
     if (lastRun === todayUTC) {
-      console.log('[Correlation] Ya se calculó hoy, saltando.');
+      console.log('[Correlation+Returns] Ya se calculó hoy, saltando.');
       return;
     }
   }
 
-  console.log('[Correlation] Calculando matrices de correlación (90d / 180d / 365d)...');
+  console.log('[Correlation+Returns] Calculando correlación (90d/180d/365d) + retornos diarios...');
 
   // Only investable, non-fiat tickers with qty > 0
   const investable = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
-  const dbTickers = [...new Set(investable.map(p => p.ticker))];
+  const portfolioDbTickers = [...new Set(investable.map(p => p.ticker))];
+
+  // All tickers to fetch: portfolio positions + benchmarks (deduped)
+  const allDbTickers = [...new Set([...portfolioDbTickers, ...BENCHMARK_TICKERS])];
 
   // Build GBP set dynamically from DB — consistent with GBP_PRICED_TICKERS in price logic
+  // VWRP.L is GBP-priced; benchmarks SPY/QQQ/TLT are USD-priced
   const GBP_CORR_TICKERS = new Set(
     positions.filter(p => p.pricing_currency === 'GBP').map(p => p.ticker)
   );
-  console.log(`[Correlation] GBP tickers (FX-adjust): ${[...GBP_CORR_TICKERS].join(', ') || 'ninguno'}`);
+  // VWRP.L is in BENCHMARK_TICKERS — mark it as GBP if not already in positions
+  // (handles the case where VWRP.L is a benchmark but not currently held)
+  GBP_CORR_TICKERS.add('VWRP.L');
+  console.log(`[Correlation+Returns] GBP tickers (FX-adjust): ${[...GBP_CORR_TICKERS].join(', ') || 'ninguno'}`);
 
-  // Fetch GBPUSD daily prices once — range=400d covers all three periods
-  const needsFx = dbTickers.some(t => GBP_CORR_TICKERS.has(t));
+  // Fetch GBPUSD daily prices once — needed for FX adjustment
+  const needsFx = allDbTickers.some(t => GBP_CORR_TICKERS.has(t));
   let fxMap = null;
+  // fxMap here is GBPUSD rate (USD per 1 GBP) — multiply GBP price to get USD price
+  let gbpusdMap = null;
   if (needsFx) {
-    fxMap = await fetchDailyPriceMap('GBPUSD=X');
-    if (!fxMap) console.warn('[Correlation] No se pudo obtener GBPUSD, GBP tickers sin ajuste FX');
+    gbpusdMap = await fetchDailyPriceMap('GBPUSD=X');
+    fxMap = gbpusdMap;
+    if (!fxMap) console.warn('[Correlation+Returns] No se pudo obtener GBPUSD, GBP tickers sin ajuste FX');
   }
 
   // Fetch price maps once per ticker — 400d range covers 90/180/365 all at once
-  const priceMapByTicker = {};
-  for (const dbTicker of dbTickers) {
+  const priceMapByTicker = {}; // raw prices (GBP for GBP-priced, USD for others)
+  for (const dbTicker of allDbTickers) {
     const yahooTicker = toYahoo(dbTicker);
     const map = await fetchDailyPriceMap(yahooTicker);
     if (map && Object.keys(map).length >= 31) {
       priceMapByTicker[dbTicker] = map;
-      console.log(`[Correlation] ${dbTicker}: ${Object.keys(map).length} días`);
+      console.log(`[Correlation+Returns] ${dbTicker}: ${Object.keys(map).length} días`);
     } else {
-      console.log(`[Correlation] ${dbTicker}: datos insuficientes`);
+      console.log(`[Correlation+Returns] ${dbTicker}: datos insuficientes`);
     }
   }
 
-  const validTickers = Object.keys(priceMapByTicker);
-  if (validTickers.length < 2) {
-    console.log('[Correlation] Menos de 2 tickers con datos, abortando.');
+  // Build USD-adjusted price maps for daily_returns
+  // For GBP-priced tickers: multiply by GBPUSD rate to get USD price
+  const priceMapUSDByTicker = {};
+  for (const [dbTicker, rawMap] of Object.entries(priceMapByTicker)) {
+    if (GBP_CORR_TICKERS.has(dbTicker) && gbpusdMap) {
+      const usdMap = {};
+      for (const [date, price] of Object.entries(rawMap)) {
+        if (gbpusdMap[date]) usdMap[date] = price * gbpusdMap[date];
+      }
+      priceMapUSDByTicker[dbTicker] = usdMap;
+    } else {
+      priceMapUSDByTicker[dbTicker] = rawMap;
+    }
+  }
+
+  // ── DAILY RETURNS ──────────────────────────────────────────────────────────
+  console.log('[Daily Returns] Calculando retornos diarios...');
+  const returnUpserts = [];
+  for (const dbTicker of Object.keys(priceMapUSDByTicker)) {
+    const rows = buildDailyReturnRows(dbTicker, priceMapUSDByTicker[dbTicker]);
+    returnUpserts.push(...rows);
+    console.log(`[Daily Returns] ${dbTicker}: ${rows.length} retornos`);
+  }
+
+  if (returnUpserts.length > 0) {
+    // Upsert in batches of 500 to avoid payload limits
+    const BATCH = 500;
+    for (let i = 0; i < returnUpserts.length; i += BATCH) {
+      const batch = returnUpserts.slice(i, i + BATCH);
+      const { error } = await supabase
+        .from('daily_returns')
+        .upsert(batch, { onConflict: 'ticker,date' });
+      if (error) console.error(`[Daily Returns] Error batch ${i / BATCH + 1}:`, error);
+    }
+    console.log(`[Daily Returns] Guardados ${returnUpserts.length} retornos. ✓`);
+  } else {
+    console.log('[Daily Returns] No hay retornos para guardar.');
+  }
+
+  // ── CORRELATION MATRIX ────────────────────────────────────────────────────
+  // Only correlate portfolio positions (not benchmarks) — same behavior as before
+  const validPortfolioTickers = portfolioDbTickers.filter(t => priceMapByTicker[t]);
+  if (validPortfolioTickers.length < 2) {
+    console.log('[Correlation] Menos de 2 tickers con datos, abortando correlación.');
     return;
   }
 
-  // Calculate for all three periods using the same price maps (no extra fetches)
   const PERIODS = [90, 180, 365];
-  const upserts = [];
+  const corrUpserts = [];
 
   for (const period of PERIODS) {
     console.log(`[Correlation] Calculando período ${period}d...`);
     let pairCount = 0;
 
-    for (let i = 0; i < validTickers.length; i++) {
-      for (let j = i; j < validTickers.length; j++) {
-        const ta = validTickers[i];
-        const tb = validTickers[j];
+    for (let i = 0; i < validPortfolioTickers.length; i++) {
+      for (let j = i; j < validPortfolioTickers.length; j++) {
+        const ta = validPortfolioTickers[i];
+        const tb = validPortfolioTickers[j];
 
         if (i === j) {
-          upserts.push({ ticker_a: ta, ticker_b: tb, correlation: 1.0, period_days: period });
+          corrUpserts.push({ ticker_a: ta, ticker_b: tb, correlation: 1.0, period_days: period });
           continue;
         }
 
@@ -225,7 +304,7 @@ async function runCorrelation(positions) {
           needFxForPair ? fxMap : null,
           isGBP_A,
           isGBP_B,
-          period  // pass period as maxDays
+          period
         );
 
         if (!aligned) continue;
@@ -233,27 +312,25 @@ async function runCorrelation(positions) {
         const corr = pearsonCorrelation(aligned.returnsA, aligned.returnsB);
         if (corr === null) continue;
 
-        upserts.push({ ticker_a: ta, ticker_b: tb, correlation: corr, period_days: period });
-        upserts.push({ ticker_a: tb, ticker_b: ta, correlation: corr, period_days: period });
+        corrUpserts.push({ ticker_a: ta, ticker_b: tb, correlation: corr, period_days: period });
+        corrUpserts.push({ ticker_a: tb, ticker_b: ta, correlation: corr, period_days: period });
         pairCount++;
       }
     }
     console.log(`[Correlation] ${period}d: ${pairCount} pares calculados`);
   }
 
-  if (upserts.length === 0) {
-    console.log('[Correlation] No hay pares válidos.');
-    return;
-  }
-
-  const { error } = await supabase
-    .from('correlation_matrix')
-    .upsert(upserts, { onConflict: 'ticker_a,ticker_b,period_days' });
-
-  if (error) {
-    console.error('[Correlation] Error guardando matriz:', error);
+  if (corrUpserts.length > 0) {
+    const { error } = await supabase
+      .from('correlation_matrix')
+      .upsert(corrUpserts, { onConflict: 'ticker_a,ticker_b,period_days' });
+    if (error) {
+      console.error('[Correlation] Error guardando matriz:', error);
+    } else {
+      console.log(`[Correlation] Guardados ${corrUpserts.length} entradas (3 períodos). ✓`);
+    }
   } else {
-    console.log(`[Correlation] Guardados ${upserts.length} entradas (3 períodos). ✓`);
+    console.log('[Correlation] No hay pares válidos.');
   }
 }
 
@@ -269,7 +346,6 @@ async function run() {
   if (posError) { console.error('Error leyendo positions:', posError); return; }
 
   // 2. Build GBP_PRICED set dynamically from pricing_currency column
-  // (replaces the old hardcoded GBP_PRICED_TICKERS = new Set(['VWRP.L']))
   const GBP_PRICED_TICKERS = new Set(
     positions
       .filter(p => p.pricing_currency === 'GBP')
@@ -299,7 +375,6 @@ async function run() {
   }
 
   // 6. Build prices map keyed by DB ticker
-  // For GBP-priced tickers (pricing_currency = 'GBP'), convert GBP price → USD before storing
   const prices = {};
   for (const [yahooTicker, price] of Object.entries(pricesByYahoo)) {
     const dbTicker = toDb(yahooTicker);
@@ -311,9 +386,7 @@ async function run() {
     }
   }
 
-  // 7. Save price snapshots (all in USD) — also store fx_rate and price_gbp at capture time
-  // fx_rate: 10 decimal places (consistent with portfolio_snapshots)
-  // price_gbp: 8 decimal places (sufficient precision for all asset types including crypto)
+  // 7. Save price snapshots (all in USD)
   const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({
     ticker,
     price_usd,
@@ -342,7 +415,7 @@ async function run() {
         breakdown.fiat_usd += Number(pos.qty);
       }
     } else {
-      const price = prices[pos.ticker]; // already in USD
+      const price = prices[pos.ticker];
       if (price) {
         value_usd = Number(pos.qty) * price;
         breakdown[pos.category] = (breakdown[pos.category] || 0) + value_usd;
@@ -355,7 +428,6 @@ async function run() {
   }
 
   const total_gbp = total_usd * fxRate;
-
   Object.keys(breakdown).forEach(k => {
     breakdown[k] = Math.round(breakdown[k] * 100) / 100;
   });
@@ -372,8 +444,8 @@ async function run() {
   if (portError) console.error('Error guardando portfolio_snapshot:', portError);
   else console.log(`Portfolio snapshot: $${Math.round(total_usd)} / £${Math.round(total_gbp)}`);
 
-  // 10. Correlation matrix — runs once per day, after price snapshots
-  await runCorrelation(positions);
+  // 10. Correlation matrix + daily returns — runs once per day
+  await runCorrelationAndReturns(positions);
 
   console.log(`[${new Date().toISOString()}] Worker terminado.`);
 }
