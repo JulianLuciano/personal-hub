@@ -48,59 +48,97 @@ async function fetchFxRate() {
 
 // ── CORRELATION MATRIX ────────────────────────────────────────────────────────
 
-async function fetchDailyReturns(yahooTicker, days = 90) {
-  // Fetch enough range to get ~90 trading days (90 calendar days ≈ 63 trading days,
-  // use 150d to be safe and always have ≥90 data points)
+// GBP-priced tickers whose returns need FX adjustment before correlation
+// (these cotize in GBP, so raw returns include equity + GBP/USD movement)
+const GBP_CORR_TICKERS = new Set(['VWRP.L', 'ARKK.L', 'NDIA.L']);
+
+async function fetchDailyPriceMap(yahooTicker) {
+  // Returns { 'YYYY-MM-DD': closePrice } — keyed by UTC date string for alignment
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1d&range=150d`;
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const data = await res.json();
-    const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    const closes    = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
     const timestamps = data?.chart?.result?.[0]?.timestamp;
     if (!closes || !timestamps) return null;
 
-    // Filter nulls (market closed days) and take last `days` valid closes
-    const valid = closes
-      .map((c, i) => ({ c, t: timestamps[i] }))
-      .filter(x => x.c != null && x.c > 0);
-
-    const slice = valid.slice(-days);
-    if (slice.length < 30) return null; // not enough data
-
-    // Log returns: ln(P_t / P_{t-1})
-    const returns = [];
-    for (let i = 1; i < slice.length; i++) {
-      returns.push(Math.log(slice[i].c / slice[i - 1].c));
-    }
-    return returns;
+    const map = {};
+    timestamps.forEach((ts, i) => {
+      if (closes[i] != null && closes[i] > 0) {
+        // Normalize to UTC date string regardless of timezone offset in timestamp
+        const d = new Date(ts * 1000);
+        const key = d.toISOString().slice(0, 10);
+        map[key] = closes[i];
+      }
+    });
+    return map;
   } catch (e) {
-    console.error(`fetchDailyReturns error for ${yahooTicker}:`, e.message);
+    console.error(`fetchDailyPriceMap error for ${yahooTicker}:`, e.message);
     return null;
   }
 }
 
+function buildAlignedReturns(mapA, mapB, fxMap, isGBP_A, isGBP_B, maxDays = 90) {
+  // Inner join on dates present in BOTH series (and FX map if needed)
+  const datesA = new Set(Object.keys(mapA));
+  const datesB = new Set(Object.keys(mapB));
+  const fxDates = fxMap ? new Set(Object.keys(fxMap)) : null;
+
+  let commonDates = [...datesA].filter(d => datesB.has(d));
+  if (fxMap) commonDates = commonDates.filter(d => fxDates.has(d));
+  commonDates.sort(); // ascending
+
+  // Take last maxDays+1 dates (need N+1 prices for N returns)
+  const slice = commonDates.slice(-(maxDays + 1));
+  if (slice.length < 31) return null; // need at least 30 returns
+
+  const returnsA = [], returnsB = [];
+  for (let i = 1; i < slice.length; i++) {
+    const d0 = slice[i - 1], d1 = slice[i];
+
+    let pA0 = mapA[d0], pA1 = mapA[d1];
+    let pB0 = mapB[d0], pB1 = mapB[d1];
+
+    // FX-adjust GBP-priced tickers: convert GBP close → USD close
+    // so all returns are in the same currency (USD) before correlating
+    if (isGBP_A && fxMap) {
+      // fxMap is GBPUSD (USD per 1 GBP) — multiply to get USD price
+      pA0 = pA0 * fxMap[d0];
+      pA1 = pA1 * fxMap[d1];
+    }
+    if (isGBP_B && fxMap) {
+      pB0 = pB0 * fxMap[d0];
+      pB1 = pB1 * fxMap[d1];
+    }
+
+    returnsA.push(Math.log(pA1 / pA0));
+    returnsB.push(Math.log(pB1 / pB0));
+  }
+
+  return { returnsA, returnsB, n: returnsA.length };
+}
+
 function pearsonCorrelation(a, b) {
-  const n = Math.min(a.length, b.length);
+  const n = a.length;
   if (n < 10) return null;
-  const xa = a.slice(-n), xb = b.slice(-n);
-  const meanA = xa.reduce((s, v) => s + v, 0) / n;
-  const meanB = xb.reduce((s, v) => s + v, 0) / n;
+  const meanA = a.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
   let num = 0, da2 = 0, db2 = 0;
   for (let i = 0; i < n; i++) {
-    const da = xa[i] - meanA;
-    const db = xb[i] - meanB;
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
     num += da * db;
     da2 += da * da;
     db2 += db * db;
   }
   const denom = Math.sqrt(da2 * db2);
   if (denom === 0) return null;
-  return Math.round((num / denom) * 1000) / 1000; // 3 decimal places
+  return Math.round((num / denom) * 1000) / 1000;
 }
 
 async function runCorrelation(positions) {
   // Check if we already ran today (UTC date)
-  const todayUTC = new Date().toISOString().slice(0, 10); // "2025-04-08"
+  const todayUTC = new Date().toISOString().slice(0, 10);
   const { data: existing } = await supabase
     .from('correlation_matrix')
     .select('calculated_at')
@@ -114,45 +152,74 @@ async function runCorrelation(positions) {
     }
   }
 
-  console.log('[Correlation] Calculando matriz de correlación (90d)...');
+  console.log('[Correlation] Calculando matriz de correlación (90d, FX-adjusted, date-aligned)...');
 
   // Only investable, non-fiat tickers with qty > 0
   const investable = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
   const dbTickers = [...new Set(investable.map(p => p.ticker))];
 
-  // Fetch returns for all tickers
-  const returnsByTicker = {};
+  // Fetch GBPUSD daily prices (needed to FX-adjust GBP-priced tickers)
+  const needsFx = dbTickers.some(t => GBP_CORR_TICKERS.has(t));
+  let fxMap = null;
+  if (needsFx) {
+    fxMap = await fetchDailyPriceMap('GBPUSD=X');
+    if (!fxMap) console.warn('[Correlation] No se pudo obtener GBPUSD, GBP tickers sin ajuste FX');
+  }
+
+  // Fetch price maps (date → close) for all tickers
+  const priceMapByTicker = {};
   for (const dbTicker of dbTickers) {
     const yahooTicker = toYahoo(dbTicker);
-    const returns = await fetchDailyReturns(yahooTicker, 90);
-    if (returns) {
-      returnsByTicker[dbTicker] = returns;
-      console.log(`[Correlation] ${dbTicker}: ${returns.length} returns`);
+    const map = await fetchDailyPriceMap(yahooTicker);
+    if (map && Object.keys(map).length >= 31) {
+      priceMapByTicker[dbTicker] = map;
+      console.log(`[Correlation] ${dbTicker}: ${Object.keys(map).length} días`);
     } else {
-      console.log(`[Correlation] ${dbTicker}: sin datos suficientes`);
+      console.log(`[Correlation] ${dbTicker}: datos insuficientes`);
     }
   }
 
-  const validTickers = Object.keys(returnsByTicker);
+  const validTickers = Object.keys(priceMapByTicker);
   if (validTickers.length < 2) {
     console.log('[Correlation] Menos de 2 tickers con datos, abortando.');
     return;
   }
 
-  // Compute all pairs (including self-correlation = 1.0)
+  // Compute all pairs with date-aligned, FX-adjusted returns
   const upserts = [];
   for (let i = 0; i < validTickers.length; i++) {
     for (let j = i; j < validTickers.length; j++) {
       const ta = validTickers[i];
       const tb = validTickers[j];
-      const corr = (i === j) ? 1.0 : pearsonCorrelation(returnsByTicker[ta], returnsByTicker[tb]);
+
+      if (i === j) {
+        upserts.push({ ticker_a: ta, ticker_b: tb, correlation: 1.0, period_days: 90 });
+        continue;
+      }
+
+      const isGBP_A = GBP_CORR_TICKERS.has(ta);
+      const isGBP_B = GBP_CORR_TICKERS.has(tb);
+      const needFxForPair = isGBP_A || isGBP_B;
+
+      const aligned = buildAlignedReturns(
+        priceMapByTicker[ta],
+        priceMapByTicker[tb],
+        needFxForPair ? fxMap : null,
+        isGBP_A,
+        isGBP_B
+      );
+
+      if (!aligned) {
+        console.log(`[Correlation] ${ta}/${tb}: no hay suficientes fechas comunes`);
+        continue;
+      }
+
+      const corr = pearsonCorrelation(aligned.returnsA, aligned.returnsB);
       if (corr === null) continue;
 
-      // Insert both directions for easy querying
+      console.log(`[Correlation] ${ta}/${tb}: ${corr} (n=${aligned.n}${needFxForPair ? ', fx-adj' : ''})`);
       upserts.push({ ticker_a: ta, ticker_b: tb, correlation: corr, period_days: 90 });
-      if (i !== j) {
-        upserts.push({ ticker_a: tb, ticker_b: ta, correlation: corr, period_days: 90 });
-      }
+      upserts.push({ ticker_a: tb, ticker_b: ta, correlation: corr, period_days: 90 });
     }
   }
 
@@ -161,7 +228,6 @@ async function runCorrelation(positions) {
     return;
   }
 
-  // Upsert all pairs
   const { error } = await supabase
     .from('correlation_matrix')
     .upsert(upserts, { onConflict: 'ticker_a,ticker_b' });
