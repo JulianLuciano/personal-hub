@@ -2653,7 +2653,7 @@
   background: none;
   color: var(--muted);
   transition: all 0.2s;
-  font-family: 'Syne', sans-serif;
+  font-family: 'DM Sans', sans-serif;
 }
 .corr-period-pill.active {
   border-color: var(--accent);

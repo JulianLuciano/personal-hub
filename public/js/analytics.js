@@ -1129,8 +1129,8 @@ function renderCorrelationHeatmap(rows) {
     return t.replace('RSU_META', 'META').replace('.L', '');
   }
 
-  // Build table HTML — table width is capped to fit, wrapper handles overflow-x
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:100%;table-layout:fixed">`;
+  // Build table HTML — width:auto so it only takes as much space as needed, centered
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:auto;margin:0 auto">`;
 
   // Header row
   html += '<thead><tr>';

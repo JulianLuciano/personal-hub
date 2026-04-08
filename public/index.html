@@ -826,29 +826,29 @@
         </div>
       </div>
 
+    <!-- ═══ CORRELACIÓN SUB-TAB ═══ -->
+    <div class="analytics-subtab" id="analyticsCorr">
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Correlación de retornos</div>
+          <div id="corrPeriodLabel" style="font-size:10px;color:var(--muted)"></div>
+        </div>
+        <!-- Period pills -->
+        <div style="display:flex;gap:5px;margin-bottom:12px">
+          <button class="corr-period-pill active" data-period="90" onclick="loadCorrelation(90)">90d</button>
+          <button class="corr-period-pill" data-period="180" onclick="loadCorrelation(180)">180d</button>
+          <button class="corr-period-pill" data-period="365" onclick="loadCorrelation(365)">365d</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px">🟢 &lt;0.3 baja · 🟡 0.3–0.6 media · 🔴 &gt;0.6 alta &nbsp;·&nbsp; valor absoluto</div>
+        <div id="corrHeatmapWrap">
+          <div id="corrHeatmap">Cargando...</div>
+        </div>
+        <div id="corrInsight"></div>
+      </div>
     </div>
-  </div>
 
-<!-- ═══ CORRELACIÓN SUB-TAB ═══ -->
-<div class="analytics-subtab" id="analyticsCorr">
-  <div class="mc-card" style="padding:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Correlación de retornos</div>
-      <div id="corrPeriodLabel" style="font-size:10px;color:var(--muted)"></div>
     </div>
-    <!-- Period pills -->
-    <div style="display:flex;gap:5px;margin-bottom:12px">
-      <button class="corr-period-pill active" data-period="90" onclick="loadCorrelation(90)">90d</button>
-      <button class="corr-period-pill" data-period="180" onclick="loadCorrelation(180)">180d</button>
-      <button class="corr-period-pill" data-period="365" onclick="loadCorrelation(365)">365d</button>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">🟢 &lt;0.3 baja · 🟡 0.3–0.6 media · 🔴 &gt;0.6 alta &nbsp;·&nbsp; valor absoluto</div>
-    <div id="corrHeatmapWrap">
-      <div id="corrHeatmap">Cargando...</div>
-    </div>
-    <div id="corrInsight"></div>
   </div>
-</div>
 
   <div class="panel" id="panel-settings">
     <div class="profile-card">
