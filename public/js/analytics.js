@@ -1133,7 +1133,7 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — width:auto so it only takes as much space as needed, centered
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:100%;table-layout:fixed">`;
+  let html = `<table style="border-collapse:collapse;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:100%;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
@@ -1157,7 +1157,7 @@ function renderCorrelationHeatmap(rows) {
       const textCol = isSelf ? 'var(--muted)' : corrTextColor(c);
       const val = c !== null ? (isSelf ? '—' : c.toFixed(2)) : '?';
       const title = isSelf ? ta : `${dispTicker(ta)} vs ${dispTicker(tb)}: ${c !== null ? c.toFixed(3) : 'N/A'}`;
-      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
+      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;outline:2px solid var(--bg);font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
     });
     html += '</tr>';
   });
