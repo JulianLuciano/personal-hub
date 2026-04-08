@@ -28,7 +28,7 @@ async function aiEnsureConversation(model, firstMsg) {
 }
 
 // Inserts one message row. Returns the server-assigned UUID (from response body), or null.
-async function aiLogMessage({ role, content, model, input_tokens, output_tokens, context_start_seq }) {
+async function aiLogMessage({ role, content, model, input_tokens, output_tokens }) {
   if (!aiConversationId) return null;
   try {
     const r = await fetch('/api/ai-messages', {
@@ -39,10 +39,9 @@ async function aiLogMessage({ role, content, model, input_tokens, output_tokens,
         seq:             aiMessageSeq++,
         role,
         content,
-        model:              model              ?? null,
-        input_tokens:       input_tokens       ?? null,
-        output_tokens:      output_tokens      ?? null,
-        context_start_seq:  context_start_seq  ?? null,
+        model:         model         ?? null,
+        input_tokens:  input_tokens  ?? null,
+        output_tokens: output_tokens ?? null,
       }),
     });
     const d = await r.json();
@@ -53,6 +52,21 @@ async function aiLogMessage({ role, content, model, input_tokens, output_tokens,
   }
 }
 
+// Records which messages were passed as context for a given turn.
+// turn_msg_seq: seq of the user message that triggered this turn.
+// context_seqs: array of seq numbers that were included in messages[] sent to the API.
+async function aiLogContextLinks(turn_msg_seq, context_seqs) {
+  if (!aiConversationId || turn_msg_seq == null || !context_seqs.length) return;
+  try {
+    await fetch('/api/ai-context-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: aiConversationId, turn_msg_seq, context_seqs }),
+    });
+  } catch(e) {
+    console.warn('[ai-log] failed to log context links:', e.message);
+  }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildMacroContext() {
@@ -571,7 +585,99 @@ function closeAIChat() {
   const app = document.getElementById('app');
   app.style.overflow = '';
   app.style.touchAction = '';
+  // Always return to chat view on close
+  aiShowChatView();
 }
+
+// ── History view ──────────────────────────────────────────────────────────────
+let aiHistoryLoaded = false;
+
+function aiShowChatView() {
+  document.getElementById('aiChatView').style.display    = 'flex';
+  document.getElementById('aiHistoryView').style.display = 'none';
+  document.getElementById('aiSheetTitle').textContent    = 'Análisis de Portfolio';
+  document.getElementById('aiHistoryBtn').classList.remove('active');
+  document.getElementById('aiModelToggle').style.display = 'flex';
+}
+
+function aiShowHistoryView() {
+  document.getElementById('aiChatView').style.display    = 'none';
+  document.getElementById('aiHistoryView').style.display = 'flex';
+  document.getElementById('aiSheetTitle').textContent    = 'Historial';
+  document.getElementById('aiHistoryBtn').classList.add('active');
+  document.getElementById('aiModelToggle').style.display = 'none';
+  if (!aiHistoryLoaded) aiLoadHistory();
+}
+
+function aiToggleHistory() {
+  const historyVisible = document.getElementById('aiHistoryView').style.display !== 'none';
+  historyVisible ? aiShowChatView() : aiShowHistoryView();
+}
+
+async function aiLoadHistory() {
+  const list = document.getElementById('aiHistoryList');
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
+  try {
+    const r = await fetch('/api/ai-conversations?limit=15');
+    const convos = await r.json();
+    aiHistoryLoaded = true;
+
+    if (!Array.isArray(convos) || convos.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Sin conversaciones guardadas.</div>';
+      return;
+    }
+
+    list.innerHTML = convos.map(c => {
+      const date = new Date(c.started_at);
+      const dateStr = date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+      const timeStr = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const model = c.model?.includes('opus') ? 'opus' : 'sonnet';
+      const modelLabel = model === 'opus' ? 'OPUS' : 'SONNET';
+      const title = c.title || '(sin título)';
+      const msgs = c.message_count ? `${c.message_count} msgs` : '';
+      return `<div class="ai-hist-item" onclick="aiOpenConversation('${c.id}')">
+        <div class="ai-hist-item-title">${title}</div>
+        <div class="ai-hist-item-meta">
+          <span>${dateStr} ${timeStr}</span>
+          ${msgs ? `<span>·</span><span>${msgs}</span>` : ''}
+          <span class="ai-hist-item-model ${model}">${modelLabel}</span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Error al cargar historial.</div>';
+  }
+}
+
+async function aiOpenConversation(id) {
+  aiShowChatView();
+  const msgs = document.getElementById('aiMessages');
+  msgs.innerHTML = '<div class="ai-msg assistant" style="opacity:0.5;font-style:italic">Cargando conversación...</div>';
+
+  try {
+    const r = await fetch(`/api/ai-conversations/${id}/messages`);
+    const rows = await r.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      msgs.innerHTML = '<div class="ai-msg assistant">Conversación vacía.</div>';
+      return;
+    }
+
+    // Rebuild aiHistory from the loaded conversation so context is preserved
+    aiHistory.length = 0;
+    aiConversationId = id;
+    aiMessageSeq = rows[rows.length - 1].seq + 1;
+
+    msgs.innerHTML = '';
+    rows.forEach(row => {
+      aiAddMsg(row.role, row.content);
+      aiHistory.push({ role: row.role, content: row.content });
+    });
+    msgs.scrollTop = msgs.scrollHeight;
+  } catch(e) {
+    msgs.innerHTML = '<div class="ai-msg assistant">⚠️ Error al cargar la conversación.</div>';
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // Copies a preset message into the input box (doesn't send — lets user edit first)
 function aiCopyToInput(msg) {
   const input = document.getElementById('aiInput');
@@ -618,10 +724,17 @@ async function aiSendMsg() {
   // Simpler: context = items at indices [len - AI_CONTEXT_WINDOW .. len-1] of current aiHistory.
   const historySnapshot = aiHistory.slice(); // copy at this moment
   const contextSlice    = historySnapshot.slice(-AI_CONTEXT_WINDOW); // what gets sent to API
-  const contextStartSeq = historySnapshot.length - contextSlice.length; // seq of first context msg
+
+  // Compute the seq numbers of messages in contextSlice.
+  // seq in DB = position in aiHistory (0-based, same order as messages are logged).
+  // historySnapshot.length = total messages including current user msg.
+  // contextSlice starts at index: historySnapshot.length - contextSlice.length
+  const contextStartIdx = historySnapshot.length - contextSlice.length;
+  const contextSeqs = contextSlice.map((_, i) => contextStartIdx + i);
 
   await aiEnsureConversation(AI_MODELS[aiModel], msg);
-  aiLogMessage({ role: 'user', content: msg, context_start_seq: contextStartSeq });
+  const userMsgSeq = aiMessageSeq; // capture BEFORE logging (aiLogMessage will increment it)
+  aiLogMessage({ role: 'user', content: msg });
 
   try {
     const wlBase     = buildWatchlistBase();
@@ -748,14 +861,15 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
     aiAddMsg('assistant', reply);
     aiHistory.push({ role: 'assistant', content: reply });
 
-    // ── Logging: record assistant reply (fire-and-forget) ──
+    // ── Logging: record assistant reply + context links (fire-and-forget) ──
     aiLogMessage({
       role: 'assistant',
       content: reply,
       model: AI_MODELS[aiModel],
-      input_tokens:      data.usage?.input_tokens  ?? null,
-      output_tokens:     data.usage?.output_tokens ?? null,
-      context_start_seq: contextStartSeq,
+      input_tokens:  data.usage?.input_tokens  ?? null,
+      output_tokens: data.usage?.output_tokens ?? null,
+    }).then(() => {
+      aiLogContextLinks(userMsgSeq, contextSeqs);
     });
 
   } catch(e) {
