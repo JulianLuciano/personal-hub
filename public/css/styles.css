@@ -85,7 +85,7 @@
     width: 46px; height: 46px;
     border-radius: 50%;
     background: linear-gradient(135deg, #e8824a, #d4602a);
-    display: flex; align-items: center; justify-content: center;
+    display: none; align-items: center; justify-content: center;
     cursor: pointer;
     box-shadow: 0 4px 16px rgba(232,130,74,0.5);
     z-index: 200;
@@ -1107,7 +1107,7 @@
   cursor: pointer;
   z-index: 150;
   box-shadow: 0 4px 20px rgba(108,99,255,0.45);
-  display: flex; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   transition: transform 0.15s, opacity 0.2s;
 }
 .tx-fab:active { transform: scale(0.92); }

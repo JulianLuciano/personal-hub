@@ -35,6 +35,14 @@ function switchNav(el, name) {
   const t = navTitles[name] || navTitles.today;
   document.querySelector('.topbar-left h1').textContent = t[0];
   document.querySelector('.topbar-left p').textContent = t[1];
+
+  // FABs only visible on portfolio + analytics
+  const fabTabs = ['portfolio', 'analytics'];
+  const showFabs = fabTabs.includes(name);
+  const aiBubble = document.getElementById('aiBubble');
+  const txFab    = document.getElementById('txFab');
+  if (aiBubble) aiBubble.style.display = showFabs ? 'flex' : 'none';
+  if (txFab)    txFab.style.display    = showFabs ? 'flex' : 'none';
   // h-sub-tabs live inside panel-today, no top-level show/hide needed
   if (name === 'portfolio') {
     requestAnimationFrame(() => requestAnimationFrame(drawChart));

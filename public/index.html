@@ -999,7 +999,7 @@
         <div style="width:24px;height:24px;background:linear-gradient(135deg,#e8824a,#d4602a);border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
           <img src="/logos/claude.png" style="width:16px;height:16px;object-fit:contain" alt="Claude">
         </div>
-        <div class="ai-title" id="aiSheetTitle">Análisis de Portfolio</div>
+        <div class="ai-title" id="aiSheetTitle">Asesor Financiero</div>
         <div id="aiModelToggle" style="display:flex;align-items:center;background:var(--surface2);border-radius:100px;padding:2px;border:1px solid var(--border);flex-shrink:0">
           <div id="aiModelSonnet" onclick="setAiModel('sonnet')" style="padding:3px 8px;border-radius:100px;font-size:9px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff;transition:all 0.2s;letter-spacing:0.3px">SONNET</div>
           <div id="aiModelOpus" onclick="setAiModel('opus')" style="padding:3px 8px;border-radius:100px;font-size:9px;font-weight:700;cursor:pointer;color:var(--muted);transition:all 0.2s;letter-spacing:0.3px">OPUS</div>
@@ -1037,8 +1037,9 @@
         <div id="aiHistoryList" style="flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px">
           <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>
         </div>
-        <div style="padding:10px 14px 14px;border-top:1px solid var(--border);flex-shrink:0;text-align:center">
+        <div style="padding:10px 14px 14px;border-top:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:space-between">
           <span style="font-size:11px;color:var(--muted)">Últimas 15 conversaciones</span>
+          <button onclick="aiNewConversation()" style="font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:none;background:var(--accent);color:#fff;cursor:pointer;letter-spacing:0.2px">+ Nueva</button>
         </div>
       </div>
 

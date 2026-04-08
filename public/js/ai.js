@@ -581,7 +581,7 @@ let aiHistoryLoaded = false;
 function aiShowChatView() {
   document.getElementById('aiChatView').style.display    = 'flex';
   document.getElementById('aiHistoryView').style.display = 'none';
-  document.getElementById('aiSheetTitle').textContent    = 'Análisis de Portfolio';
+  document.getElementById('aiSheetTitle').textContent    = 'Asesor Financiero';
   document.getElementById('aiHistoryBtn').classList.remove('active');
   document.getElementById('aiModelToggle').style.display = 'flex';
 }
@@ -598,6 +598,17 @@ function aiShowHistoryView() {
 function aiToggleHistory() {
   const historyVisible = document.getElementById('aiHistoryView').style.display !== 'none';
   historyVisible ? aiShowChatView() : aiShowHistoryView();
+}
+
+function aiNewConversation() {
+  // Reset state — next message will create a new conversation row in Supabase
+  aiHistory.length    = 0;
+  aiConversationId    = null;
+  aiMessageSeq        = 0;
+  // Reset chat UI to the welcome message
+  const msgs = document.getElementById('aiMessages');
+  msgs.innerHTML = '<div class="ai-msg assistant">Hola Julián 👋 Tengo acceso a todos los datos de tu portfolio. ¿En qué puedo ayudarte?</div>';
+  aiShowChatView();
 }
 
 async function aiLoadHistory() {
