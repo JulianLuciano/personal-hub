@@ -52,7 +52,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en predictor de abrigo (UI, shortcuts, resultado) | `jacket.js` |
 | Cambiar URL de la API de predicción | `server.js` (env var `JACKET_API_URL`) |
 | Bug en Portfolio (posiciones, gráfico, pie, RSU, P&L) | `portfolio.js` |
-| Bug en Analytics (Health Score, Monte Carlo) | `analytics.js` |
+| Bug en Analytics (Health Score, Monte Carlo, Correlación) | `analytics.js` |
+| Bug en correlación (valores raros, no carga, períodos) | `analytics.js` + `worker.js` |
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
@@ -78,11 +79,11 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `recipes.js` | Sub-tool: datos de recetas, render, timers de cocción. |
 | `jacket.js` | Sub-tool: predictor de abrigo. Replica exactamente el bot de Telegram. |
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
-| `analytics.js` | Health Score engine + Monte Carlo engine + sus UIs. |
+| `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
 | `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas. |
 | `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history. |
-| `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots. |
+| `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Muestra notificaciones con action buttons (agua: ✓ Sí tomé / ✗ No tomé). Responde clicks llamando a endpoints del server. |
 | `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30 (solo si no completaste todo) y push de agua cada ~90 min entre 09:40 y 22:40 con lógica adaptativa. |
@@ -265,7 +266,7 @@ El módulo más grande (~2745 líneas). Maneja toda la tab Portfolio.
 ---
 
 ### `js/analytics.js`
-Motor de Health Score y Motor de Monte Carlo (~986 líneas).
+Motor de Health Score, Monte Carlo y Correlation Heatmap.
 
 **Health Score Engine:**
 - `computeHealthData()` — calcula el score de salud del portfolio (0-100) evaluando:
@@ -294,6 +295,24 @@ Motor de Health Score y Motor de Monte Carlo (~986 líneas).
   Devuelve array de arrays de valores mes a mes.
 
 - `mcRun()` — lee los parámetros del formulario, corre la simulación, renderiza todos los resultados
+
+**Correlation Heatmap:**
+- `corrAllRows` — caché en memoria de todos los rows de `correlation_matrix` (se carga una vez, cubre los 3 períodos).
+- `corrActivePeriod` — período activo (90, 180 o 365). Default: 90.
+- `loadCorrelation(period?)` — punto de entrada. Si es la primera carga, fetcha todos los períodos de una vez via `sbFetch`. Los cambios de período posteriores filtran el array en memoria (instantáneo). Actualiza las pills y llama `renderCorrelationHeatmap(rows)`.
+- `renderCorrelationHeatmap(rows)` — construye la tabla NxN: calcula el tamaño de celda desde el `clientWidth` real del wrapper, aplica colores por valor absoluto con thresholds fijos (verde <0.3 / amarillo 0.3–0.6 / rojo >0.6), muestra el signo en el valor de la celda, y genera el insight de par más/menos correlacionado.
+
+**Color coding (valor absoluto):**
+- `|corr| < 0.3` → verde — baja correlación, buen diversificador
+- `0.3 ≤ |corr| < 0.6` → amarillo — correlación media
+- `|corr| ≥ 0.6` → rojo — alta correlación, poco beneficio de diversificación
+- Dentro de cada banda la intensidad sube gradualmente (0.61 ≠ 0.95).
+- El signo (+/-) se muestra en el número de la celda pero no afecta el color.
+
+**Pills de período:**
+- Tres botones `90d / 180d / 365d` en el HTML con clase `corr-period-pill`.
+- El estado activo se maneja solo con `classList.toggle('active')` — CSS se encarga del estilo.
+- No hay re-fetch al cambiar de período: filtrado en memoria sobre `corrAllRows`.
 - `mcRenderHist(sims, M, yr)` — dibuja el histograma de distribución final con Chart.js
 - Ribbon de 3 cards con resultados clave (mediana, p10, p90, probabilidad de objetivo)
 - `mcSwitchHistTab(el, tab)` — alterna entre vista de distribución y tabla de percentiles
@@ -421,6 +440,19 @@ Proceso Node.js separado que corre en paralelo al servidor.
 - Fetcha el tipo de cambio GBPUSD=X
 - Guarda los precios en `price_snapshots`
 - Calcula el valor total del portfolio por categoría y guarda en `portfolio_snapshots`
+- **Una vez por día:** calcula la matriz de correlación de retornos para los 3 períodos (90d / 180d / 365d) y hace upsert en `correlation_matrix`
+
+**Funciones de correlación:**
+- `fetchDailyPriceMap(yahooTicker, range='400d')` — fetcha histórico de precios diarios desde Yahoo Finance. Retorna `{ 'YYYY-MM-DD': closePrice }`. El range 400d cubre los 3 períodos en un solo fetch.
+- `buildAlignedReturns(mapA, mapB, fxMap, isGBP_A, isGBP_B, maxDays)` — hace inner join por fecha entre dos series de precios, aplica ajuste FX para tickers GBP, calcula log-returns. Descarta días donde cualquiera de los dos returns supera ±20% (outlier filter). Retorna `{ returnsA, returnsB, n }`.
+- `pearsonCorrelation(a, b)` — correlación de Pearson estándar sobre dos arrays alineados.
+- `runCorrelation(positions)` — orquesta todo: chequea si ya corrió hoy, fetcha GBPUSD una sola vez, fetcha price maps una vez por ticker, computa correlaciones para los 3 períodos reutilizando los mismos datos, hace upsert en `correlation_matrix`.
+
+**Decisiones de diseño:**
+- Los tickers GBP (`pricing_currency = 'GBP'`) se ajustan a USD antes de calcular returns, multiplicando cada close por el tipo de cambio GBPUSD del mismo día. Esto evita que el ruido FX contamine la correlación.
+- El inner join por fecha (vs. alineación por posición) elimina el problema de días de mercado distintos entre UK y US.
+- Los price maps se fetchean una sola vez por ticker con range=400d — los 3 períodos se calculan de esos mismos datos sin fetches adicionales.
+- El chequeo de "ya corrió hoy" consulta `calculated_at` de la tabla. Para forzar recálculo manual: borrar filas de `correlation_matrix` en Supabase y reiniciar el worker.
 
 ---
 
@@ -557,6 +589,7 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `water_logs` | Transacciones de agua del día. Acepta `amount_ml` negativos (correcciones). El total del día es la suma de todas las filas. |
 | `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
+| `correlation_matrix` | Matriz de correlación de retornos entre activos. Una fila por par ordenado (ticker_a, ticker_b) por período. PK: `(ticker_a, ticker_b, period_days)`. |
 | `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count`. |
 | `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `created_at`. |
 
@@ -586,6 +619,29 @@ CREATE TABLE ai_messages (
 CREATE INDEX ON ai_messages(conversation_id, seq);
 ```
 
+### Schema de `correlation_matrix`
+
+```sql
+CREATE TABLE correlation_matrix (
+  ticker_a      TEXT NOT NULL,
+  ticker_b      TEXT NOT NULL,
+  correlation   FLOAT NOT NULL,        -- Pearson, 3 decimales
+  period_days   INT NOT NULL,          -- 90, 180 o 365
+  calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (ticker_a, ticker_b, period_days)
+);
+```
+
+Cada par se guarda en ambas direcciones (A→B y B→A) para facilitar queries. La diagonal (ticker_a = ticker_b) siempre tiene `correlation = 1.0`.
+
+**Para forzar recálculo manual:**
+```sql
+DELETE FROM correlation_matrix;
+-- Luego reiniciar el worker o esperar el próximo tick (15 min)
+```
+
+---
+
 ### Cómo consultar el contexto de cualquier mensaje
 
 Dado cualquier `seq` (user o assistant), devuelve ese mensaje y todo su contexto en orden:
@@ -606,6 +662,7 @@ ORDER BY seq;
 - Las posiciones con `managed_by = 'manual'` (cash, rent deposit, etc.) se editan directo en Supabase.
 - El worker siempre convierte precios a USD antes de guardar en `price_snapshots`.
 - El campo `pricing_currency` en `positions` indica si el activo cotiza en GBP (ej: VWRP.L) o USD.
+- `correlation_matrix` se calcula una vez por día. Los tickers con `pricing_currency = 'GBP'` se ajustan a USD antes de calcular correlaciones (se multiplica el precio por GBPUSD del mismo día). El inner join por fecha elimina la desalineación entre mercados UK y US.
 
 ---
 
