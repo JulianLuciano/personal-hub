@@ -1013,10 +1013,9 @@ async function loadCorrelation() {
   wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>';
 
   try {
-    const res = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
-    const rows = await res.json();
+    const rows = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
 
-    if (!rows || rows.length === 0) {
+    if (!Array.isArray(rows) || rows.length === 0) {
       wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos aún — el worker los generará hoy</div>';
       return;
     }
