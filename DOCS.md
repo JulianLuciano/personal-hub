@@ -367,17 +367,14 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - `aiConversationId` — UUID de la conversación activa; `null` al cargar la página (cada reload = nueva conversación).
 - `aiMessageSeq` — contador 0-based que se incrementa con cada mensaje loggeado.
 - `aiEnsureConversation(model, firstMsg)` — crea la fila en `ai_conversations` en el primer mensaje del usuario; los primeros 80 chars del mensaje se usan como título.
-- `aiLogMessage({role, content, model, input_tokens, output_tokens})` — inserta una fila en `ai_messages`. Devuelve el UUID asignado.
-- `aiLogContextLinks(turn_msg_seq, context_seqs)` — inserta N filas en `ai_context_links` (una por cada mensaje incluido como contexto en ese turn). Permite reconstruir exactamente qué vio el modelo en cualquier turn pasado.
+- `aiLogMessage({role, content, model, input_tokens, output_tokens, context_start_seq})` — inserta una fila en `ai_messages`. `context_start_seq` es el seq del primer mensaje incluido en el contexto de ese turn.
 
 **Flujo de logging en cada turn:**
 1. `aiEnsureConversation()` (solo si es el primer mensaje).
-2. Se captura `userMsgSeq = aiMessageSeq` antes del log.
-3. Se calcula `contextSeqs`: los índices en `aiHistory` de los mensajes que van en el slice (últimos `AI_CONTEXT_WINDOW`).
-4. `aiLogMessage({ role: 'user', ... })` → inserta el mensaje del usuario.
-5. Se hace el API call con `contextSlice`.
-6. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', ... input_tokens, output_tokens })`.
-7. `aiLogContextLinks(userMsgSeq, contextSeqs)` → registra el contexto de ese turn.
+2. Se calcula `contextStartSeq`: índice en `aiHistory` del primer mensaje del slice que se enviará como contexto.
+3. `aiLogMessage({ role: 'user', context_start_seq: contextStartSeq, ... })` → inserta el mensaje del usuario.
+4. Se hace el API call con `contextSlice`.
+5. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', context_start_seq: contextStartSeq, input_tokens, output_tokens, ... })`.
 
 ---
 
@@ -392,8 +389,7 @@ Servidor Express. Puntos clave:
 
 **Endpoints de chat history:**
 - `POST /api/ai-conversations` — crea fila en `ai_conversations`, devuelve `{ id }` (UUID)
-- `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens? }`
-- `POST /api/ai-context-links` — bulk-insert de `{ conversation_id, turn_msg_seq, context_seqs: [int] }` — una fila por cada mensaje que estuvo en contexto en ese turn
+- `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens?, context_start_seq? }`
 - `GET /api/ai-conversations` — lista conversaciones ordenadas por fecha desc (param `limit`, default 30, max 100)
 - `GET /api/ai-conversations/:id/messages` — todos los mensajes de una conversación ordenados por `seq`
 
@@ -555,8 +551,7 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
 | `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count`. |
-| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `created_at`. |
-| `ai_context_links` | Una fila por cada (turn, mensaje-en-contexto). Campos: `conversation_id`, `turn_msg_seq` (seq del user msg que disparó el turn), `context_msg_seq` (seq de cada mensaje incluido). Permite reconstruir exactamente qué vio el modelo en cualquier turn. |
+| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `created_at`. |
 
 ### Schema de las tablas de chat history
 
@@ -570,38 +565,33 @@ CREATE TABLE ai_conversations (
 );
 
 CREATE TABLE ai_messages (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
-  seq             INT NOT NULL,
-  role            TEXT NOT NULL,
-  content         TEXT NOT NULL,
-  model           TEXT,
-  input_tokens    INT,
-  output_tokens   INT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id    UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  seq                INT NOT NULL,
+  role               TEXT NOT NULL,
+  content            TEXT NOT NULL,
+  model              TEXT,
+  input_tokens       INT,
+  output_tokens      INT,
+  context_start_seq  INT,   -- seq del primer msg incluido como contexto en este turn
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON ai_messages(conversation_id, seq);
-
-CREATE TABLE ai_context_links (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID REFERENCES ai_conversations(id) ON DELETE CASCADE,
-  turn_msg_seq    INT NOT NULL,
-  context_msg_seq INT NOT NULL,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX ON ai_context_links(conversation_id, turn_msg_seq);
 ```
 
-### Cómo consultar el contexto de un turn específico
+### Cómo consultar el contexto de cualquier mensaje
+
+Dado cualquier `seq` (user o assistant), devuelve ese mensaje y todo su contexto en orden:
 
 ```sql
--- ¿Qué mensajes vio el modelo en el turn del mensaje seq=20?
-SELECT m.seq, m.role, m.content
-FROM ai_context_links cl
-JOIN ai_messages m ON m.conversation_id = cl.conversation_id AND m.seq = cl.context_msg_seq
-WHERE cl.conversation_id = '<uuid>'
-  AND cl.turn_msg_seq = 20
-ORDER BY m.seq;
+SELECT seq, role, content
+FROM ai_messages
+WHERE conversation_id = '<uuid>'
+  AND seq BETWEEN (
+    SELECT context_start_seq FROM ai_messages
+    WHERE conversation_id = '<uuid>' AND seq = 20
+  ) AND 20
+ORDER BY seq;
 ```
 
 ### Reglas importantes
