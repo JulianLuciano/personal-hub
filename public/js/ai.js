@@ -518,6 +518,16 @@ function closeAIChat() {
   app.style.overflow = '';
   app.style.touchAction = '';
 }
+// Copies a preset message into the input box (doesn't send — lets user edit first)
+function aiCopyToInput(msg) {
+  const input = document.getElementById('aiInput');
+  input.value = msg;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.focus();
+  input.selectionStart = input.selectionEnd = input.value.length;
+}
+
 function aiQuick(msg) {
   document.getElementById('aiInput').value = msg;
   aiSendMsg();
@@ -650,7 +660,7 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODELS[aiModel],
-        max_tokens: aiModel === 'opus' ? 2048 : 1024,
+        max_tokens: 3000,
         system: systemPrompt,
         messages: aiHistory.slice(-8) // keep last 8 turns for context
       })
@@ -666,7 +676,9 @@ ${wlExtended   ? '\n' + wlExtended   : ''}`;
       return;
     }
 
-    const reply = data.content?.[0]?.text || '(sin respuesta)';
+    // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    const reply = textBlock?.text || '(sin respuesta)';
     aiAddMsg('assistant', reply);
     aiHistory.push({ role: 'assistant', content: reply });
 
