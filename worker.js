@@ -48,9 +48,8 @@ async function fetchFxRate() {
 
 // ── CORRELATION MATRIX ────────────────────────────────────────────────────────
 
-// GBP-priced tickers whose returns need FX adjustment before correlation
-// (these cotize in GBP, so raw returns include equity + GBP/USD movement)
-const GBP_CORR_TICKERS = new Set(['VWRP.L', 'ARKK.L', 'NDIA.L']);
+// GBP_CORR_TICKERS is built dynamically inside runCorrelation() from positions.pricing_currency
+// — consistent with GBP_PRICED_TICKERS used in the price snapshot logic
 
 async function fetchDailyPriceMap(yahooTicker) {
   // Returns { 'YYYY-MM-DD': closePrice } — keyed by UTC date string for alignment
@@ -111,8 +110,14 @@ function buildAlignedReturns(mapA, mapB, fxMap, isGBP_A, isGBP_B, maxDays = 90) 
       pB1 = pB1 * fxMap[d1];
     }
 
-    returnsA.push(Math.log(pA1 / pA0));
-    returnsB.push(Math.log(pB1 / pB0));
+    const rA = Math.log(pA1 / pA0);
+    const rB = Math.log(pB1 / pB0);
+    // Discard the pair if either return looks like a data error (split, gap, corrupt)
+    // ±20% daily move is the threshold — both discarded together to keep arrays in sync
+    if (Math.abs(rA) < 0.20 && Math.abs(rB) < 0.20) {
+      returnsA.push(rA);
+      returnsB.push(rB);
+    }
   }
 
   return { returnsA, returnsB, n: returnsA.length };
@@ -157,6 +162,12 @@ async function runCorrelation(positions) {
   // Only investable, non-fiat tickers with qty > 0
   const investable = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
   const dbTickers = [...new Set(investable.map(p => p.ticker))];
+
+  // Build GBP set dynamically from DB — consistent with GBP_PRICED_TICKERS in price logic
+  const GBP_CORR_TICKERS = new Set(
+    positions.filter(p => p.pricing_currency === 'GBP').map(p => p.ticker)
+  );
+  console.log(`[Correlation] GBP tickers (FX-adjust): ${[...GBP_CORR_TICKERS].join(', ') || 'ninguno'}`);
 
   // Fetch GBPUSD daily prices (needed to FX-adjust GBP-priced tickers)
   const needsFx = dbTickers.some(t => GBP_CORR_TICKERS.has(t));
