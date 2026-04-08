@@ -56,6 +56,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
+| FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
 | Bug en notificaciones push (hábitos o agua) | `notification-worker.js` + `sw-habits.js` |
@@ -141,7 +142,7 @@ El módulo base que todos los demás dependen. Se carga primero. Contiene:
 - `sbFetch(path)` — wrapper de fetch que transforma `/rest/v1/X` en `/api/db/X` (proxy Express). Todos los módulos usan esto para leer de Supabase.
 
 **Navegación:**
-- `switchNav(el, name)` — cambia de tab principal (portfolio, analytics, etc.)
+- `switchNav(el, name)` — cambia de tab principal. También controla visibilidad de los FABs (`#aiBubble` y `#txFab`): solo visibles en `portfolio` y `analytics`.
 - `switchTab(name, btn)` — cambia entre sub-tabs de Today (Today/Analytics/All)
 - `toggleTheme()` — alterna modo oscuro/claro
 
@@ -355,10 +356,16 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - Pills actuales: Composición · Riesgo · Diversificación · P&L · 💰 Invertir (template con monto editable).
 
 **Chat UI:**
-- `openAIChat()` / `closeAIChat()` — abre y cierra el modal
+- `openAIChat()` / `closeAIChat()` — abre y cierra el modal (close siempre vuelve a la vista de chat)
 - `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat`, filtra thinking blocks de Opus, loggea a Supabase
-- `setAiModel(m)` — cambia entre Sonnet y Opus con feedback visual
+- `setAiModel(m)` — cambia entre Sonnet y Opus con feedback visual. El modelo se lee en el momento del envío, así que puede cambiar mid-conversación — cada mensaje assistant loggea el modelo usado.
 - `aiRenderMarkdown(text)` — parsea tablas, bold, italic, headers y listas para renderizar en HTML
+
+**Historial de conversaciones:**
+- `aiToggleHistory()` — alterna entre vista de chat y vista de historial dentro del mismo sheet
+- `aiLoadHistory()` — fetcha las últimas 15 conversaciones de `/api/ai-conversations`. Lazy: solo carga la primera vez; se resetea con `aiHistoryLoaded = false` cada vez que se loggea un mensaje nuevo.
+- `aiOpenConversation(id)` — carga todos los mensajes de una conversación, reconstruye `aiHistory` completo, y setea `aiConversationId` al ID original. Los mensajes nuevos se agregan a la misma conversación en Supabase con seq continuado.
+- `aiNewConversation()` — resetea `aiHistory`, `aiConversationId` y `aiMessageSeq`. El próximo mensaje crea una conversación nueva. Disponible desde el botón "+ Nueva" en la vista de historial.
 
 **Thinking blocks (Opus):**
 - Las respuestas de Opus pueden incluir bloques `{type:'thinking'}` antes del texto. El cliente filtra con `.find(b => b.type === 'text')` para no mostrar ni loggear el razonamiento interno.
