@@ -1089,8 +1089,10 @@ function renderCorrelationHeatmap(rows) {
   const rawW = wrapEl ? wrapEl.clientWidth : 0;
   const AVAILABLE = rawW > 0 ? rawW : (cardEl ? cardEl.clientWidth - 32 : 320);
   const LABEL_W = 44;
-  // Fill the full available width — no artificial min/max on cell size
-  const CELL = Math.floor((AVAILABLE - LABEL_W) / N);
+  // border-spacing:2px adds 2px on each side of every column (N data cols + 1 label col = N+1 gaps each side)
+  // Total spacing = (N + 1) * 2 * 2 = but simpler: table width = LABEL_W + N*CELL + (N+1)*2
+  // So CELL = (AVAILABLE - LABEL_W - (N+1)*2) / N
+  const CELL = Math.floor((AVAILABLE - LABEL_W - (N + 1) * 2) / N);
 
   // Color coding based on absolute correlation value — sign doesn't matter for diversification
   // Thresholds: 0.0–0.3 green, 0.3–0.6 yellow, 0.6–1.0 red
@@ -1133,7 +1135,7 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — width:auto so it only takes as much space as needed, centered
-  let html = `<table style="border-collapse:collapse;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:100%;table-layout:fixed">`;
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, Math.min(11, CELL - 18))}px;width:auto">`;
 
   // Header row
   html += '<thead><tr>';
@@ -1157,7 +1159,7 @@ function renderCorrelationHeatmap(rows) {
       const textCol = isSelf ? 'var(--muted)' : corrTextColor(c);
       const val = c !== null ? (isSelf ? '—' : c.toFixed(2)) : '?';
       const title = isSelf ? ta : `${dispTicker(ta)} vs ${dispTicker(tb)}: ${c !== null ? c.toFixed(3) : 'N/A'}`;
-      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;outline:2px solid var(--bg);font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
+      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
     });
     html += '</tr>';
   });

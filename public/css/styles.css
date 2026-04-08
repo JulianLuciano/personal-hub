@@ -2662,6 +2662,8 @@
 }
 #corrHeatmapWrap {
   overflow-x: hidden;
+  display: block;
+  width: 100%;
 }
 #corrHeatmap {
   color: var(--muted);
