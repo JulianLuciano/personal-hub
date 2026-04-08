@@ -1082,12 +1082,13 @@ function renderCorrelationHeatmap(rows) {
   });
 
   const N = tickers.length;
-  // Measure actual available width from the wrapper element at render time
+  // Measure available width — fall back to card width if wrap reports 0 (subtab just became visible)
   const wrapEl = document.getElementById('corrHeatmapWrap');
-  const AVAILABLE = wrapEl ? wrapEl.clientWidth : 320;
+  const cardEl = wrapEl ? wrapEl.closest('.mc-card') : null;
+  const rawW = wrapEl ? wrapEl.clientWidth : 0;
+  const AVAILABLE = rawW > 0 ? rawW : (cardEl ? cardEl.clientWidth - 32 : 320);
   const LABEL_W = 44;
   const CELL = Math.max(22, Math.min(36, Math.floor((AVAILABLE - LABEL_W) / N)));
-  const totalW = LABEL_W + N * CELL;
 
   // Color coding based on absolute correlation value — sign doesn't matter for diversification
   // Thresholds: 0.0–0.3 green, 0.3–0.6 yellow, 0.6–1.0 red
@@ -1130,7 +1131,7 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — width:auto so it only takes as much space as needed, centered
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:auto;margin:0 auto">`;
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:100%;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
