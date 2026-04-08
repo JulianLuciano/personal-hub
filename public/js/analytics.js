@@ -1065,11 +1065,11 @@ function renderCorrelationHeatmap(rows) {
   });
 
   const N = tickers.length;
-  // Fit table to available width (~330px usable inside mc-card with 16px padding each side)
-  // LABEL_W + N * CELL must fit in ~330px. If it doesn't, allow horizontal scroll.
-  const AVAILABLE = 330;
+  // Measure actual available width from the wrapper element at render time
+  const wrapEl = document.getElementById('corrHeatmapWrap');
+  const AVAILABLE = wrapEl ? wrapEl.clientWidth : 320;
   const LABEL_W = 44;
-  const CELL = Math.max(24, Math.min(36, Math.floor((AVAILABLE - LABEL_W) / N)));
+  const CELL = Math.max(22, Math.min(36, Math.floor((AVAILABLE - LABEL_W) / N)));
   const totalW = LABEL_W + N * CELL;
 
   // Color coding based on absolute correlation value — sign doesn't matter for diversification
@@ -1113,7 +1113,7 @@ function renderCorrelationHeatmap(rows) {
   }
 
   // Build table HTML — table width is capped to fit, wrapper handles overflow-x
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:${totalW}px;table-layout:fixed">`;
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:100%;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
