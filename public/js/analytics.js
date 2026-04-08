@@ -1013,9 +1013,10 @@ async function loadCorrelation() {
   wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Cargando...</div>';
 
   try {
-    const rows = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
+    const res = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,calculated_at&order=ticker_a.asc');
+    const rows = await res.json();
 
-    if (!Array.isArray(rows) || rows.length === 0) {
+    if (!rows || rows.length === 0) {
       wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:32px 0">Sin datos aún — el worker los generará hoy</div>';
       return;
     }
@@ -1065,47 +1066,62 @@ function renderCorrelationHeatmap(rows) {
   });
 
   const N = tickers.length;
-  const CELL = Math.max(28, Math.min(40, Math.floor(280 / N))); // responsive cell size
-  const LABEL_W = 52;
+  // Fit table to available width (~330px usable inside mc-card with 16px padding each side)
+  // LABEL_W + N * CELL must fit in ~330px. If it doesn't, allow horizontal scroll.
+  const AVAILABLE = 330;
+  const LABEL_W = 44;
+  const CELL = Math.max(24, Math.min(36, Math.floor((AVAILABLE - LABEL_W) / N)));
   const totalW = LABEL_W + N * CELL;
 
-  // Color interpolation: -1 → green, 0 → neutral, +1 → red
+  // Color coding based on absolute correlation value — sign doesn't matter for diversification
+  // Thresholds: 0.0–0.3 green, 0.3–0.6 yellow, 0.6–1.0 red
   function corrColor(c) {
     if (c === null) return 'var(--surface2)';
-    const isDarkMode = document.documentElement.classList.contains('light') ? false : true;
-    const alpha = Math.abs(c);
-    if (c > 0) {
-      // red family
-      const r = isDarkMode ? `rgba(255,77,109,${0.15 + alpha * 0.75})` : `rgba(220,38,38,${0.12 + alpha * 0.7})`;
-      return r;
+    const abs = Math.abs(c);
+    const isDark = !document.documentElement.classList.contains('light');
+    if (abs < 0.3) {
+      // green — low correlation, good diversification
+      const intensity = abs / 0.3;
+      return isDark
+        ? `rgba(67,233,123,${0.15 + intensity * 0.45})`
+        : `rgba(22,163,74,${0.12 + intensity * 0.4})`;
+    } else if (abs < 0.6) {
+      // yellow — medium correlation
+      const intensity = (abs - 0.3) / 0.3;
+      return isDark
+        ? `rgba(247,183,49,${0.2 + intensity * 0.5})`
+        : `rgba(202,138,4,${0.15 + intensity * 0.45})`;
     } else {
-      // green family
-      const g = isDarkMode ? `rgba(67,233,123,${0.15 + alpha * 0.75})` : `rgba(22,163,74,${0.12 + alpha * 0.7})`;
-      return g;
+      // red — high correlation, low diversification benefit
+      const intensity = (abs - 0.6) / 0.4;
+      return isDark
+        ? `rgba(255,77,109,${0.3 + intensity * 0.6})`
+        : `rgba(220,38,38,${0.2 + intensity * 0.6})`;
     }
   }
 
   function corrTextColor(c) {
     if (c === null) return 'var(--muted)';
     const abs = Math.abs(c);
-    if (abs < 0.25) return 'var(--muted)';
-    return c > 0 ? '#ff6584' : '#43e97b';
+    if (abs < 0.3) return abs < 0.15 ? 'var(--muted)' : '#43e97b';
+    if (abs < 0.6) return '#f7b731';
+    return '#ff4d6d';
   }
 
-  // Display name (strip _META suffix, shorten VWRP.L → VWRP)
+  // Display name (strip RSU_META → META, drop .L suffix)
   function dispTicker(t) {
     return t.replace('RSU_META', 'META').replace('.L', '');
   }
 
-  // Build table HTML
-  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(8, CELL - 20)}px;min-width:${totalW}px">`;
+  // Build table HTML — table width is capped to fit, wrapper handles overflow-x
+  let html = `<table style="border-collapse:separate;border-spacing:2px;font-size:${Math.max(7, CELL - 18)}px;width:${totalW}px;table-layout:fixed">`;
 
   // Header row
   html += '<thead><tr>';
   html += `<th style="width:${LABEL_W}px"></th>`;
   tickers.forEach(t => {
-    html += `<th style="width:${CELL}px;height:${CELL}px;text-align:center;font-weight:600;color:var(--muted);white-space:nowrap;padding:2px 1px;vertical-align:bottom">
-      <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:${Math.max(7, CELL - 22)}px;line-height:1;max-height:44px;overflow:hidden">${dispTicker(t)}</div>
+    html += `<th style="width:${CELL}px;height:${CELL}px;text-align:center;font-weight:600;color:var(--muted);padding:2px 1px;vertical-align:bottom;overflow:hidden">
+      <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:${Math.max(6, CELL - 20)}px;line-height:1;max-height:40px;overflow:hidden;white-space:nowrap">${dispTicker(t)}</div>
     </th>`;
   });
   html += '</tr></thead><tbody>';
@@ -1113,8 +1129,7 @@ function renderCorrelationHeatmap(rows) {
   // Data rows
   tickers.forEach((ta, i) => {
     html += '<tr>';
-    // Row label
-    html += `<td style="padding-right:6px;text-align:right;font-weight:600;color:var(--muted);font-size:${Math.max(7, CELL - 22)}px;white-space:nowrap">${dispTicker(ta)}</td>`;
+    html += `<td style="width:${LABEL_W}px;padding-right:4px;text-align:right;font-weight:600;color:var(--muted);font-size:${Math.max(6, CELL - 20)}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dispTicker(ta)}</td>`;
     tickers.forEach((tb, j) => {
       const key = `${ta}|${tb}`;
       const c = corrMap[key] ?? corrMap[`${tb}|${ta}`] ?? (ta === tb ? 1.0 : null);
@@ -1123,7 +1138,7 @@ function renderCorrelationHeatmap(rows) {
       const textCol = isSelf ? 'var(--muted)' : corrTextColor(c);
       const val = c !== null ? (isSelf ? '—' : c.toFixed(2)) : '?';
       const title = isSelf ? ta : `${dispTicker(ta)} vs ${dispTicker(tb)}: ${c !== null ? c.toFixed(3) : 'N/A'}`;
-      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle">${val}</td>`;
+      html += `<td title="${title}" style="width:${CELL}px;height:${CELL}px;text-align:center;background:${bg};border-radius:4px;font-family:var(--font-num);font-weight:700;color:${textCol};cursor:default;vertical-align:middle;overflow:hidden">${val}</td>`;
     });
     html += '</tr>';
   });
