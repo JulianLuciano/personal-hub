@@ -308,8 +308,163 @@ function buildMarketContext() {
     ].join('|') + '\n';
   });
 
-  tsv += '\nCORRELATIONS_VS_SPY: META~0.70|VWRP.L~0.92|BRK-B~0.65|BTC~0.25|MELI~0.65|NU~0.55|ARKK~0.80';
   return tsv.trim();
+}
+
+// ── CORRELATION CONTEXT ───────────────────────────────────────────────────────
+function buildCorrelationContext() {
+  // corrAllRows is cached in analytics.js after the Correlation tab is first opened.
+  // If not loaded yet (user never opened that tab), skip gracefully — no blocking fetch.
+  if (typeof corrAllRows === 'undefined' || !corrAllRows || !Array.isArray(corrAllRows)) return null;
+  if (!liveData || !liveData.assets) return null;
+
+  const EXCLUDED = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+  const portfolioAssets = liveData.assets.filter(
+    a => a.pos.category !== 'fiat' && !EXCLUDED.has(a.pos.ticker) && a.valueUSD > 0.5
+  );
+  if (portfolioAssets.length < 2) return null;
+
+  const totalInvested = portfolioAssets.reduce((s, a) => s + a.valueUSD, 0);
+  function dispT(t) { return t.replace('RSU_META', 'META').replace('.L', ''); }
+
+  // Use 90d as primary period for the agent (most recent signal)
+  const PRIMARY = 90;
+  const rows90 = corrAllRows.filter(r => r.period_days === PRIMARY);
+  if (rows90.length === 0) return null;
+
+  // Build lookup map for 90d
+  const corrMap = {};
+  rows90.forEach(r => { corrMap[`${r.ticker_a}|${r.ticker_b}`] = r.correlation; });
+  function getCorr(a, b) {
+    return corrMap[`${a}|${b}`] ?? corrMap[`${b}|${a}`] ?? null;
+  }
+
+  const tickers = portfolioAssets.map(a => a.pos.ticker);
+  const weights = {};
+  portfolioAssets.forEach(a => { weights[a.pos.ticker] = a.valueUSD / totalInvested; });
+
+  // ── 1. Correlations vs SPY (real, from correlation_matrix) ──
+  const SPY_TICKER = 'SPY';
+  const corrVsSpy = [];
+  tickers.forEach(t => {
+    const c = getCorr(t, SPY_TICKER);
+    if (c !== null) corrVsSpy.push(`${dispT(t)}: ${c.toFixed(2)}`);
+  });
+
+  // ── 2. Correlation vs portfolio (weighted daily returns proxy using pairwise matrix) ──
+  // Approximate corr(ticker, portfolio) using weighted sum of pairwise correlations.
+  // corr(i, P) ≈ Σ_j w_j × corr(i, j) — standard linear approximation.
+  // This avoids a separate fetch and is accurate enough for advisory context.
+  const corrVsPort = [];
+  tickers.forEach(ti => {
+    let weightedSum = 0, weightSum = 0;
+    tickers.forEach(tj => {
+      const c = ti === tj ? 1.0 : getCorr(ti, tj);
+      if (c !== null) {
+        weightedSum += weights[tj] * c;
+        weightSum   += weights[tj];
+      }
+    });
+    if (weightSum > 0.5) {
+      const approxCorr = weightedSum / weightSum;
+      corrVsPort.push({ ticker: ti, corr: approxCorr, weight: weights[ti] });
+    }
+  });
+  corrVsPort.sort((a, b) => b.corr - a.corr);
+
+  // ── 3. Concentration Risk Score ──
+  // Based on: weighted avg corr of top 3 positions between each other + avg corr vs portfolio
+  const top3 = [...portfolioAssets]
+    .sort((a, b) => b.valueUSD - a.valueUSD)
+    .slice(0, 3)
+    .map(a => a.pos.ticker);
+
+  let top3CorrSum = 0, top3CorrCount = 0, top3WeightSum = 0;
+  for (let i = 0; i < top3.length; i++) {
+    for (let j = i + 1; j < top3.length; j++) {
+      const c = getCorr(top3[i], top3[j]);
+      if (c !== null) {
+        // Weight by product of the two positions' weights
+        const pairWeight = weights[top3[i]] * weights[top3[j]];
+        top3CorrSum   += Math.abs(c) * pairWeight;
+        top3CorrCount += pairWeight;
+        top3WeightSum += pairWeight;
+      }
+    }
+  }
+  const top3AvgCorr = top3CorrCount > 0 ? top3CorrSum / top3CorrCount : null;
+
+  const avgCorrVsPort = corrVsPort.length > 0
+    ? corrVsPort.reduce((s, r) => s + r.corr * r.weight, 0) /
+      corrVsPort.reduce((s, r) => s + r.weight, 0)
+    : null;
+
+  // HHI from healthData if available
+  let hhiNorm = null;
+  if (typeof computeHealthData === 'function') {
+    const hd = computeHealthData();
+    if (hd) hhiNorm = hd.hhiNorm;
+  }
+
+  // Risk signal: HIGH if top3 avg corr >0.80 AND hhi >35%, MEDIUM if either, LOW otherwise
+  let riskSignal = 'LOW';
+  if (top3AvgCorr !== null && avgCorrVsPort !== null) {
+    const highCorr = top3AvgCorr > 0.80;
+    const highHHI  = hhiNorm !== null ? hhiNorm > 0.35 : false;
+    const medCorr  = top3AvgCorr > 0.65;
+    if (highCorr && highHHI)        riskSignal = 'HIGH';
+    else if (highCorr || medCorr)   riskSignal = 'MEDIUM';
+  }
+
+  // ── Build TSV output ──
+  let ctx = `CORRELATION_DATA (period: ${PRIMARY}d, Pearson log-returns)\n`;
+
+  if (corrVsSpy.length > 0) {
+    ctx += `corr_vs_SPY: ${corrVsSpy.join(' | ')}\n`;
+  }
+
+  if (corrVsPort.length > 0) {
+    const portLine = corrVsPort
+      .map(r => `${dispT(r.ticker)}: ${r.corr.toFixed(2)}`)
+      .join(' | ');
+    ctx += `corr_vs_portfolio (approx): ${portLine}\n`;
+    ctx += `note: corr_vs_portfolio >0.90 = position moves almost identically to whole portfolio — adding more provides near-zero diversification\n`;
+  }
+
+  ctx += `\nCONCENTRATION_RISK\n`;
+  ctx += `top3_positions: ${top3.map(dispT).join(', ')}\n`;
+  if (top3AvgCorr !== null) ctx += `corr_top3_weighted: ${top3AvgCorr.toFixed(2)}${top3AvgCorr > 0.80 ? ' ⚠ >0.80 threshold' : ''}\n`;
+  if (avgCorrVsPort !== null) ctx += `avg_corr_vs_portfolio: ${avgCorrVsPort.toFixed(2)}\n`;
+  if (hhiNorm !== null) ctx += `hhi_norm: ${(hhiNorm * 100).toFixed(0)}%\n`;
+  ctx += `risk_signal: ${riskSignal}\n`;
+
+  // Also include multi-period summary for key pairs if 180d/365d available
+  const rows180 = corrAllRows.filter(r => r.period_days === 180);
+  const rows365 = corrAllRows.filter(r => r.period_days === 365);
+  if (rows180.length > 0 || rows365.length > 0) {
+    ctx += `\nCORR_MULTI_PERIOD (top pairs by weight)\n`;
+    // Show top 4 pairs by combined weight
+    const pairs = [];
+    for (let i = 0; i < tickers.length; i++) {
+      for (let j = i + 1; j < tickers.length; j++) {
+        const ta = tickers[i], tb = tickers[j];
+        const c90 = getCorr(ta, tb);
+        if (c90 === null) continue;
+        pairs.push({ ta, tb, c90, combinedWeight: weights[ta] + weights[tb] });
+      }
+    }
+    pairs.sort((a, b) => b.combinedWeight - a.combinedWeight).slice(0, 4).forEach(p => {
+      const get = (rows, ta, tb) => {
+        const r = rows.find(r => (r.ticker_a === ta && r.ticker_b === tb) || (r.ticker_a === tb && r.ticker_b === ta));
+        return r ? r.correlation.toFixed(2) : '—';
+      };
+      const c180 = get(rows180, p.ta, p.tb);
+      const c365 = get(rows365, p.ta, p.tb);
+      ctx += `${dispT(p.ta)}/${dispT(p.tb)}: 90d ${p.c90.toFixed(2)} | 180d ${c180} | 365d ${c365}\n`;
+    });
+  }
+
+  return ctx.trim();
 }
 
 function buildPortfolioContext() {
@@ -728,6 +883,7 @@ async function aiSendMsg() {
     const wlBase     = buildWatchlistBase();
     const wlExtended = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
     const macroSection = buildMacroContext();
+    const corrSection  = buildCorrelationContext();
 
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
@@ -818,9 +974,10 @@ ${buildPortfolioContext()}
 
 ${buildHealthContext()}
 ${buildMarketContext()}
-${macroSection ? '\n' + macroSection : ''}
-${wlBase       ? '\n' + wlBase       : ''}
-${wlExtended   ? '\n' + wlExtended   : ''}`;
+${corrSection    ? '\n' + corrSection    : ''}
+${macroSection   ? '\n' + macroSection   : ''}
+${wlBase         ? '\n' + wlBase         : ''}
+${wlExtended     ? '\n' + wlExtended     : ''}`;
 
     const res = await fetch('/api/ai-chat', {
       method: 'POST',
