@@ -1001,6 +1001,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   })();
+
+  // Prefetch correlation matrix in background so AI agent always has the data
+  // Delayed 4s to avoid competing with portfolio load on startup
+  setTimeout(prefetchCorrelationData, 4000);
 });
 
 
@@ -1009,6 +1013,24 @@ document.addEventListener('DOMContentLoaded', () => {
 // All rows cached after first fetch — switching periods is instant
 let corrAllRows = null;
 let corrActivePeriod = 90;
+
+// Background prefetch — populates corrAllRows silently on startup so the AI
+// agent always has correlation data available even if the user never opens
+// the Correlación tab. Called from DOMContentLoaded with a delay to avoid
+// competing with the portfolio load on startup.
+async function prefetchCorrelationData() {
+  if (corrAllRows) return; // already loaded
+  try {
+    const rows = await sbFetch('/rest/v1/correlation_matrix?select=ticker_a,ticker_b,correlation,period_days,calculated_at&order=ticker_a.asc');
+    if (Array.isArray(rows) && rows.length > 0) {
+      corrAllRows = rows;
+      console.log(`[Correlation] Prefetch: ${rows.length} filas cargadas en background.`);
+    }
+  } catch (e) {
+    // Silently ignore — non-critical, tab will retry on open
+    console.warn('[Correlation] Prefetch falló (no crítico):', e.message);
+  }
+}
 
 async function loadCorrelation(period) {
   if (period !== undefined) corrActivePeriod = period;
