@@ -10,7 +10,7 @@ async function loadPortfolio() {
         TICKER_META[p.ticker].name = p.name;  // always trust DB name
       } else {
         // New ticker not in TICKER_META yet — create a minimal entry
-        TICKER_META[p.ticker] = { name: p.name, logo: '💰', logoUrl: null, cat: p.category, showTicker: true };
+        TICKER_META[p.ticker] = { name: p.name, logo: '💰', logoUrl: `/logos/${p.ticker.toLowerCase().replace(/\./g, '')}.png`, cat: p.category, showTicker: true };
       }
     });
 

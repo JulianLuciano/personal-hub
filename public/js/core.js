@@ -228,8 +228,8 @@ function fmtVal(usd, rate, sym) {
 
 function fmtQty(qty, ticker) {
   if (ticker === 'BTC') return qty.toFixed(8);
-  if (['SPY','BRK.B','MELI','NU','ARKK.L','VWRP.L','MSFT','NDIA.L'].includes(ticker)) return qty.toFixed(3);
-  return qty % 1 === 0 ? qty.toString() : qty.toFixed(2);
+  if (qty % 1 === 0) return qty.toString();
+  return qty.toFixed(3);
 }
 
 // ── PULL-TO-REFRESH ──────────────────────────────────────────────────────────
