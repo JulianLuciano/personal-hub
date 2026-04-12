@@ -971,6 +971,10 @@ si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen
           enum: ['neutral', 'bull', 'bear'],
           description: 'neutral = mercado histórico (9% ret, 18% vol) | bull = optimista (16% ret, 22% vol) | bear = conservador (3% ret, 25% vol). Default: neutral.',
         },
+        initial_capital_gbp: {
+          type: 'number',
+          description: 'Capital inicial en GBP para la simulación. Si se especifica, sobreescribe el portfolio actual (útil para simular desde 0, desde un monto hipotético, o "qué pasaría si empezara de cero"). Si no se especifica, usa el portfolio real de Julián.',
+        },
       },
       required: ['years'],
     },
@@ -1082,6 +1086,7 @@ async function executeRunMontecarlo(input) {
     include_rsu              = true,
     target_gbp               = null,
     scenario                 = 'neutral',
+    initial_capital_gbp      = null, // null = usar portfolio real; 0 o cualquier número = override
   } = input;
 
   // Escenarios alineados con MC_SCEN en analytics.js
@@ -1111,6 +1116,13 @@ async function executeRunMontecarlo(input) {
 
   let startInvested = 8000; // fallbacks por si falla el fetch
   let startCash     = 4000;
+
+  // Si el usuario especificó un capital inicial explícito, usarlo directamente
+  // (incluye el caso 0 para simular "desde cero")
+  if (initial_capital_gbp !== null) {
+    startInvested = initial_capital_gbp;
+    startCash     = 0;
+  } else {
 
   try {
     const [posRes, snapRes, priceRes] = await Promise.all([
@@ -1160,6 +1172,7 @@ async function executeRunMontecarlo(input) {
   } catch (e) {
     console.warn('[montecarlo] error fetcheando posiciones, usando fallbacks:', e.message);
   }
+  } // end else (initial_capital_gbp not specified)
 
   // ── Simulación alineada con mcSimulate() del frontend ──────────────────────
   const N_SIMULATIONS = 2000;
@@ -1249,6 +1262,7 @@ async function executeRunMontecarlo(input) {
       start_invested_gbp:             fmt(startInvested),
       start_cash_gbp:                 fmt(startCash),
       start_total_gbp:                fmt(startInvested + startCash),
+      capital_source:                 initial_capital_gbp !== null ? 'override manual' : 'portfolio real',
       monthly_contribution_gbp:       fmt(monthly_contribution_gbp),
       annual_bonus_gbp:               fmt(annual_bonus_gbp),
       rsu_per_vest_gbp:               include_rsu ? fmt(RSU_PER_VEST) : 'no incluido',
