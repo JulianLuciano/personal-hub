@@ -12,7 +12,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 /personal-hub
 ├── server.js                  ← Servidor Express (API, proxy Supabase, OCR, push, water)
 ├── worker.js                  ← Worker de precios (corre cada 15 min, Yahoo Finance)
-├── notification-worker.js     ← Worker de notificaciones push (hábitos + agua, corre 24/7 en Railway)
+├── notification-worker.js     ← Worker de notificaciones push (hábitos + agua + briefing diario, corre 24/7 en Railway)
 ├── recalculator.js            ← Motor de recálculo de posiciones desde transacciones
 ├── package.json
 │
@@ -58,6 +58,9 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
 | Bug en swipe-to-delete del historial / confirm popup | `ai.js` + `styles.css` |
+| Bug en mensajes favoritos (star, starred view) | `ai.js` + `server.js` + `styles.css` |
+| Bug en briefing diario (push, contenido, modal) | `notification-worker.js` + `server.js` + `ai.js` |
+| Bug en modal de briefing (UI, historial, render) | `ai.js` + `index.html` + `styles.css` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
@@ -82,12 +85,12 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
 | `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
-| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete. |
-| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history. |
+| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete, mensajes favoritos (★), modal de briefing diario. |
+| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history, contexto de transacciones, contexto completo para briefing. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
-| `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Muestra notificaciones con action buttons (agua: ✓ Sí tomé / ✗ No tomé). Responde clicks llamando a endpoints del server. |
-| `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30 (solo si no completaste todo) y push de agua cada ~90 min entre 09:40 y 22:40 con lógica adaptativa. |
+| `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
+| `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30, agua cada ~90 min con lógica adaptativa, y briefing financiero 5 min después del cierre NYSE (lun-vie). |
 
 ---
 
@@ -354,7 +357,7 @@ Formulario para registrar transacciones manualmente (~522 líneas).
 ---
 
 ### `js/ai.js`
-Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto para el system prompt, el logging de conversaciones a Supabase, y el rendering de respuestas.
+Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto para el system prompt, el logging de conversaciones a Supabase, el rendering de respuestas, los mensajes favoritos y el modal de briefing diario.
 
 **Configuración:**
 - `AI_CONTEXT_WINDOW = 8` — cuántos mensajes se pasan como contexto en cada turn. **Cambiar este único valor** para ajustar el sliding window en toda la app.
@@ -368,6 +371,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - `buildWatchlistBase()` — ~14 tickers de referencia fija (SPY, QQQ, BTC, NVDA, etc.) en TSV
 - `buildWatchlistExtended()` — ~50 tickers adicionales por grupo temático; solo se incluye si el mensaje del usuario activa `needsExtendedWatchlist()`
 - `buildMarketContext()` — fundamentals de posiciones del portfolio (beta, PE, 52w, MA, analyst targets)
+- Transacciones recientes: fetcha `/api/ai-transactions-context` en cada turn (últimas 5 transacciones + total mes corriente y anterior en USD y GBP). Fire-and-forget con fallback graceful.
 
 **Quick pills (chat):**
 - Las 5 pills copian el texto al input en vez de enviarlo directamente, para que el usuario pueda editar antes de mandar.
@@ -384,8 +388,16 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 **Historial de conversaciones:**
 - `aiToggleHistory()` — alterna entre vista de chat y vista de historial dentro del mismo sheet
 - `aiLoadHistory()` — fetcha las últimas 15 conversaciones de `/api/ai-conversations`. Lazy: solo carga la primera vez; se resetea con `aiHistoryLoaded = false` cada vez que se loggea un mensaje nuevo.
-- `aiOpenConversation(id)` — carga todos los mensajes de una conversación, reconstruye `aiHistory` completo, y setea `aiConversationId` al ID original. Los mensajes nuevos se agregan a la misma conversación en Supabase con seq continuado.
+- `aiOpenConversation(id, targetMsgId?)` — carga todos los mensajes de una conversación, reconstruye `aiHistory` completo, y setea `aiConversationId` al ID original. Si se pasa `targetMsgId`, hace scroll hasta ese mensaje y aplica animación `ai-msg-highlight` (glow amarillo 1.8s). Los mensajes nuevos se agregan a la misma conversación con seq continuado.
 - `aiNewConversation()` — resetea `aiHistory`, `aiConversationId` y `aiMessageSeq`. El próximo mensaje crea una conversación nueva. Disponible desde el botón "+ Nueva" en la vista de historial.
+
+**Mensajes favoritos (★):**
+- Cada mensaje del assistant tiene un botón `☆` en la esquina inferior derecha. Al tocar lo marca/desmarca en amarillo y hace PATCH a `/api/ai-messages/:id/star`.
+- `_aiMsgMeta` — WeakMap que mapea elementos DOM a `{ dbId }`. Se inicializa en `aiAddMsg` con `dbId: null` y se actualiza cuando el log async devuelve el ID real.
+- `aiToggleStar(el)` — lee `el.dataset.starred`, invierte, PATCH al server, actualiza icono y clase `.active`.
+- `aiToggleStarred()` / `aiShowStarredView()` — botón ★ en el header del modal AI abre la vista de guardados.
+- `aiLoadStarred()` — fetcha `/api/ai-messages/starred`, renderiza cards con preview + fecha + título de conversación. Al tocar una card llama `aiOpenConversation(conversationId, messageId)` para ir directo al mensaje.
+- Estado inicial correcto al reabrir conversaciones: `aiOpenConversation` pasa `row.starred` a `aiAddMsg` para que el ★ se renderice en amarillo si el mensaje estaba guardado.
 
 **Thinking blocks (Opus):**
 - Las respuestas de Opus pueden incluir bloques `{type:'thinking'}` antes del texto. El cliente filtra con `.find(b => b.type === 'text')` para no mostrar ni loggear el razonamiento interno.
@@ -401,7 +413,15 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 2. Se calcula `contextStartSeq`: índice en `aiHistory` del primer mensaje del slice que se enviará como contexto.
 3. `aiLogMessage({ role: 'user', context_start_seq: contextStartSeq, ... })` → inserta el mensaje del usuario.
 4. Se hace el API call con `contextSlice`.
-5. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', context_start_seq: contextStartSeq, input_tokens, output_tokens, ... })`.
+5. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', ... })` → devuelve el `dbId` via `.then()`, que se guarda en `_aiMsgMeta` para habilitar el starring.
+
+**Modal de briefing diario:**
+- `openBriefingModal(content?)` — navega a la tab portfolio y abre el modal `#briefingModal`. Si no se pasa `content`, llama `briefingLoadLatest()`.
+- `briefingLoadLatest()` — fetcha el último registro de `daily_briefings` via `/api/db/daily_briefings?order=date.desc&limit=1`, renderiza con `_briefingRender()`.
+- `briefingToggleHistory()` — alterna entre la vista del último briefing y la lista histórica.
+- `briefingLoadHistory()` — fetcha los últimos 30 briefings; cada card muestra fecha + preview y al tocar carga ese contenido.
+- `_briefingRender(content)` — renderiza el contenido markdown con `aiRenderMarkdown()` en `#briefingContent`.
+- Detección de `?briefing=1` al cargar la app (parámetro que pone el SW al tocar la notificación): limpia el param con `history.replaceState` y abre el modal tras 400ms.
 
 ---
 
@@ -419,6 +439,12 @@ Servidor Express. Puntos clave:
 - `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens?, context_start_seq? }`
 - `GET /api/ai-conversations` — lista conversaciones ordenadas por fecha desc (param `limit`, default 30, max 100)
 - `GET /api/ai-conversations/:id/messages` — todos los mensajes de una conversación ordenados por `seq`
+- `PATCH /api/ai-messages/:id/star` — togglea `starred` (boolean) en un mensaje. Body: `{ starred: true|false }`
+- `GET /api/ai-messages/starred` — todos los mensajes starred con join a `ai_conversations` (title, started_at), ordenados por fecha desc
+
+**Endpoints de contexto para el agente AI:**
+- `GET /api/ai-transactions-context` — últimas 5 transacciones + total invertido en mes corriente y anterior en USD y GBP. Devuelve `{ tsv }`. Usado en el system prompt del chat en cada turn.
+- `GET /api/briefing-context` — arma el system prompt completo para el briefing diario. Fetcha posiciones, snapshots (day change, 7d, 30d), market fundamentals de las posiciones actuales via `fetchFundamentals()` directamente (no depende del cache del frontend), macro cache, y transacciones recientes. Devuelve `{ systemPrompt }`. Usado exclusivamente por `notification-worker.js`.
 
 **Endpoints de push (VAPID):**
 - `GET /api/push/vapid-public-key` — devuelve la clave pública VAPID al frontend para la suscripción.
@@ -513,6 +539,7 @@ Service Worker registrado por `habits.js`. Gestiona notificaciones Web Push real
 **Ventaja sobre el sistema anterior:**
 - Las notificaciones llegan aunque el browser esté cerrado (push real vía Apple/Google servers).
 - No depende de que el usuario abra la app para reprogramar. El worker en Railway es quien decide cuándo mandar cada push.
+- `DAILY_BRIEFING` handler: al tocar la notificación del briefing llama `focusOrOpenApp('/?briefing=1')`. La app detecta el parámetro al cargar, lo limpia con `history.replaceState` y abre el modal de briefing.
 
 ### `notification-worker.js`
 Proceso Node.js independiente que corre en Railway como segundo service (start command: `npm run start:worker`). Corre un tick cada 60 segundos.
@@ -534,6 +561,12 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 - Intervalo adaptativo: base 90 min. Si respondiste "no tomé" 2 veces seguidas → acorta a 60 min. Si respondiste "sí tomé" 3 veces seguidas → alarga a 120 min.
 - Actualiza `water_notif_state` después de cada envío.
 - Registra respuestas en `water_notif_responses` para análisis futuro.
+
+**Briefing diario (lunes a viernes, 5 min después del cierre NYSE):**
+- `getNYSECloseUTC()` — calcula dinámicamente a qué minuto UTC corresponde las 16:00 ET usando `Intl.DateTimeFormat`. Maneja DST de EEUU y UK automáticamente sin offsets hardcodeados.
+- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-4-6` directamente desde el worker con `max_tokens: 600`. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
+- Variables de entorno adicionales requeridas: `ANTHROPIC_API_KEY`, `SERVER_INTERNAL_URL` (URL del service principal, ej: `https://personal-hub-julian.up.railway.app`).
+- **Test server**: corre en el puerto `WORKER_TEST_PORT` (default 3001). `POST /test-briefing` dispara el briefing inmediatamente sin esperar al cierre NYSE. Usar con `curl -X POST https://<worker-url>/test-briefing`.
 
 ---
 
@@ -592,7 +625,8 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
 | `correlation_matrix` | Matriz de correlación de retornos entre activos. Una fila por par ordenado (ticker_a, ticker_b) por período. PK: `(ticker_a, ticker_b, period_days)`. |
 | `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count`. |
-| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `created_at`. |
+| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `starred` (BOOLEAN DEFAULT false), `created_at`. |
+| `daily_briefings` | Un registro por día con el briefing financiero generado por el worker. Campos: `id` (UUID), `date` (DATE UNIQUE), `content` (TEXT — markdown del briefing), `prompt` (TEXT — system prompt completo enviado a Claude, para auditoría), `generated_at` (TIMESTAMPTZ). |
 
 ### Schema de las tablas de chat history
 
@@ -615,9 +649,20 @@ CREATE TABLE ai_messages (
   input_tokens       INT,
   output_tokens      INT,
   context_start_seq  INT,   -- seq del primer msg incluido como contexto en este turn
+  starred            BOOLEAN NOT NULL DEFAULT false,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON ai_messages(conversation_id, seq);
+CREATE INDEX ON ai_messages(starred) WHERE starred = true;
+
+-- daily_briefings
+CREATE TABLE daily_briefings (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date         DATE NOT NULL UNIQUE,
+  content      TEXT NOT NULL,
+  prompt       TEXT,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 ### Schema de `correlation_matrix`
@@ -682,6 +727,12 @@ ORDER BY seq;
 
 ### Service de notificaciones (`notification-worker.js`)
 Requiere las mismas variables que el service principal, **más** las VAPID keys. Deben cargarse manualmente — Railway no comparte variables entre services automáticamente.
+
+| Variable adicional | Descripción |
+|---|---|
+| `ANTHROPIC_API_KEY` | Misma key que el service principal. Usada para generar el briefing. |
+| `SERVER_INTERNAL_URL` | URL del service principal para fetchear el contexto del briefing. Ej: `https://personal-hub-julian.up.railway.app`. Intentar con URL privada (`http://personal-hub.railway.internal:3000`) si Private Networking está habilitado. |
+| `WORKER_TEST_PORT` | Puerto del test server (default `3001`). Exponer en Railway para poder disparar briefings manualmente con curl. |
 
 ### Generar claves VAPID (una sola vez)
 ```bash
