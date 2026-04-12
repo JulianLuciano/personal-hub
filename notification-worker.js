@@ -334,41 +334,6 @@ function getNYSECloseUTC() {
 const ANTHROPIC_KEY        = process.env.ANTHROPIC_API_KEY  || '';
 const SERVER_INTERNAL_URL  = process.env.SERVER_INTERNAL_URL || 'http://localhost:3000';
 
-async function buildBriefingContext() {
-  const headers = { Accept: 'application/json' };
-  const results = {};
-  try {
-    const [txRes, macroRes] = await Promise.allSettled([
-      fetch(SERVER_INTERNAL_URL + '/api/ai-transactions-context', { headers }),
-      fetch(SERVER_INTERNAL_URL + '/api/macro-data',              { headers }),
-    ]);
-    if (txRes.status === 'fulfilled' && txRes.value.ok) {
-      results.tx = (await txRes.value.json()).tsv || '';
-      console.log('[briefing] tx context loaded, length:', results.tx.length);
-    } else {
-      console.warn('[briefing] tx fetch failed:', txRes.status === 'rejected' ? txRes.reason?.message : txRes.value?.status);
-    }
-    if (macroRes.status === 'fulfilled' && macroRes.value.ok) {
-      const md  = (await macroRes.value.json()).data || {};
-      const f2  = v => (v != null ? Number(v).toFixed(2) : '\u2014');
-      const sgn = v => v == null ? '\u2014' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
-      let tsv = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
-      Object.entries(md).forEach(function(entry) {
-        const ticker = entry[0], d = entry[1];
-        if (!d || d.current == null) return;
-        tsv += ticker + '|' + d.label + '|' + f2(d.current) + '|' + d.unit + '|' + sgn(d.chg7d) + '|' + sgn(d.chg30d) + '|' + d.trend + '\n';
-      });
-      results.macro = tsv.trim();
-      console.log('[briefing] macro context loaded, tickers:', Object.keys(md).length);
-    } else {
-      console.warn('[briefing] macro fetch failed:', macroRes.status === 'rejected' ? macroRes.reason?.message : macroRes.value?.status);
-    }
-  } catch (e) {
-    console.warn('[briefing] context fetch error:', e.message);
-  }
-  return results;
-}
-
 async function generateAndSendBriefing() {
   if (!ANTHROPIC_KEY) {
     console.warn('[briefing] ANTHROPIC_API_KEY not set, skipping');
@@ -376,36 +341,25 @@ async function generateAndSendBriefing() {
   }
   console.log('[briefing] generating daily briefing...');
 
-  let ctx = {};
-  try { ctx = await buildBriefingContext(); } catch (e) {
-    console.warn('[briefing] buildBriefingContext failed:', e.message);
+  // Obtener el prompt completo desde el server principal
+  let systemPrompt = '';
+  try {
+    const ctxRes = await fetch(SERVER_INTERNAL_URL + '/api/briefing-context');
+    if (ctxRes.ok) {
+      const d = await ctxRes.json();
+      systemPrompt = d.systemPrompt || '';
+      console.log('[briefing] context loaded, prompt length:', systemPrompt.length);
+    } else {
+      console.warn('[briefing] briefing-context fetch failed:', ctxRes.status);
+    }
+  } catch (e) {
+    console.warn('[briefing] briefing-context fetch error:', e.message);
   }
 
-  if (!ctx.macro && !ctx.tx) {
-    console.warn('[briefing] WARNING: no context data — macro:', !!ctx.macro, 'tx:', !!ctx.tx, '— SERVER_INTERNAL_URL:', SERVER_INTERNAL_URL);
-  } else {
-    console.log('[briefing] context loaded — macro:', !!ctx.macro, 'tx:', !!ctx.tx);
+  if (!systemPrompt) {
+    console.warn('[briefing] empty system prompt, aborting');
+    return;
   }
-
-  const today = new Date().toLocaleDateString('es-AR', {
-    timeZone: 'Europe/London',
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
-
-  const contextLines = [
-    ctx.macro ? ctx.macro : null,
-    ctx.tx    ? ctx.tx    : null,
-  ].filter(Boolean).join('\n\n');
-
-  const systemPrompt =
-    'Sos el asesor financiero personal de Julian. Hoy es ' + today + '. La bolsa de Nueva York acaba de cerrar.\n\n' +
-    'Genera un briefing financiero diario conciso en espanol. Maximo 400 palabras. Sin markdown excesivo.\n' +
-    'Estructura:\n' +
-    '1. Cierre de mercado (macro: VIX, indices, tasas, FX GBP/USD)\n' +
-    '2. Impacto estimado en el portfolio de Julian segun variaciones del dia\n' +
-    '3. Una observacion concreta o accion a considerar\n\n' +
-    (contextLines ? contextLines + '\n\n' : '') +
-    'Se directo. No repitas informacion obvia. Si no tenes datos suficientes, indicalo brevemente.';
 
   let briefingText = '';
   try {
