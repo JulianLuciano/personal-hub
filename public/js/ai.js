@@ -1463,7 +1463,8 @@ async function briefingLoadLatest() {
 }
 
 function _briefingRender(content) {
-  document.getElementById('briefingContent').textContent = content;
+  const el = document.getElementById('briefingContent');
+  el.innerHTML = aiRenderMarkdown(content);
 }
 
 function briefingToggleHistory() {

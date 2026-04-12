@@ -448,7 +448,7 @@ async function generateAndSendBriefing() {
         'Content-Type':  'application/json',
         'Prefer':        'resolution=merge-duplicates',
       },
-      body: JSON.stringify({ date: todayDate, content: briefingText }),
+      body: JSON.stringify({ date: todayDate, content: briefingText, prompt: systemPrompt }),
     });
     console.log('[briefing] saved to DB for', todayDate);
   } catch (e) {
