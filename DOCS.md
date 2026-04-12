@@ -61,6 +61,13 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en mensajes favoritos (star, starred view) | `ai.js` + `server.js` + `styles.css` |
 | Bug en briefing diario (push, contenido, modal) | `notification-worker.js` + `server.js` + `ai.js` |
 | Bug en modal de briefing (UI, historial, render) | `ai.js` + `index.html` + `styles.css` |
+| Bug en tool calls del agente (query_db, run_montecarlo) | `server.js` (ejecutores de tools) |
+| Bug en loop agentic / iteraciones / tool_use | `server.js` (endpoint `/api/ai-chat`) |
+| Bug en widget de tools usadas en el chat | `ai.js` (`aiRenderToolLog`) + `styles.css` |
+| Tool calls no se guardan en historial | `ai.js` (`aiLogMessage`) + `server.js` (POST `/api/ai-messages`) |
+| Tool calls no aparecen al reabrir conversación vieja | `ai.js` (`aiOpenConversation`) |
+| Bug en Monte Carlo del agente (valores, parámetros) | `server.js` (`executeRunMontecarlo`) |
+| Bug en Monte Carlo del frontend (UI, parámetros, gráfico) | `analytics.js` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
@@ -85,8 +92,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
 | `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
-| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete, mensajes favoritos (★), modal de briefing diario. |
-| `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history, contexto de transacciones, contexto completo para briefing. |
+| `ai.js` | Chat con Claude: builders de contexto, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete, mensajes favoritos (★), modal de briefing diario. |
+| `server.js` | Express: proxy Supabase, loop agentic (`/api/ai-chat`), ejecutores de tools (`query_db`, `run_montecarlo`), endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history, contexto de transacciones, contexto completo para briefing. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -406,14 +413,21 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - `aiConversationId` — UUID de la conversación activa; `null` al cargar la página (cada reload = nueva conversación).
 - `aiMessageSeq` — contador 0-based que se incrementa con cada mensaje loggeado.
 - `aiEnsureConversation(model, firstMsg)` — crea la fila en `ai_conversations` en el primer mensaje del usuario; los primeros 80 chars del mensaje se usan como título.
-- `aiLogMessage({role, content, model, input_tokens, output_tokens, context_start_seq})` — inserta una fila en `ai_messages`. `context_start_seq` es el seq del primer mensaje incluido en el contexto de ese turn.
+- `aiLogMessage({role, content, model, input_tokens, output_tokens, context_start_seq, tool_calls})` — inserta una fila en `ai_messages`. `context_start_seq` es el seq del primer mensaje incluido en el contexto de ese turn. `tool_calls` es un array JSONB con los tool calls ejecutados (solo se pasa en mensajes assistant que usaron tools, null en el resto).
 
 **Flujo de logging en cada turn:**
 1. `aiEnsureConversation()` (solo si es el primer mensaje).
 2. Se calcula `contextStartSeq`: índice en `aiHistory` del primer mensaje del slice que se enviará como contexto.
 3. `aiLogMessage({ role: 'user', context_start_seq: contextStartSeq, ... })` → inserta el mensaje del usuario.
 4. Se hace el API call con `contextSlice`.
-5. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', ... })` → devuelve el `dbId` via `.then()`, que se guarda en `_aiMsgMeta` para habilitar el starring.
+5. Al recibir la respuesta: `aiLogMessage({ role: 'assistant', tool_calls: toolLog, ... })` → devuelve el `dbId` via `.then()`, que se guarda en `_aiMsgMeta` para habilitar el starring.
+
+**Tool calls widget:**
+- `aiRenderToolLog(toolLog, container)` — función standalone reutilizable que construye el elemento `.ai-tools-used` y lo agrega al container dado. Usada tanto en el live chat (después de recibir la respuesta) como en `aiOpenConversation` (al recargar mensajes históricos desde DB).
+- El widget muestra un header colapsado con `🔧 N herramientas usadas`. Al tocar expande/colapsa el detalle.
+- Cada fila del detalle muestra: icono, nombre de la tool, descripción del input (query_type + ticker/fechas para `query_db`, escenario + años para `run_montecarlo`), elapsed ms.
+- El widget se inserta **antes** del mensaje del asistente en el DOM.
+- Al reabrir una conversación, `aiOpenConversation` lee `row.tool_calls` de cada mensaje y llama `aiRenderToolLog` si no es null.
 
 **Modal de briefing diario:**
 - `openBriefingModal(content?)` — navega a la tab portfolio y abre el modal `#briefingModal`. Si no se pasa `content`, llama `briefingLoadLatest()`.
@@ -434,11 +448,62 @@ Servidor Express. Puntos clave:
 - `GET /api/price/:ticker` — proxy hacia Yahoo Finance para obtener precio actual
 - `GET /api/chart/:period` — downsampling server-side de portfolio_snapshots (1S/1M/3M/6M/1A → ~180 pts)
 
+**Loop agentic — `/api/ai-chat`:**
+
+El endpoint ya no es un relay tonto. Implementa un loop completo de tool use compatible con la API de Anthropic:
+
+```
+Frontend → POST /api/ai-chat → loop:
+  1. Llamada a Anthropic con tools definidos
+  2. Si stop_reason = "end_turn" → devuelve respuesta al frontend
+  3. Si stop_reason = "tool_use" → ejecuta tools server-side → agrega tool_result → repite
+  4. Techo duro: MAX_TOOL_ITERATIONS = 5
+```
+
+- La respuesta final tiene exactamente el mismo formato que antes (compatible con `ai.js` sin cambios en el frontend).
+- Se agrega `_tool_calls_log` al response: array con `{ tool, input, elapsed_ms, row_count, error }` por cada tool ejecutada. Lo usa `ai.js` para renderizar el widget y para loggear en Supabase.
+- **Logs en Railway** para debug: entrada (model, tamaño system prompt, user msg truncado), cada tool (nombre, input JSON, elapsed ms, preview del resultado), y salida (stop_reason, iteraciones, tokens in/out, reply truncado).
+
+**Tool: `query_db`** — `executeQueryDb(input)`
+
+Ejecuta queries read-only sobre Supabase. El modelo nunca ve SQL — elige un `query_type` de un enum y filtros opcionales; el servidor construye la query internamente.
+
+| query_type | Tabla | Filtros disponibles |
+|---|---|---|
+| `transactions_by_ticker` | `transactions` | `ticker`, `limit` |
+| `transactions_by_period` | `transactions` | `from_date`, `to_date`, `limit` |
+| `transactions_all` | `transactions` | `limit` |
+| `portfolio_history` | `portfolio_snapshots` | `from_date`, `to_date`, `limit` |
+| `price_history` | `price_snapshots` | `ticker`, `from_date`, `limit` |
+| `rsu_vests` | `rsu_vests` | `vested_only` (bool) |
+| `positions_snapshot` | `positions` | — |
+| `daily_returns` | `daily_returns` | `ticker`, `from_date`, `to_date`, `limit` |
+
+Límite máximo: 200 filas. Default: 20.
+
+**Tool: `run_montecarlo`** — `executeRunMontecarlo(input)` (async)
+
+Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la lógica de `mcSimulate()` en `analytics.js`:
+- **Valores iniciales:** fetcheados en tiempo real de Supabase (`positions` + último `portfolio_snapshots` para FX + últimos `price_snapshots`). `startInvested` = activos non-fiat en GBP. `startCash` = activos fiat en GBP. Fallback a 8000/4000 si falla el fetch.
+- **Tasas separadas:** invested usa el escenario elegido; cash fijo 3% ret / 1% vol.
+- **Escenarios** (alineados con `MC_SCEN` en `analytics.js`): `bear` (3% ret, 25% vol) / `neutral` (9% ret, 18% vol) / `bull` (16% ret, 22% vol).
+- **Cash flows:** bonus en meses 3 y 9 (50% c/u), RSU en meses 1/4/7/10, aporte mensual continuo.
+- **Output:** p10/p25/median/p75/p90 al final del horizonte + probabilidades para goals £30k@1yr, £100k@3yr, £200k@5yr (calculadas en el mismo loop, sin segunda simulación) + probabilidad de `target_gbp` si se especifica.
+
+**Parámetros del tool `run_montecarlo`:**
+- `years` (requerido, 1–40)
+- `monthly_contribution_gbp` (default 950)
+- `annual_bonus_gbp` (default 9500)
+- `include_rsu` (default true)
+- `target_gbp` (opcional)
+- `scenario`: `neutral` | `bull` | `bear` (default `neutral`)
+
 **Endpoints de chat history:**
 - `POST /api/ai-conversations` — crea fila en `ai_conversations`, devuelve `{ id }` (UUID)
-- `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens?, context_start_seq? }`
+- `POST /api/ai-messages` — inserta un mensaje con `{ conversation_id, seq, role, content, model?, input_tokens?, output_tokens?, context_start_seq?, tool_calls? }`. `tool_calls` es JSONB, solo presente en mensajes assistant que usaron tools.
 - `GET /api/ai-conversations` — lista conversaciones ordenadas por fecha desc (param `limit`, default 30, max 100)
-- `GET /api/ai-conversations/:id/messages` — todos los mensajes de una conversación ordenados por `seq`
+- `GET /api/ai-conversations/:id/messages` — todos los mensajes de una conversación ordenados por `seq` (incluye `tool_calls`)
+- `DELETE /api/ai-conversations/:id` — elimina conversación + cascade mensajes
 - `PATCH /api/ai-messages/:id/star` — togglea `starred` (boolean) en un mensaje. Body: `{ starred: true|false }`
 - `GET /api/ai-messages/starred` — todos los mensajes starred con join a `ai_conversations` (title, started_at), ordenados por fecha desc
 
@@ -583,6 +648,75 @@ Proxy hacia la API de predicción de abrigo (deployada en Railway por separado, 
 
 ---
 
+---
+
+## Arquitectura agentica del chat AI
+
+### Concepto general
+
+El asesor financiero tiene capacidades agénticas: puede consultar la base de datos y correr simulaciones de forma autónoma para responder preguntas que van más allá del contexto estático del system prompt. El modelo decide cuándo usar cada tool basándose en las descripciones y en el system prompt.
+
+### Flujo de un request con tools
+
+```
+Frontend (ai.js)
+  → POST /api/ai-chat { model, system, messages }
+
+server.js — loop agentic
+  → Llamada 1 a Anthropic (con AI_TOOLS)
+      Si stop_reason = end_turn   → respuesta directa (0 tools, igual que antes)
+      Si stop_reason = tool_use   → ejecutar tools server-side
+          tool_use: query_db      → executeQueryDb() → Supabase REST
+          tool_use: run_montecarlo → executeRunMontecarlo() → simulación Node.js
+      → tool_result agregado al hilo
+  → Llamada 2 a Anthropic (modelo procesa resultados)
+      Si stop_reason = end_turn   → respuesta final
+      Si stop_reason = tool_use   → más tools (hasta MAX_TOOL_ITERATIONS = 5)
+
+Respuesta final al frontend:
+  { content: [...], stop_reason, usage, _tool_calls_log: [...] }
+```
+
+### Cuándo usa cada tool
+
+**`query_db`** — cuando la pregunta requiere datos históricos no presentes en el contexto:
+- "¿Cuánto invertí en MELI en total?" → `transactions_by_ticker`
+- "¿Cómo estuvo el portfolio en enero?" → `portfolio_history` con rango de fechas
+- "¿Cuántos RSUs me quedan?" → `rsu_vests` con `vested_only: false`
+- "¿Cuánto invertí en diciembre?" → `transactions_by_period`
+
+**`run_montecarlo`** — cuando el usuario quiere proyecciones futuras:
+- "¿Qué pasa si ahorro £600/mes los próximos 10 años?" → `years: 10, monthly_contribution_gbp: 600`
+- "¿Cuándo llego a £100k?" → `target_gbp: 100000`
+- "Simulación pesimista a 5 años" → `scenario: bear, years: 5`
+
+**Sin tools** — responde directo si la info ya está en el contexto del system prompt:
+- Composición actual del portfolio, P&L, health score, watchlist, macro
+
+### Costos y control
+
+- Cada iteración del loop = 1 llamada extra a la API de Anthropic
+- Las llamadas intermedias usan el mismo `max_tokens` que el request original
+- `MAX_TOOL_ITERATIONS = 5` como techo duro — si se supera, devuelve mensaje de error al usuario
+- Los requests sin tools son idénticos en costo a antes (0 overhead)
+- `_tool_calls_log` en la respuesta incluye `elapsed_ms` por tool para monitoreo
+
+### Widget de tool calls en el chat (UI)
+
+Componente: `aiRenderToolLog(toolLog, container)` en `ai.js`.
+
+- Se muestra entre el thinking indicator y la respuesta del asistente
+- Header colapsado: `🔧 N herramientas usadas` — tap para expandir
+- Detalle expandido: una fila por tool con icono, nombre, descripción del input y tiempo de ejecución
+- Se persiste en `ai_messages.tool_calls` (JSONB) y se re-renderiza al reabrir la conversación
+- Clases CSS: `.ai-tools-used`, `.ai-tools-header`, `.ai-tools-summary`, `.ai-tools-chevron`, `.ai-tools-detail`, `.ai-tools-row`, `.ai-tools-row-{icon,name,desc,time}`
+
+### Roadmap de tools (no implementadas aún)
+
+- **`web_search`** (Tavily) — para noticias recientes, earnings, eventos de mercado. Pendiente de fase 4. No implementada por costo variable y riesgo de over-triggering.
+
+---
+
 ## Cómo trabajamos a partir de ahora
 
 ### Flujo estándar para iterar
@@ -623,9 +757,10 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
 | `correlation_matrix` | Matriz de correlación de retornos entre activos. Una fila por par ordenado (ticker_a, ticker_b) por período. PK: `(ticker_a, ticker_b, period_days)`. |
-| `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count`. |
-| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `starred` (BOOLEAN DEFAULT false), `created_at`. |
+| `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count` (actualizado automáticamente por trigger). |
+| `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `starred` (BOOLEAN DEFAULT false), `tool_calls` (JSONB — array de tool calls ejecutados, solo en mensajes assistant que usaron tools), `created_at`. |
 | `daily_briefings` | Un registro por día con el briefing financiero generado por el worker. Campos: `id` (UUID), `date` (DATE UNIQUE), `content` (TEXT — markdown del briefing), `prompt` (TEXT — system prompt completo enviado a Claude, para auditoría), `generated_at` (TIMESTAMPTZ). |
+| `daily_returns` | Retornos diarios por ticker calculados por el worker. Campos: `ticker`, `date`, `return_pct`, `close_usd`. Usado por el agente via `query_db` con `query_type: daily_returns` y como insumo para el Monte Carlo del servidor. |
 
 ### Schema de las tablas de chat history
 
@@ -635,7 +770,7 @@ CREATE TABLE ai_conversations (
   started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   model         TEXT,
   title         TEXT,
-  message_count INT DEFAULT 0
+  message_count INT DEFAULT 0  -- actualizado automáticamente por trigger
 );
 
 CREATE TABLE ai_messages (
@@ -647,12 +782,31 @@ CREATE TABLE ai_messages (
   model              TEXT,
   input_tokens       INT,
   output_tokens      INT,
-  context_start_seq  INT,   -- seq del primer msg incluido como contexto en este turn
+  context_start_seq  INT,     -- seq del primer msg incluido como contexto en este turn
   starred            BOOLEAN NOT NULL DEFAULT false,
+  tool_calls         JSONB,   -- array de tool calls; solo en mensajes assistant, null en user
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON ai_messages(conversation_id, seq);
 CREATE INDEX ON ai_messages(starred) WHERE starred = true;
+
+-- Trigger para mantener message_count actualizado automáticamente
+CREATE OR REPLACE FUNCTION update_conversation_message_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE ai_conversations
+  SET message_count = (
+    SELECT COUNT(*) FROM ai_messages
+    WHERE conversation_id = NEW.conversation_id
+  )
+  WHERE id = NEW.conversation_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_message_count
+AFTER INSERT ON ai_messages
+FOR EACH ROW EXECUTE FUNCTION update_conversation_message_count();
 
 -- daily_briefings
 CREATE TABLE daily_briefings (
@@ -662,6 +816,26 @@ CREATE TABLE daily_briefings (
   prompt       TEXT,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+```
+
+**Formato de `tool_calls` (JSONB):**
+```json
+[
+  {
+    "tool": "query_db",
+    "input": { "query_type": "transactions_by_period", "filters": { "from_date": "2025-12-01", "to_date": "2025-12-31" } },
+    "elapsed_ms": 146,
+    "row_count": null,
+    "error": null
+  },
+  {
+    "tool": "run_montecarlo",
+    "input": { "years": 10, "scenario": "neutral" },
+    "elapsed_ms": 199,
+    "row_count": null,
+    "error": null
+  }
+]
 ```
 
 ### Schema de `correlation_matrix`
@@ -711,6 +885,82 @@ ORDER BY seq;
 
 ---
 
+## Arquitectura agentica del chat AI
+
+### Concepto
+
+El asesor financiero es un agente con capacidad de consultar datos reales y correr simulaciones. El frontend no cambia — manda el mismo request a `/api/ai-chat` y recibe la misma estructura de respuesta. Todo el loop ocurre server-side.
+
+### Flujo completo
+
+```
+Usuario escribe mensaje
+    ↓
+ai.js construye system prompt (contexto portfolio, macro, watchlist, etc.)
+    ↓
+POST /api/ai-chat → server.js
+    ↓
+Loop agentic (max 5 iteraciones):
+    → Llamada a Anthropic con AI_TOOLS definidos
+    → stop_reason = "end_turn"  → devuelve respuesta final
+    → stop_reason = "tool_use"  → ejecuta tool → agrega tool_result → repite
+    ↓
+Respuesta final + _tool_calls_log al frontend
+    ↓
+ai.js renderiza aiRenderToolLog() antes del mensaje
+ai.js loggea tool_calls en ai_messages (Supabase)
+```
+
+### Tools disponibles
+
+**`query_db`** — consulta datos históricos de Supabase. El modelo elige un `query_type` de un enum; el servidor construye el SQL internamente. El modelo nunca ve SQL raw. 8 query types: transacciones (by ticker / by period / all), portfolio history, price history, RSU vests, positions snapshot, daily returns.
+
+**`run_montecarlo`** — simulación Monte Carlo server-side. Fetchea valores iniciales reales de Supabase (invested vs cash separados), corre 2000 simulaciones, devuelve percentiles y probabilidades para los goals de Julián.
+
+### Cuándo usa tools el agente
+
+El system prompt le instruye al modelo cuándo usar cada tool:
+- Si la información ya está en el contexto (portfolio actual, posiciones, P&L) → responde directo, NO hace query.
+- Si necesita datos históricos no incluidos en el contexto → `query_db`.
+- Si el usuario pide proyecciones con parámetros específicos → `run_montecarlo`.
+
+### Widget de tools en el chat
+
+`aiRenderToolLog(toolLog, container)` — función reutilizable en `ai.js`. Construye un elemento `.ai-tools-used` con:
+- **Header colapsado** (siempre visible): `🔧 N herramientas usadas` con chevron `›`.
+- **Detalle expandible** (tap para abrir): una fila por tool con icono, nombre, descripción del input y elapsed ms.
+- Se inserta **antes** del mensaje del asistente en el DOM.
+- Se usa tanto en el live chat (con `_tool_calls_log` de la respuesta) como al reabrir conversaciones históricas (con `tool_calls` de la DB).
+
+### Persistencia
+
+`tool_calls` (JSONB) en `ai_messages`: se guarda en cada mensaje del asistente que usó tools. `null` en mensajes que no usaron tools y en todos los mensajes del usuario. Esto permite reconstruir el widget exactamente igual al reabrir una conversación vieja.
+
+### Logs en Railway
+
+Cada request al agente genera:
+```
+[ai-chat] ← request | model: claude-sonnet-4-6 | system: 8432 chars | messages: 6
+[ai-chat] ← user_msg: cuánto invertí en MELI en total?
+[ai-chat] ← system_preview: Sos el asesor financiero...
+[ai-chat] iteración 1 — mensajes: 6
+[ai-chat] ejecutando tool: query_db {"query_type":"transactions_by_ticker",...}
+[ai-chat] tool query_db OK (243ms) | rows: 4 | preview: {...}
+[ai-chat] iteración 2 — mensajes: 8
+[ai-chat] → response | stop: end_turn | iterations: 2 | tokens in: 9841 out: 187
+[ai-chat] → reply_preview: Invertiste un total de...
+[ai-chat] tools usadas: query_db | iteraciones: 2
+```
+
+### Costo y límites
+
+- Sin tools: 1 llamada a Anthropic por turno (igual que antes).
+- Con tools: 1 llamada adicional por cada iteración del loop. Típicamente 2 llamadas (1 tool call) o 3 (2 tool calls encadenados).
+- Las llamadas intermedias usan el mismo `max_tokens` configurado — se puede bajar para tool calls intermedias si el costo es un problema.
+- Techo duro: `MAX_TOOL_ITERATIONS = 5`.
+
+---
+
 ## Variables de entorno (Railway)
 
 ### Service principal (`server.js`)
@@ -749,5 +999,3 @@ Claude Code es un agente que corre en tu terminal, puede leer/escribir archivos 
 - **Agente de DB** — manejo de migraciones de schema en Supabase
 
 Para discutir esto en detalle, una vez que el código refactorizado esté en producción y funcionando bien.
-EOF
-echo "DOCS.md: $(wc -l < /home/claude/personal-hub/DOCS.md) lines"
