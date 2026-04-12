@@ -1307,6 +1307,12 @@ app.post('/api/ai-chat', async (req, res) => {
   const { model, max_tokens = 3000, system, messages } = req.body;
   const MAX_TOOL_ITERATIONS = 5;
 
+  // ── Log de entrada ──────────────────────────────────────────────────────────
+  const userMsg = messages?.findLast?.(m => m.role === 'user')?.content;
+  console.log(`[ai-chat] ← request | model: ${model} | system: ${system?.length} chars | messages: ${messages?.length}`);
+  console.log(`[ai-chat] ← user_msg: ${String(userMsg).slice(0, 200)}`);
+  console.log(`[ai-chat] ← system_preview: ${system?.slice(0, 400)}`);
+
   const toolCallsLog  = [];
   let loopMessages    = [...messages];
   let finalResponse   = null;
@@ -1373,6 +1379,14 @@ app.post('/api/ai-chat', async (req, res) => {
 
           const elapsed = Date.now() - startTime;
 
+          // ── Log del resultado de la tool ──────────────────────────────────
+          if (result?.error) {
+            console.error(`[ai-chat] tool ${name} ERROR (${elapsed}ms):`, result.error);
+          } else {
+            const resultPreview = JSON.stringify(result).slice(0, 600);
+            console.log(`[ai-chat] tool ${name} OK (${elapsed}ms) | rows: ${result?.row_count ?? '—'} | preview: ${resultPreview}`);
+          }
+
           toolCallsLog.push({
             tool:      name,
             input:     input,
@@ -1407,6 +1421,12 @@ app.post('/api/ai-chat', async (req, res) => {
     }
 
     finalResponse._tool_calls_log = toolCallsLog;
+
+    // ── Log de respuesta final ────────────────────────────────────────────────
+    const finalText = finalResponse?.content?.find(b => b.type === 'text')?.text;
+    const usage     = finalResponse?.usage;
+    console.log(`[ai-chat] → response | stop: ${finalResponse?.stop_reason} | iterations: ${iterations} | tokens in: ${usage?.input_tokens} out: ${usage?.output_tokens}`);
+    console.log(`[ai-chat] → reply_preview: ${finalText?.slice(0, 300)}`);
 
     if (toolCallsLog.length > 0) {
       console.log(`[ai-chat] tools usadas: ${toolCallsLog.map(t => t.tool).join(', ')} | iteraciones: ${iterations}`);
