@@ -878,43 +878,457 @@ app.get('/api/briefing-context', async (req, res) => {
   }
 });
 
-// ── AI Chat Proxy ─────────────────────────────────────────────────────────────
-// Relay del chat AI — evita llamadas directas desde el browser a Anthropic.
-// Anthropic bloquea llamadas browser-side aunque la key tenga créditos.
+// ── AI Chat — Agentic loop (reemplaza el bloque anterior de /api/ai-chat) ──────
+//
+// Cambios vs versión anterior:
+//   - Ya no es un relay tonto: maneja el loop tool_use → ejecutar → tool_result
+//   - Devuelve la respuesta final igual que antes (compatible con ai.js sin cambios)
+//   - Agrega `tool_calls_log` al response para que la UI pueda mostrarlo después
+//   - MAX_TOOL_ITERATIONS = 5 como techo duro anti-loops infinitos
+//   - Tools disponibles: query_db, run_montecarlo
+//   - Todo ejecutado server-side con acceso a Supabase — el modelo nunca ve SQL raw
+
+const https = require('https');
+
+// ── Definición de tools (lo que ve el modelo) ────────────────────────────────
+const AI_TOOLS = [
+  {
+    name: 'query_db',
+    description: `Consulta datos históricos o detallados del portfolio de Julián directamente desde la base de datos.
+Usá esta tool cuando el usuario pregunte por información que NO está en el contexto actual:
+historial completo de transacciones, precio de compra de un activo específico, evolución del portfolio
+en un período pasado, schedule de vesting de RSUs, retornos diarios históricos, o cualquier dato
+que requiera más detalle o rango histórico del que ya tenés.
+NO la uses si la respuesta ya está en el contexto del sistema.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        query_type: {
+          type: 'string',
+          enum: [
+            'transactions_by_ticker',  // historial de compras/ventas de un ticker específico
+            'transactions_by_period',  // todas las transacciones en un rango de fechas
+            'transactions_all',        // últimas N transacciones de cualquier ticker
+            'portfolio_history',       // evolución del valor total del portfolio en el tiempo
+            'price_history',           // historial de precios de un ticker específico
+            'rsu_vests',               // schedule de vesting de RSUs META (pasados y futuros)
+            'positions_snapshot',      // snapshot actual de todas las posiciones desde DB
+            'daily_returns',           // retornos diarios históricos por ticker
+          ],
+          description: 'Qué tipo de consulta hacer. Elegí el más específico posible.',
+        },
+        filters: {
+          type: 'object',
+          description: 'Filtros opcionales según el query_type.',
+          properties: {
+            ticker:      { type: 'string',  description: "Ej: 'SPY', 'RSU_META', 'VWRP.L', 'BTC', 'MELI'" },
+            from_date:   { type: 'string',  description: "ISO date YYYY-MM-DD, ej: '2025-01-01'" },
+            to_date:     { type: 'string',  description: "ISO date YYYY-MM-DD, ej: '2026-04-12'" },
+            limit:       { type: 'integer', description: 'Máximo de filas a devolver. Default 20, máx 200.' },
+            vested_only: { type: 'boolean', description: 'Solo para rsu_vests: true = ya vestados, false = solo pendientes' },
+          },
+        },
+      },
+      required: ['query_type'],
+    },
+  },
+  {
+    name: 'run_montecarlo',
+    description: `Corre una simulación de Monte Carlo sobre el portfolio actual de Julián.
+Usá esta tool cuando el usuario quiera explorar proyecciones futuras del portfolio,
+probabilidad de alcanzar un objetivo de capital, o escenarios con parámetros distintos
+a los ya calculados (distinto horizonte, distinto ahorro mensual, con o sin RSUs, etc.).
+El resultado incluye mediana, percentiles 10/25/75/90, y probabilidad de alcanzar el target si se especifica.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        years: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 40,
+          description: 'Horizonte de la simulación en años.',
+        },
+        monthly_contribution_gbp: {
+          type: 'number',
+          description: 'Aporte mensual en GBP. Si no se especifica, usa el default del perfil (£950).',
+        },
+        annual_bonus_gbp: {
+          type: 'number',
+          description: 'Bono anual adicional en GBP. Opcional.',
+        },
+        include_rsu: {
+          type: 'boolean',
+          description: 'Si incluir los RSU vests futuros como aportes. Default true.',
+        },
+        target_gbp: {
+          type: 'number',
+          description: 'Objetivo de capital en GBP. Si se pasa, calcula la probabilidad de alcanzarlo.',
+        },
+        scenario: {
+          type: 'string',
+          enum: ['base', 'optimista', 'conservador'],
+          description: 'base = retorno histórico de mercado (~7% real), optimista = +2%, conservador = -2%.',
+        },
+      },
+      required: ['years'],
+    },
+  },
+];
+
+// ── Ejecutores de tools (server-side, acceso a Supabase) ─────────────────────
+
+async function executeQueryDb(input) {
+  const { query_type, filters = {} } = input;
+  const { ticker, from_date, to_date, vested_only } = filters;
+  const limit = Math.min(filters.limit || 20, 200);
+
+  const sbHeaders = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Accept': 'application/json',
+  };
+
+  const sb = async (path) => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders });
+    if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text()}`);
+    return r.json();
+  };
+
+  let rows, description;
+
+  switch (query_type) {
+    case 'transactions_by_ticker': {
+      if (!ticker) return { error: 'transactions_by_ticker requiere filters.ticker' };
+      // RSU_META en la DB se guarda como RSU_META
+      let qs = `transactions?ticker=eq.${encodeURIComponent(ticker)}&order=date.desc&limit=${limit}`;
+      qs += `&select=date,ticker,type,asset_class,qty,price_usd,amount_usd,amount_local,fx_rate_to_usd,broker,notes`;
+      rows = await sb(qs);
+      description = `Transacciones de ${ticker} (últimas ${limit})`;
+      break;
+    }
+    case 'transactions_by_period': {
+      let qs = `transactions?order=date.desc&limit=${limit}`;
+      qs += `&select=date,ticker,type,asset_class,qty,price_usd,amount_usd,amount_local,fx_rate_to_usd,broker`;
+      if (from_date) qs += `&date=gte.${from_date}`;
+      if (to_date)   qs += `&date=lte.${to_date}`;
+      rows = await sb(qs);
+      description = `Transacciones ${from_date || ''}–${to_date || 'hoy'}`;
+      break;
+    }
+    case 'transactions_all': {
+      let qs = `transactions?order=date.desc&limit=${limit}`;
+      qs += `&select=date,ticker,type,asset_class,qty,price_usd,amount_usd,amount_local,fx_rate_to_usd,broker`;
+      rows = await sb(qs);
+      description = `Últimas ${limit} transacciones`;
+      break;
+    }
+    case 'portfolio_history': {
+      let qs = `portfolio_snapshots?order=captured_at.asc&limit=${limit}`;
+      qs += `&select=captured_at,total_usd,total_gbp,fx_rate`;
+      if (from_date) qs += `&captured_at=gte.${from_date}`;
+      if (to_date)   qs += `&captured_at=lte.${to_date}T23:59:59Z`;
+      rows = await sb(qs);
+      description = `Historial del portfolio ${from_date || ''}–${to_date || 'hoy'}`;
+      break;
+    }
+    case 'price_history': {
+      if (!ticker) return { error: 'price_history requiere filters.ticker' };
+      let qs = `price_snapshots?ticker=eq.${encodeURIComponent(ticker)}&order=captured_at.asc&limit=${limit}`;
+      qs += `&select=ticker,price_usd,price_gbp,fx_rate,captured_at`;
+      if (from_date) qs += `&captured_at=gte.${from_date}`;
+      rows = await sb(qs);
+      description = `Historial de precios de ${ticker}`;
+      break;
+    }
+    case 'rsu_vests': {
+      let qs = `rsu_vests?order=vest_date.asc&select=vest_date,units,vested,grant_id,granted_at`;
+      if (vested_only === true)  qs += `&vested=eq.true`;
+      if (vested_only === false) qs += `&vested=eq.false`;
+      rows = await sb(qs);
+      description = vested_only === true ? 'RSUs ya vestados' : vested_only === false ? 'RSUs pendientes' : 'Schedule completo de RSUs';
+      break;
+    }
+    case 'positions_snapshot': {
+      rows = await sb('positions?order=ticker.asc&select=ticker,name,category,qty,avg_cost_usd,avg_cost_gbp,initial_investment_usd,initial_investment_gbp,pricing_currency,managed_by');
+      description = 'Snapshot de posiciones desde DB';
+      break;
+    }
+    case 'daily_returns': {
+      let qs = `daily_returns?order=date.desc&limit=${limit}&select=ticker,date,return_pct,close_usd`;
+      if (ticker)    qs += `&ticker=eq.${encodeURIComponent(ticker)}`;
+      if (from_date) qs += `&date=gte.${from_date}`;
+      if (to_date)   qs += `&date=lte.${to_date}`;
+      rows = await sb(qs);
+      description = ticker ? `Retornos diarios de ${ticker}` : 'Retornos diarios (todos los tickers)';
+      break;
+    }
+    default:
+      return { error: `query_type desconocido: ${query_type}` };
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { description, rows: [], message: 'Sin datos para los filtros especificados.' };
+  }
+
+  return { description, row_count: rows.length, rows };
+}
+
+function executeRunMontecarlo(input) {
+  const {
+    years,
+    monthly_contribution_gbp = 950,
+    annual_bonus_gbp         = 0,
+    include_rsu              = true,
+    target_gbp               = null,
+    scenario                 = 'base',
+  } = input;
+
+  // Parámetros de retorno por escenario (retorno anual real en decimal)
+  const SCENARIO_RETURNS = { base: 0.07, optimista: 0.09, conservador: 0.05 };
+  const SCENARIO_VOL     = { base: 0.16, optimista: 0.18, conservador: 0.13 };
+
+  const annualReturn = SCENARIO_RETURNS[scenario] ?? 0.07;
+  const annualVol    = SCENARIO_VOL[scenario]     ?? 0.16;
+
+  // Valor inicial del portfolio en GBP (hardcoded a aprox actual — el modelo
+  // ya tiene el valor real en el contexto, esto es para la simulación numérica)
+  // Nota: se podría fetchear de Supabase pero añade latencia y el modelo ya lo tiene
+  const INITIAL_GBP = 14200; // aprox portfolio actual en GBP
+
+  // RSU aportes futuros: £2100 net por vest, 4 vests/año
+  const RSU_ANNUAL_GBP = include_rsu ? 2100 * 4 : 0; // ~£8400/año
+
+  const N_SIMULATIONS = 1000;
+  const monthly_r    = annualReturn / 12;
+  const monthly_vol  = annualVol / Math.sqrt(12);
+  const total_months = years * 12;
+
+  // Aporte mensual total (salario + bonus prorrateado + RSU prorrateado)
+  const monthly_total = monthly_contribution_gbp
+    + (annual_bonus_gbp / 12)
+    + (RSU_ANNUAL_GBP / 12);
+
+  // Box-Muller para generar normales
+  function randn() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  const finalValues = [];
+  for (let s = 0; s < N_SIMULATIONS; s++) {
+    let val = INITIAL_GBP;
+    for (let m = 0; m < total_months; m++) {
+      const monthlyReturn = monthly_r + monthly_vol * randn();
+      val = val * (1 + monthlyReturn) + monthly_total;
+    }
+    finalValues.push(Math.round(val));
+  }
+
+  finalValues.sort((a, b) => a - b);
+
+  const pct = (p) => finalValues[Math.floor(N_SIMULATIONS * p / 100)];
+  const median = pct(50);
+  const p10    = pct(10);
+  const p25    = pct(25);
+  const p75    = pct(75);
+  const p90    = pct(90);
+
+  let prob_target = null;
+  if (target_gbp) {
+    const above = finalValues.filter(v => v >= target_gbp).length;
+    prob_target = Math.round(above / N_SIMULATIONS * 100);
+  }
+
+  const fmt = (v) => `£${Math.round(v).toLocaleString('en-GB')}`;
+
+  return {
+    scenario,
+    years,
+    params: {
+      initial_portfolio_gbp: fmt(INITIAL_GBP),
+      monthly_contribution_gbp: fmt(monthly_contribution_gbp),
+      annual_bonus_gbp: annual_bonus_gbp ? fmt(annual_bonus_gbp) : 0,
+      rsu_annual_gbp: fmt(RSU_ANNUAL_GBP),
+      total_monthly_input_gbp: fmt(monthly_total),
+      assumed_annual_return: `${(annualReturn * 100).toFixed(0)}%`,
+      assumed_annual_vol: `${(annualVol * 100).toFixed(0)}%`,
+    },
+    results: {
+      p10:    fmt(p10),
+      p25:    fmt(p25),
+      median: fmt(median),
+      p75:    fmt(p75),
+      p90:    fmt(p90),
+    },
+    target: target_gbp ? {
+      target: fmt(target_gbp),
+      probability: `${prob_target}%`,
+    } : null,
+    simulations: N_SIMULATIONS,
+  };
+}
+
+// ── Helper: llamada a Anthropic API ─────────────────────────────────────────
+function callAnthropic(anthropicKey, body) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify(body);
+    const req = https.request({
+      hostname: 'api.anthropic.com',
+      path:     '/v1/messages',
+      method:   'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'Content-Length':    Buffer.byteLength(bodyStr),
+        'x-api-key':         anthropicKey,
+        'anthropic-version': '2023-06-01',
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    });
+    req.on('error', reject);
+    req.setTimeout(90000, () => { req.destroy(); reject(new Error('Timeout 90s')); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ── Endpoint principal ───────────────────────────────────────────────────────
 app.post('/api/ai-chat', async (req, res) => {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const bodyStr = JSON.stringify(req.body);
-  const https = require('https');
-  const options = {
-    hostname: 'api.anthropic.com',
-    path: '/v1/messages',
-    method: 'POST',
-    headers: {
-      'Content-Type':    'application/json',
-      'Content-Length':  Buffer.byteLength(bodyStr),
-      'x-api-key':       anthropicKey,
-      'anthropic-version': '2023-06-01',
-    },
-  };
+  const { model, max_tokens = 3000, system, messages } = req.body;
+  const MAX_TOOL_ITERATIONS = 5;
+
+  // Log de tools usadas en este turno — se devuelve al frontend para la UI
+  const toolCallsLog = [];
+
+  // Mensajes del loop — empieza con lo que mandó el frontend
+  let loopMessages = [...messages];
+
+  let finalResponse = null;
+  let iterations    = 0;
 
   try {
-    const result = await new Promise((resolve, reject) => {
-      const reqHttp = https.request(options, (response) => {
-        let data = '';
-        response.on('data', chunk => { data += chunk; });
-        response.on('end', () => resolve({ status: response.statusCode, body: data }));
-      });
-      reqHttp.on('error', reject);
-      reqHttp.setTimeout(60000, () => { reqHttp.destroy(); reject(new Error('Timeout 60s')); });
-      reqHttp.write(bodyStr);
-      reqHttp.end();
-    });
+    while (iterations < MAX_TOOL_ITERATIONS) {
+      iterations++;
 
-    console.log('[ai-chat] Anthropic status:', result.status);
-    res.status(result.status).send(result.body);
-  } catch(e) {
+      const anthropicBody = {
+        model,
+        max_tokens,
+        system,
+        messages: loopMessages,
+        tools: AI_TOOLS,
+      };
+
+      console.log(`[ai-chat] iteración ${iterations} — mensajes: ${loopMessages.length}`);
+      const raw = await callAnthropic(anthropicKey, anthropicBody);
+
+      if (raw.status !== 200) {
+        console.error('[ai-chat] Anthropic error:', raw.body.slice(0, 400));
+        return res.status(raw.status).json(JSON.parse(raw.body));
+      }
+
+      const response = JSON.parse(raw.body);
+
+      // Si el modelo terminó de hablar → respuesta final
+      if (response.stop_reason === 'end_turn') {
+        finalResponse = response;
+        break;
+      }
+
+      // Si el modelo quiere usar una tool
+      if (response.stop_reason === 'tool_use') {
+        // Puede haber múltiples tool_use blocks en un mismo turno
+        const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
+
+        if (toolUseBlocks.length === 0) {
+          // Defensivo: stop_reason=tool_use pero sin bloques — salir
+          finalResponse = response;
+          break;
+        }
+
+        // Agregar la respuesta del asistente (con los tool_use blocks) al hilo
+        loopMessages.push({ role: 'assistant', content: response.content });
+
+        // Ejecutar cada tool y acumular resultados
+        const toolResults = [];
+
+        for (const toolBlock of toolUseBlocks) {
+          const { id, name, input } = toolBlock;
+          const startTime = Date.now();
+
+          console.log(`[ai-chat] ejecutando tool: ${name}`, JSON.stringify(input));
+
+          let result;
+          try {
+            if (name === 'query_db') {
+              result = await executeQueryDb(input);
+            } else if (name === 'run_montecarlo') {
+              result = executeRunMontecarlo(input);
+            } else {
+              result = { error: `Tool desconocida: ${name}` };
+            }
+          } catch (toolErr) {
+            console.error(`[ai-chat] tool ${name} error:`, toolErr.message);
+            result = { error: toolErr.message };
+          }
+
+          const elapsed = Date.now() - startTime;
+
+          // Log para la UI
+          toolCallsLog.push({
+            tool:    name,
+            input:   input,
+            elapsed_ms: elapsed,
+            row_count: result?.row_count ?? null,
+            error:   result?.error ?? null,
+          });
+
+          toolResults.push({
+            type:        'tool_result',
+            tool_use_id: id,
+            content:     JSON.stringify(result),
+          });
+        }
+
+        // Agregar resultados de tools al hilo como mensaje del usuario
+        loopMessages.push({ role: 'user', content: toolResults });
+
+        // Continuar el loop — el modelo procesará los resultados
+        continue;
+      }
+
+      // Cualquier otro stop_reason (max_tokens, etc.) → salir con lo que hay
+      finalResponse = response;
+      break;
+    }
+
+    if (!finalResponse) {
+      // Se llegó al límite de iteraciones sin end_turn
+      console.warn('[ai-chat] límite de iteraciones alcanzado');
+      finalResponse = {
+        content: [{ type: 'text', text: 'Lo siento, la consulta requirió demasiados pasos. Intentá ser más específico.' }],
+        stop_reason: 'max_iterations',
+        usage: {},
+      };
+    }
+
+    // Adjuntar el log de tools a la respuesta para que la UI lo use
+    finalResponse._tool_calls_log = toolCallsLog;
+
+    if (toolCallsLog.length > 0) {
+      console.log(`[ai-chat] tools usadas: ${toolCallsLog.map(t => t.tool).join(', ')} | iteraciones: ${iterations}`);
+    }
+
+    res.json(finalResponse);
+
+  } catch (e) {
     console.error('[ai-chat] error:', e.message);
     res.status(502).json({ error: e.message });
   }
