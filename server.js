@@ -878,15 +878,16 @@ app.get('/api/briefing-context', async (req, res) => {
   }
 });
 
-// ── AI Chat — Agentic loop (reemplaza el bloque anterior de /api/ai-chat) ──────
+// ── AI Chat — Agentic loop ────────────────────────────────────────────────────
 //
-// Cambios vs versión anterior:
-//   - Ya no es un relay tonto: maneja el loop tool_use → ejecutar → tool_result
-//   - Devuelve la respuesta final igual que antes (compatible con ai.js sin cambios)
-//   - Agrega `tool_calls_log` al response para que la UI pueda mostrarlo después
-//   - MAX_TOOL_ITERATIONS = 5 como techo duro anti-loops infinitos
-//   - Tools disponibles: query_db, run_montecarlo
-//   - Todo ejecutado server-side con acceso a Supabase — el modelo nunca ve SQL raw
+// Cambios vs versión anterior de executeRunMontecarlo:
+//   - invested y cash con tasas separadas (alineado con mcSimulate() de analytics.js)
+//   - escenarios renombrados a bear/neutral/bull con valores exactos de MC_SCEN
+//   - valores iniciales fetcheados de Supabase en tiempo real (no hardcodeados)
+//   - bonus en meses 3/9, RSU en meses 1/4/7/10 (alineado con MC_BONUS_MONTHS/MC_RSU_MONTHS)
+//   - goal_probabilities calculadas en el mismo loop de simulación
+//   - N_SIMULATIONS 1000 → 2000
+//   - executeRunMontecarlo es ahora async (await en el llamador)
 
 const https = require('https');
 
@@ -906,14 +907,14 @@ NO la uses si la respuesta ya está en el contexto del sistema.`,
         query_type: {
           type: 'string',
           enum: [
-            'transactions_by_ticker',  // historial de compras/ventas de un ticker específico
-            'transactions_by_period',  // todas las transacciones en un rango de fechas
-            'transactions_all',        // últimas N transacciones de cualquier ticker
-            'portfolio_history',       // evolución del valor total del portfolio en el tiempo
-            'price_history',           // historial de precios de un ticker específico
-            'rsu_vests',               // schedule de vesting de RSUs META (pasados y futuros)
-            'positions_snapshot',      // snapshot actual de todas las posiciones desde DB
-            'daily_returns',           // retornos diarios históricos por ticker
+            'transactions_by_ticker',
+            'transactions_by_period',
+            'transactions_all',
+            'portfolio_history',
+            'price_history',
+            'rsu_vests',
+            'positions_snapshot',
+            'daily_returns',
           ],
           description: 'Qué tipo de consulta hacer. Elegí el más específico posible.',
         },
@@ -938,7 +939,8 @@ NO la uses si la respuesta ya está en el contexto del sistema.`,
 Usá esta tool cuando el usuario quiera explorar proyecciones futuras del portfolio,
 probabilidad de alcanzar un objetivo de capital, o escenarios con parámetros distintos
 a los ya calculados (distinto horizonte, distinto ahorro mensual, con o sin RSUs, etc.).
-El resultado incluye mediana, percentiles 10/25/75/90, y probabilidad de alcanzar el target si se especifica.`,
+El resultado incluye mediana, percentiles 10/25/75/90, probabilidad de alcanzar el target
+si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen en el horizonte.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -954,20 +956,20 @@ El resultado incluye mediana, percentiles 10/25/75/90, y probabilidad de alcanza
         },
         annual_bonus_gbp: {
           type: 'number',
-          description: 'Bono anual adicional en GBP. Opcional.',
+          description: 'Bono anual en GBP. Si no se especifica, usa el default del perfil (£9500).',
         },
         include_rsu: {
           type: 'boolean',
-          description: 'Si incluir los RSU vests futuros como aportes. Default true.',
+          description: 'Si incluir los RSU vests futuros como aportes (£2100 net/vest, trimestral). Default true.',
         },
         target_gbp: {
           type: 'number',
-          description: 'Objetivo de capital en GBP. Si se pasa, calcula la probabilidad de alcanzarlo.',
+          description: 'Objetivo de capital en GBP. Si se pasa, calcula la probabilidad de alcanzarlo al final del horizonte.',
         },
         scenario: {
           type: 'string',
-          enum: ['base', 'optimista', 'conservador'],
-          description: 'base = retorno histórico de mercado (~7% real), optimista = +2%, conservador = -2%.',
+          enum: ['neutral', 'bull', 'bear'],
+          description: 'neutral = mercado histórico (9% ret, 18% vol) | bull = optimista (16% ret, 22% vol) | bear = conservador (3% ret, 25% vol). Default: neutral.',
         },
       },
       required: ['years'],
@@ -975,7 +977,7 @@ El resultado incluye mediana, percentiles 10/25/75/90, y probabilidad de alcanza
   },
 ];
 
-// ── Ejecutores de tools (server-side, acceso a Supabase) ─────────────────────
+// ── Ejecutores de tools ───────────────────────────────────────────────────────
 
 async function executeQueryDb(input) {
   const { query_type, filters = {} } = input;
@@ -999,7 +1001,6 @@ async function executeQueryDb(input) {
   switch (query_type) {
     case 'transactions_by_ticker': {
       if (!ticker) return { error: 'transactions_by_ticker requiere filters.ticker' };
-      // RSU_META en la DB se guarda como RSU_META
       let qs = `transactions?ticker=eq.${encodeURIComponent(ticker)}&order=date.desc&limit=${limit}`;
       qs += `&select=date,ticker,type,asset_class,qty,price_usd,amount_usd,amount_local,fx_rate_to_usd,broker,notes`;
       rows = await sb(qs);
@@ -1073,73 +1074,171 @@ async function executeQueryDb(input) {
   return { description, row_count: rows.length, rows };
 }
 
-function executeRunMontecarlo(input) {
+async function executeRunMontecarlo(input) {
   const {
     years,
     monthly_contribution_gbp = 950,
-    annual_bonus_gbp         = 0,
+    annual_bonus_gbp         = 9500,
     include_rsu              = true,
     target_gbp               = null,
-    scenario                 = 'base',
+    scenario                 = 'neutral',
   } = input;
 
-  // Parámetros de retorno por escenario (retorno anual real en decimal)
-  const SCENARIO_RETURNS = { base: 0.07, optimista: 0.09, conservador: 0.05 };
-  const SCENARIO_VOL     = { base: 0.16, optimista: 0.18, conservador: 0.13 };
+  // Escenarios alineados con MC_SCEN en analytics.js
+  const SCENARIOS = {
+    bear:    { ret: 3,  vol: 25 },
+    neutral: { ret: 9,  vol: 18 },
+    bull:    { ret: 16, vol: 22 },
+  };
+  const scen = SCENARIOS[scenario] ?? SCENARIOS.neutral;
 
-  const annualReturn = SCENARIO_RETURNS[scenario] ?? 0.07;
-  const annualVol    = SCENARIO_VOL[scenario]     ?? 0.16;
+  // Tasas de cash (igual que defaults del frontend)
+  const CASH_RET = 3;
+  const CASH_VOL = 1;
 
-  // Valor inicial del portfolio en GBP (hardcoded a aprox actual — el modelo
-  // ya tiene el valor real en el contexto, esto es para la simulación numérica)
-  // Nota: se podría fetchear de Supabase pero añade latencia y el modelo ya lo tiene
-  const INITIAL_GBP = 14200; // aprox portfolio actual en GBP
+  // RSU: £2100 net/vest — meses 1,4,7,10 (alineado con MC_RSU_MONTHS de analytics.js)
+  const RSU_PER_VEST = 2100;
+  const RSU_MONTHS   = new Set([1, 4, 7, 10]);
+  // Bonus: 50% en mes 3 (marzo) y 50% en mes 9 (sep) — alineado con MC_BONUS_MONTHS
+  const BONUS_MONTHS = new Set([3, 9]);
 
-  // RSU aportes futuros: £2100 net por vest, 4 vests/año
-  const RSU_ANNUAL_GBP = include_rsu ? 2100 * 4 : 0; // ~£8400/año
+  // ── Fetchear valores iniciales reales de Supabase ──────────────────────────
+  const sbHeaders = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Accept': 'application/json',
+  };
 
-  const N_SIMULATIONS = 1000;
-  const monthly_r    = annualReturn / 12;
-  const monthly_vol  = annualVol / Math.sqrt(12);
-  const total_months = years * 12;
+  let startInvested = 8000; // fallbacks por si falla el fetch
+  let startCash     = 4000;
 
-  // Aporte mensual total (salario + bonus prorrateado + RSU prorrateado)
-  const monthly_total = monthly_contribution_gbp
-    + (annual_bonus_gbp / 12)
-    + (RSU_ANNUAL_GBP / 12);
+  try {
+    const [posRes, snapRes, priceRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/positions?select=ticker,category,qty,avg_cost_usd,pricing_currency`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=fx_rate&order=captured_at.desc&limit=1`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/price_snapshots?select=ticker,price_usd&order=captured_at.desc&limit=50`, { headers: sbHeaders }),
+    ]);
 
-  // Box-Muller para generar normales
+    const positions = await posRes.json();
+    const snapRows  = await snapRes.json();
+    const priceRows = await priceRes.json();
+
+    const fxRate = (Array.isArray(snapRows) && snapRows[0]?.fx_rate)
+      ? parseFloat(snapRows[0].fx_rate) : 0.79;
+
+    // Mapa ticker → precio USD más reciente del worker
+    const priceMap = {};
+    if (Array.isArray(priceRows)) {
+      priceRows.forEach(r => { if (!priceMap[r.ticker]) priceMap[r.ticker] = parseFloat(r.price_usd); });
+    }
+
+    if (Array.isArray(positions)) {
+      let investedUSD = 0, cashUSD = 0;
+
+      positions.forEach(p => {
+        const qty = parseFloat(p.qty) || 0;
+        if (qty <= 0) return;
+
+        // Precio: snapshot reciente del worker si existe, fallback a avg_cost_usd
+        const priceUSD = priceMap[p.ticker] ?? parseFloat(p.avg_cost_usd) ?? 0;
+        // price_snapshots ya almacena todo en USD (el worker convierte GBP tickers)
+        const valueUSD = priceUSD * qty;
+
+        if (p.category === 'fiat') {
+          // Para fiat en GBP (EMERGENCY_FUND, RENT_DEPOSIT, GBP_LIQUID):
+          // qty está en GBP, así que convertimos a USD primero
+          const isGBPfiat = p.pricing_currency === 'GBP';
+          cashUSD += isGBPfiat ? qty / fxRate : valueUSD;
+        } else {
+          investedUSD += valueUSD;
+        }
+      });
+
+      startInvested = Math.round(investedUSD * fxRate); // USD → GBP
+      startCash     = Math.round(cashUSD     * fxRate); // USD → GBP
+    }
+  } catch (e) {
+    console.warn('[montecarlo] error fetcheando posiciones, usando fallbacks:', e.message);
+  }
+
+  // ── Simulación alineada con mcSimulate() del frontend ──────────────────────
+  const N_SIMULATIONS = 2000;
+  const mr = scen.ret / 100 / 12;
+  const mv = scen.vol / 100 / Math.sqrt(12);
+  const cr = CASH_RET / 100 / 12;
+  const cv = CASH_VOL / 100 / Math.sqrt(12);
+  const M  = years * 12;
+
+  // Box-Muller (alineado con mcRandn() del frontend)
   function randn() {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
+    let u, v;
+    do { u = Math.random(); } while (!u);
+    do { v = Math.random(); } while (!v);
     return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   }
 
-  const finalValues = [];
+  const nowMonth = new Date().getMonth(); // 0-based, igual que MC_NOW_MONTH
+
+  // Goals que queremos trackear — solo los que caen dentro del horizonte
+  const GOALS = [
+    { label: '£30k',  target: 30000,  months: 12 },
+    { label: '£100k', target: 100000, months: 36 },
+    { label: '£200k', target: 200000, months: 60 },
+  ].filter(g => g.months <= M);
+
+  // milestoneSnaps[month] = Float32Array de N_SIMULATIONS valores a ese mes
+  const milestoneSnaps = {};
+  GOALS.forEach(g => { milestoneSnaps[g.months] = new Float32Array(N_SIMULATIONS); });
+
+  const finalValues = new Float32Array(N_SIMULATIONS);
+
   for (let s = 0; s < N_SIMULATIONS; s++) {
-    let val = INITIAL_GBP;
-    for (let m = 0; m < total_months; m++) {
-      const monthlyReturn = monthly_r + monthly_vol * randn();
-      val = val * (1 + monthlyReturn) + monthly_total;
+    let inv  = startInvested;
+    let cash = startCash;
+
+    for (let m = 1; m <= M; m++) {
+      // Crecer con mercado — invested y cash con tasas separadas
+      inv  *= 1 + mr + mv * randn();
+      cash *= 1 + cr + cv * randn();
+
+      // Cash flows → invested (igual que frontend: new money goes to invested)
+      const calMonth = (nowMonth + m) % 12;
+      inv += monthly_contribution_gbp;
+      if (BONUS_MONTHS.has(calMonth))               inv += annual_bonus_gbp / 2;
+      if (include_rsu && RSU_MONTHS.has(calMonth))  inv += RSU_PER_VEST;
+
+      const total = inv + cash;
+      if (milestoneSnaps[m] !== undefined) milestoneSnaps[m][s] = total < 0 ? 0 : total;
     }
-    finalValues.push(Math.round(val));
+
+    finalValues[s] = Math.max(0, inv + cash);
   }
 
-  finalValues.sort((a, b) => a - b);
+  finalValues.sort();
 
-  const pct = (p) => finalValues[Math.floor(N_SIMULATIONS * p / 100)];
-  const median = pct(50);
-  const p10    = pct(10);
-  const p25    = pct(25);
-  const p75    = pct(75);
-  const p90    = pct(90);
+  const pct = (arr, p) => {
+    const i = Math.floor(arr.length * p / 100);
+    return arr[Math.min(i, arr.length - 1)];
+  };
 
+  const probAbove = (arr, target) => {
+    let above = 0;
+    for (let i = 0; i < arr.length; i++) { if (arr[i] >= target) above++; }
+    return Math.round(above / arr.length * 100);
+  };
+
+  // Probabilidad custom target al final del horizonte
   let prob_target = null;
   if (target_gbp) {
-    const above = finalValues.filter(v => v >= target_gbp).length;
-    prob_target = Math.round(above / N_SIMULATIONS * 100);
+    prob_target = probAbove(finalValues, target_gbp);
   }
+
+  // Goal probabilities en sus milestones específicos
+  const goal_probabilities = GOALS.map(g => ({
+    label:       g.label,
+    at_months:   g.months,
+    probability: `${probAbove(milestoneSnaps[g.months], g.target)}%`,
+  }));
 
   const fmt = (v) => `£${Math.round(v).toLocaleString('en-GB')}`;
 
@@ -1147,25 +1246,28 @@ function executeRunMontecarlo(input) {
     scenario,
     years,
     params: {
-      initial_portfolio_gbp: fmt(INITIAL_GBP),
-      monthly_contribution_gbp: fmt(monthly_contribution_gbp),
-      annual_bonus_gbp: annual_bonus_gbp ? fmt(annual_bonus_gbp) : 0,
-      rsu_annual_gbp: fmt(RSU_ANNUAL_GBP),
-      total_monthly_input_gbp: fmt(monthly_total),
-      assumed_annual_return: `${(annualReturn * 100).toFixed(0)}%`,
-      assumed_annual_vol: `${(annualVol * 100).toFixed(0)}%`,
+      start_invested_gbp:             fmt(startInvested),
+      start_cash_gbp:                 fmt(startCash),
+      start_total_gbp:                fmt(startInvested + startCash),
+      monthly_contribution_gbp:       fmt(monthly_contribution_gbp),
+      annual_bonus_gbp:               fmt(annual_bonus_gbp),
+      rsu_per_vest_gbp:               include_rsu ? fmt(RSU_PER_VEST) : 'no incluido',
+      assumed_annual_return_invested: `${scen.ret}%`,
+      assumed_annual_vol_invested:    `${scen.vol}%`,
+      assumed_annual_return_cash:     `${CASH_RET}%`,
     },
     results: {
-      p10:    fmt(p10),
-      p25:    fmt(p25),
-      median: fmt(median),
-      p75:    fmt(p75),
-      p90:    fmt(p90),
+      p10:    fmt(pct(finalValues, 10)),
+      p25:    fmt(pct(finalValues, 25)),
+      median: fmt(pct(finalValues, 50)),
+      p75:    fmt(pct(finalValues, 75)),
+      p90:    fmt(pct(finalValues, 90)),
     },
     target: target_gbp ? {
-      target: fmt(target_gbp),
+      target:      fmt(target_gbp),
       probability: `${prob_target}%`,
     } : null,
+    goal_probabilities,
     simulations: N_SIMULATIONS,
   };
 }
@@ -1205,14 +1307,10 @@ app.post('/api/ai-chat', async (req, res) => {
   const { model, max_tokens = 3000, system, messages } = req.body;
   const MAX_TOOL_ITERATIONS = 5;
 
-  // Log de tools usadas en este turno — se devuelve al frontend para la UI
-  const toolCallsLog = [];
-
-  // Mensajes del loop — empieza con lo que mandó el frontend
-  let loopMessages = [...messages];
-
-  let finalResponse = null;
-  let iterations    = 0;
+  const toolCallsLog  = [];
+  let loopMessages    = [...messages];
+  let finalResponse   = null;
+  let iterations      = 0;
 
   try {
     while (iterations < MAX_TOOL_ITERATIONS) {
@@ -1236,27 +1334,21 @@ app.post('/api/ai-chat', async (req, res) => {
 
       const response = JSON.parse(raw.body);
 
-      // Si el modelo terminó de hablar → respuesta final
       if (response.stop_reason === 'end_turn') {
         finalResponse = response;
         break;
       }
 
-      // Si el modelo quiere usar una tool
       if (response.stop_reason === 'tool_use') {
-        // Puede haber múltiples tool_use blocks en un mismo turno
         const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
 
         if (toolUseBlocks.length === 0) {
-          // Defensivo: stop_reason=tool_use pero sin bloques — salir
           finalResponse = response;
           break;
         }
 
-        // Agregar la respuesta del asistente (con los tool_use blocks) al hilo
         loopMessages.push({ role: 'assistant', content: response.content });
 
-        // Ejecutar cada tool y acumular resultados
         const toolResults = [];
 
         for (const toolBlock of toolUseBlocks) {
@@ -1270,7 +1362,7 @@ app.post('/api/ai-chat', async (req, res) => {
             if (name === 'query_db') {
               result = await executeQueryDb(input);
             } else if (name === 'run_montecarlo') {
-              result = executeRunMontecarlo(input);
+              result = await executeRunMontecarlo(input); // async ahora
             } else {
               result = { error: `Tool desconocida: ${name}` };
             }
@@ -1281,13 +1373,12 @@ app.post('/api/ai-chat', async (req, res) => {
 
           const elapsed = Date.now() - startTime;
 
-          // Log para la UI
           toolCallsLog.push({
-            tool:    name,
-            input:   input,
+            tool:      name,
+            input:     input,
             elapsed_ms: elapsed,
             row_count: result?.row_count ?? null,
-            error:   result?.error ?? null,
+            error:     result?.error ?? null,
           });
 
           toolResults.push({
@@ -1297,20 +1388,16 @@ app.post('/api/ai-chat', async (req, res) => {
           });
         }
 
-        // Agregar resultados de tools al hilo como mensaje del usuario
         loopMessages.push({ role: 'user', content: toolResults });
-
-        // Continuar el loop — el modelo procesará los resultados
         continue;
       }
 
-      // Cualquier otro stop_reason (max_tokens, etc.) → salir con lo que hay
+      // max_tokens u otro stop_reason inesperado
       finalResponse = response;
       break;
     }
 
     if (!finalResponse) {
-      // Se llegó al límite de iteraciones sin end_turn
       console.warn('[ai-chat] límite de iteraciones alcanzado');
       finalResponse = {
         content: [{ type: 'text', text: 'Lo siento, la consulta requirió demasiados pasos. Intentá ser más específico.' }],
@@ -1319,7 +1406,6 @@ app.post('/api/ai-chat', async (req, res) => {
       };
     }
 
-    // Adjuntar el log de tools a la respuesta para que la UI lo use
     finalResponse._tool_calls_log = toolCallsLog;
 
     if (toolCallsLog.length > 0) {
