@@ -344,6 +344,9 @@ async function buildBriefingContext() {
     ]);
     if (txRes.status === 'fulfilled' && txRes.value.ok) {
       results.tx = (await txRes.value.json()).tsv || '';
+      console.log('[briefing] tx context loaded, length:', results.tx.length);
+    } else {
+      console.warn('[briefing] tx fetch failed:', txRes.status === 'rejected' ? txRes.reason?.message : txRes.value?.status);
     }
     if (macroRes.status === 'fulfilled' && macroRes.value.ok) {
       const md  = (await macroRes.value.json()).data || {};
@@ -356,6 +359,9 @@ async function buildBriefingContext() {
         tsv += ticker + '|' + d.label + '|' + f2(d.current) + '|' + d.unit + '|' + sgn(d.chg7d) + '|' + sgn(d.chg30d) + '|' + d.trend + '\n';
       });
       results.macro = tsv.trim();
+      console.log('[briefing] macro context loaded, tickers:', Object.keys(md).length);
+    } else {
+      console.warn('[briefing] macro fetch failed:', macroRes.status === 'rejected' ? macroRes.reason?.message : macroRes.value?.status);
     }
   } catch (e) {
     console.warn('[briefing] context fetch error:', e.message);
@@ -371,7 +377,15 @@ async function generateAndSendBriefing() {
   console.log('[briefing] generating daily briefing...');
 
   let ctx = {};
-  try { ctx = await buildBriefingContext(); } catch (_) {}
+  try { ctx = await buildBriefingContext(); } catch (e) {
+    console.warn('[briefing] buildBriefingContext failed:', e.message);
+  }
+
+  if (!ctx.macro && !ctx.tx) {
+    console.warn('[briefing] WARNING: no context data — macro:', !!ctx.macro, 'tx:', !!ctx.tx, '— SERVER_INTERNAL_URL:', SERVER_INTERNAL_URL);
+  } else {
+    console.log('[briefing] context loaded — macro:', !!ctx.macro, 'tx:', !!ctx.tx);
+  }
 
   const today = new Date().toLocaleDateString('es-AR', {
     timeZone: 'Europe/London',
