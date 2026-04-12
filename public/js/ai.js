@@ -1012,6 +1012,10 @@ async function aiOpenConversation(id, targetMsgId = null) {
     msgs.innerHTML = '';
     const domMap = {}; // dbId → DOM element, para el scroll posterior
     rows.forEach(row => {
+      // Si el mensaje del asistente tiene tool_calls guardados, mostrarlos antes
+      if (row.role === 'assistant' && row.tool_calls && row.tool_calls.length > 0) {
+        aiRenderToolLog(row.tool_calls, msgs);
+      }
       const el = aiAddMsg(row.role, row.content, row.id || null, row.starred === true);
       aiHistory.push({ role: row.role, content: row.content });
       if (row.id) domMap[row.id] = el;
@@ -1123,6 +1127,89 @@ function aiCopyToInput(msg) {
 function aiQuick(msg) {
   document.getElementById('aiInput').value = msg;
   aiSendMsg();
+}
+
+// ── Tool log widget — reutilizado en live chat y al reabrir conversaciones ────
+// Construye el elemento .ai-tools-used y lo agrega al container dado.
+// toolLog: array de { tool, input, elapsed_ms, row_count, error }
+function aiRenderToolLog(toolLog, container) {
+  if (!toolLog || toolLog.length === 0) return;
+
+  const TOOL_META = {
+    query_db:       { icon: '🗄', label: 'Base de datos' },
+    run_montecarlo: { icon: '📊', label: 'Monte Carlo' },
+  };
+  const QUERY_LABELS = {
+    transactions_by_ticker: 'transacciones',
+    transactions_by_period: 'transacciones por período',
+    transactions_all:       'últimas transacciones',
+    portfolio_history:      'historial portfolio',
+    price_history:          'historial precios',
+    rsu_vests:              'RSU vests',
+    positions_snapshot:     'posiciones',
+    daily_returns:          'retornos diarios',
+  };
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'ai-tools-used';
+
+  // Header: conteo total
+  const n = toolLog.length;
+  const header = document.createElement('div');
+  header.className = 'ai-tools-header';
+  header.innerHTML =
+    `<span class="ai-tools-summary">🔧\u00a0${n} herramienta${n !== 1 ? 's' : ''} usada${n !== 1 ? 's' : ''}</span>` +
+    `<span class="ai-tools-chevron">›</span>`;
+
+  // Detalle — una fila por tool call
+  const detail = document.createElement('div');
+  detail.className = 'ai-tools-detail';
+  detail.style.display = 'none'; // colapsado por default
+
+  toolLog.forEach(entry => {
+    const meta = TOOL_META[entry.tool] || { icon: '⚙', label: entry.tool };
+    const inp  = entry.input || {};
+    let desc   = '';
+
+    if (entry.tool === 'query_db') {
+      const qt     = inp.query_type || '';
+      const ticker = inp.filters?.ticker;
+      const from   = inp.filters?.from_date;
+      const to     = inp.filters?.to_date;
+      desc = QUERY_LABELS[qt] || qt;
+      if (ticker) desc += ` · ${ticker}`;
+      if (from)   desc += ` · desde ${from}`;
+      if (to)     desc += ` → ${to}`;
+    } else if (entry.tool === 'run_montecarlo') {
+      const sc  = inp.scenario || 'neutral';
+      const yr  = inp.years;
+      const rsu = inp.include_rsu === false ? ' · sin RSU' : '';
+      desc = `${sc} · ${yr} año${yr !== 1 ? 's' : ''}${rsu}`;
+    }
+
+    const errStr  = entry.error ? ` ⚠ ${entry.error}` : '';
+    const timeStr = entry.elapsed_ms != null ? `${entry.elapsed_ms}ms` : '';
+
+    const row = document.createElement('div');
+    row.className = 'ai-tools-row';
+    row.innerHTML =
+      `<span class="ai-tools-row-icon">${meta.icon}</span>` +
+      `<span class="ai-tools-row-name">${meta.label}</span>` +
+      `<span class="ai-tools-row-desc">${desc}${errStr}</span>` +
+      `<span class="ai-tools-row-time">${timeStr}</span>`;
+    detail.appendChild(row);
+  });
+
+  let expanded = false;
+  header.addEventListener('click', () => {
+    expanded = !expanded;
+    detail.style.display = expanded ? 'flex' : 'none';
+    header.querySelector('.ai-tools-chevron').style.transform = expanded ? 'rotate(90deg)' : '';
+  });
+
+  wrapper.appendChild(header);
+  wrapper.appendChild(detail);
+  container.appendChild(wrapper);
 }
 
 async function aiSendMsg() {
@@ -1292,87 +1379,7 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
     // ── Tool calls log — elemento permanente colapsable antes del mensaje ────
     const toolLog = data._tool_calls_log || [];
     if (toolLog.length > 0) {
-      const TOOL_META = {
-        query_db:       { icon: '🗄', label: 'Base de datos' },
-        run_montecarlo: { icon: '📊', label: 'Monte Carlo' },
-      };
-      const QUERY_LABELS = {
-        transactions_by_ticker: 'transacciones',
-        transactions_by_period: 'transacciones por período',
-        transactions_all:       'últimas transacciones',
-        portfolio_history:      'historial portfolio',
-        price_history:          'historial precios',
-        rsu_vests:              'RSU vests',
-        positions_snapshot:     'posiciones',
-        daily_returns:          'retornos diarios',
-      };
-
-      const msgs    = document.getElementById('aiMessages');
-      const wrapper = document.createElement('div');
-      wrapper.className = 'ai-tools-used';
-
-      // Resumen colapsado — siempre visible
-      const summary = toolLog.map(t =>
-        (TOOL_META[t.tool]?.icon || '⚙') + '\u00a0' + (TOOL_META[t.tool]?.label || t.tool)
-      ).join('  ·  ');
-
-      const header = document.createElement('div');
-      header.className = 'ai-tools-header';
-      header.innerHTML =
-        `<span class="ai-tools-summary">${summary}</span>` +
-        `<span class="ai-tools-chevron">›</span>`;
-
-      // Detalle expandible — una fila por tool
-      const detail = document.createElement('div');
-      detail.className = 'ai-tools-detail';
-
-      toolLog.forEach(entry => {
-        const meta = TOOL_META[entry.tool] || { icon: '⚙', label: entry.tool };
-        const inp  = entry.input || {};
-        let desc   = '';
-
-        if (entry.tool === 'query_db') {
-          const qt     = inp.query_type || '';
-          const ticker = inp.filters?.ticker;
-          const from   = inp.filters?.from_date;
-          const to     = inp.filters?.to_date;
-          desc = QUERY_LABELS[qt] || qt;
-          if (ticker) desc += ` · ${ticker}`;
-          if (from)   desc += ` · desde ${from}`;
-          if (to)     desc += ` → ${to}`;
-        } else if (entry.tool === 'run_montecarlo') {
-          const sc  = inp.scenario || 'neutral';
-          const yr  = inp.years;
-          const rsu = inp.include_rsu === false ? ' · sin RSU' : '';
-          desc = `${sc} · ${yr} año${yr !== 1 ? 's' : ''}${rsu}`;
-        }
-
-        const errStr  = entry.error ? ` ⚠ ${entry.error}` : '';
-        const timeStr = entry.elapsed_ms != null ? `${entry.elapsed_ms}ms` : '';
-
-        const row = document.createElement('div');
-        row.className = 'ai-tools-row';
-        row.innerHTML =
-          `<span class="ai-tools-row-icon">${meta.icon}</span>` +
-          `<span class="ai-tools-row-name">${meta.label}</span>` +
-          `<span class="ai-tools-row-desc">${desc}${errStr}</span>` +
-          `<span class="ai-tools-row-time">${timeStr}</span>`;
-        detail.appendChild(row);
-      });
-
-      // Colapsado por default
-      detail.style.display = 'none';
-      let expanded = false;
-      header.addEventListener('click', () => {
-        expanded = !expanded;
-        detail.style.display = expanded ? 'flex' : 'none';
-        header.querySelector('.ai-tools-chevron').style.transform = expanded ? 'rotate(90deg)' : '';
-      });
-
-      wrapper.appendChild(header);
-      wrapper.appendChild(detail);
-      msgs.appendChild(wrapper);
-      msgs.scrollTop = msgs.scrollHeight;
+      aiRenderToolLog(toolLog, document.getElementById('aiMessages'));
     }
 
     // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
