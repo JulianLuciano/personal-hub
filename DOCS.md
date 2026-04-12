@@ -57,6 +57,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
+| Bug en swipe-to-delete del historial / confirm popup | `ai.js` + `styles.css` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
@@ -81,7 +82,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
 | `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
-| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas. |
+| `ai.js` | Chat con Claude: builders de contexto, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete. |
 | `server.js` | Express: proxy Supabase, endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
