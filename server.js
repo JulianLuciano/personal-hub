@@ -1502,7 +1502,7 @@ app.post('/api/ai-conversations', async (req, res) => {
 // POST /api/ai-messages  →  insert one message row, return { id }
 app.post('/api/ai-messages', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
-  const { conversation_id, seq, role, content, model, input_tokens, output_tokens, context_start_seq } = req.body || {};
+  const { conversation_id, seq, role, content, model, input_tokens, output_tokens, context_start_seq, tool_calls } = req.body || {};
   if (!conversation_id || seq == null || !role || !content) {
     return res.status(400).json({ error: 'conversation_id, seq, role, content requeridos' });
   }
@@ -1515,7 +1515,8 @@ app.post('/api/ai-messages', async (req, res) => {
       },
       body: JSON.stringify({ conversation_id, seq, role, content,
         model: model ?? null, input_tokens: input_tokens ?? null, output_tokens: output_tokens ?? null,
-        context_start_seq: context_start_seq ?? null }),
+        context_start_seq: context_start_seq ?? null,
+        tool_calls: tool_calls ?? null }),
     });
     if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
     const rows = await sbRes.json();

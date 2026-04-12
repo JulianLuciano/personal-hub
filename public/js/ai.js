@@ -28,7 +28,7 @@ async function aiEnsureConversation(model, firstMsg) {
 }
 
 // Inserts one message row. Returns the server-assigned UUID (from response body), or null.
-async function aiLogMessage({ role, content, model, input_tokens, output_tokens, context_start_seq }) {
+async function aiLogMessage({ role, content, model, input_tokens, output_tokens, context_start_seq, tool_calls }) {
   if (!aiConversationId) return null;
   try {
     const r = await fetch('/api/ai-messages', {
@@ -43,6 +43,7 @@ async function aiLogMessage({ role, content, model, input_tokens, output_tokens,
         input_tokens:      input_tokens      ?? null,
         output_tokens:     output_tokens     ?? null,
         context_start_seq: context_start_seq ?? null,
+        tool_calls:        tool_calls        ?? null,
       }),
     });
     const d = await r.json();
@@ -1389,6 +1390,7 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
       input_tokens:      data.usage?.input_tokens  ?? null,
       output_tokens:     data.usage?.output_tokens ?? null,
       context_start_seq: contextStartSeq,
+      tool_calls:        toolLog.length > 0 ? toolLog : null,
     }).then(dbId => {
       // Actualizar el dbId en el meta — el elemento ya fue inicializado por aiAddMsg
       if (dbId && replyEl) {
