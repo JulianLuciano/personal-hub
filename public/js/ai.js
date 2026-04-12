@@ -1147,22 +1147,6 @@ async function aiSendMsg() {
   }, 1800);
   thinkingEl._tmInterval = tmInterval;
 
-  // Muestra una tool call dentro del bubble de thinking
-  function showToolCall(name, detail) {
-    clearInterval(thinkingEl._tmInterval);
-    const TOOL_LABELS = {
-      query_db:       { icon: '🗄', label: 'Consultando base de datos' },
-      run_montecarlo: { icon: '📊', label: 'Simulando Monte Carlo' },
-    };
-    const t = TOOL_LABELS[name] || { icon: '⚙', label: name };
-    thinkingEl.innerHTML =
-      `<span class="ai-tool-call">` +
-        `<span class="ai-tool-icon">${t.icon}</span>` +
-        `<span class="ai-tool-label">${t.label}</span>` +
-        `${detail ? `<span class="ai-tool-detail">${detail}</span>` : ''}` +
-      `</span>` +
-      `<span class="ai-dots"><span>.</span><span>.</span><span>.</span></span>`;
-  }
 
   // ── Logging: ensure conversation exists, log user message ──
   // Do this before the API call so we have the ID ready when the reply comes back.
@@ -1296,63 +1280,104 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
 
     const data = await res.json();
     clearInterval(thinkingEl._tmInterval);
+    thinkingEl.remove();
 
     if (data.error) {
-      thinkingEl.remove();
       aiAddMsg('assistant', '⚠️ Error: ' + (data.error.message || 'No se pudo conectar con la IA.'));
       aiHistory.pop();
       return;
     }
 
-    // Si el agente usó tools, mostrarlas en el bubble antes de la respuesta final
+    // ── Tool calls log — elemento permanente colapsable antes del mensaje ────
     const toolLog = data._tool_calls_log || [];
     if (toolLog.length > 0) {
-      // Construir detalle legible por tool
-      const TOOL_DETAIL = {
-        query_db: (inp) => {
-          const qt = inp?.query_type || '';
-          const ticker = inp?.filters?.ticker;
-          const MAP = {
-            transactions_by_ticker: ticker ? `transacciones · ${ticker}` : 'transacciones',
-            transactions_by_period: 'transacciones por período',
-            transactions_all:       'últimas transacciones',
-            portfolio_history:      'historial del portfolio',
-            price_history:          ticker ? `precios · ${ticker}` : 'historial de precios',
-            rsu_vests:              'schedule de RSUs',
-            positions_snapshot:     'posiciones actuales',
-            daily_returns:          ticker ? `retornos · ${ticker}` : 'retornos diarios',
-          };
-          return MAP[qt] || qt;
-        },
-        run_montecarlo: (inp) => {
-          const sc = inp?.scenario || 'neutral';
-          const yr = inp?.years;
-          return yr ? `${sc} · ${yr} años` : sc;
-        },
+      const TOOL_META = {
+        query_db:       { icon: '🗄', label: 'Base de datos' },
+        run_montecarlo: { icon: '📊', label: 'Monte Carlo' },
+      };
+      const QUERY_LABELS = {
+        transactions_by_ticker: 'transacciones',
+        transactions_by_period: 'transacciones por período',
+        transactions_all:       'últimas transacciones',
+        portfolio_history:      'historial portfolio',
+        price_history:          'historial precios',
+        rsu_vests:              'RSU vests',
+        positions_snapshot:     'posiciones',
+        daily_returns:          'retornos diarios',
       };
 
-      // Mostrar cada tool brevemente en secuencia (ya corrieron en el server,
-      // solo las mostramos para feedback visual)
-      for (let i = 0; i < toolLog.length; i++) {
-        const entry = toolLog[i];
-        const detailFn = TOOL_DETAIL[entry.tool];
-        const detail   = detailFn ? detailFn(entry.input) : '';
-        showToolCall(entry.tool, detail);
-        // Breve pausa visual entre tools si hay más de una
-        if (i < toolLog.length - 1) {
-          await new Promise(r => setTimeout(r, 400));
-        }
-      }
-      // Pausa final para que se vea el último tool antes de la respuesta
-      await new Promise(r => setTimeout(r, 500));
-    }
+      const msgs    = document.getElementById('aiMessages');
+      const wrapper = document.createElement('div');
+      wrapper.className = 'ai-tools-used';
 
-    thinkingEl.remove();
+      // Resumen colapsado — siempre visible
+      const summary = toolLog.map(t =>
+        (TOOL_META[t.tool]?.icon || '⚙') + '\u00a0' + (TOOL_META[t.tool]?.label || t.tool)
+      ).join('  ·  ');
+
+      const header = document.createElement('div');
+      header.className = 'ai-tools-header';
+      header.innerHTML =
+        `<span class="ai-tools-summary">${summary}</span>` +
+        `<span class="ai-tools-chevron">›</span>`;
+
+      // Detalle expandible — una fila por tool
+      const detail = document.createElement('div');
+      detail.className = 'ai-tools-detail';
+
+      toolLog.forEach(entry => {
+        const meta = TOOL_META[entry.tool] || { icon: '⚙', label: entry.tool };
+        const inp  = entry.input || {};
+        let desc   = '';
+
+        if (entry.tool === 'query_db') {
+          const qt     = inp.query_type || '';
+          const ticker = inp.filters?.ticker;
+          const from   = inp.filters?.from_date;
+          const to     = inp.filters?.to_date;
+          desc = QUERY_LABELS[qt] || qt;
+          if (ticker) desc += ` · ${ticker}`;
+          if (from)   desc += ` · desde ${from}`;
+          if (to)     desc += ` → ${to}`;
+        } else if (entry.tool === 'run_montecarlo') {
+          const sc  = inp.scenario || 'neutral';
+          const yr  = inp.years;
+          const rsu = inp.include_rsu === false ? ' · sin RSU' : '';
+          desc = `${sc} · ${yr} año${yr !== 1 ? 's' : ''}${rsu}`;
+        }
+
+        const errStr  = entry.error ? ` ⚠ ${entry.error}` : '';
+        const timeStr = entry.elapsed_ms != null ? `${entry.elapsed_ms}ms` : '';
+
+        const row = document.createElement('div');
+        row.className = 'ai-tools-row';
+        row.innerHTML =
+          `<span class="ai-tools-row-icon">${meta.icon}</span>` +
+          `<span class="ai-tools-row-name">${meta.label}</span>` +
+          `<span class="ai-tools-row-desc">${desc}${errStr}</span>` +
+          `<span class="ai-tools-row-time">${timeStr}</span>`;
+        detail.appendChild(row);
+      });
+
+      // Toggle expand/collapse
+      let expanded = false;
+      header.addEventListener('click', () => {
+        expanded = !expanded;
+        detail.style.display = expanded ? 'flex' : 'none';
+        header.querySelector('.ai-tools-chevron').style.transform = expanded ? 'rotate(90deg)' : '';
+      });
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(detail);
+      msgs.appendChild(wrapper);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
 
     // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
     const textBlock = (data.content || []).find(b => b.type === 'text');
-    const reply = textBlock?.text || '(sin respuesta)';
-    const replyEl = aiAddMsg('assistant', reply);
+    const reply     = textBlock?.text || '(sin respuesta)';
+    const replyEl   = aiAddMsg('assistant', reply);
+
     aiHistory.push({ role: 'assistant', content: reply });
 
     // ── Logging: record assistant reply — capture dbId to enable starring ──

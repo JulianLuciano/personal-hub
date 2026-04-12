@@ -140,21 +140,50 @@
     background: var(--surface2); color: var(--muted);
     font-style: italic;
   }
-  .ai-tool-call {
+  /* ── Tool calls log — elemento fijo antes del mensaje del asistente ── */
+  .ai-tools-used {
+    align-self: flex-start;
+    max-width: 88%;
+    margin-bottom: 2px;
+  }
+  .ai-tools-header {
     display: inline-flex; align-items: center; gap: 6px;
-    font-style: normal;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px 9px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
   }
-  .ai-tool-icon {
-    font-size: 13px; flex-shrink: 0;
+  .ai-tools-header:active { background: var(--surface3, var(--border)); }
+  .ai-tools-summary {
+    font-size: 11px; color: var(--muted);
+    font-style: normal; letter-spacing: 0.1px;
   }
-  .ai-tool-label {
-    color: var(--text); font-weight: 500; font-size: 12px;
+  .ai-tools-chevron {
+    font-size: 12px; color: var(--muted);
+    transition: transform 0.18s;
+    line-height: 1;
   }
-  .ai-tool-detail {
-    color: var(--muted); font-size: 11px;
-    background: rgba(108,99,255,0.12);
-    border-radius: 4px; padding: 1px 5px;
-    font-style: normal; font-family: var(--font-num);
+  .ai-tools-detail {
+    display: flex; flex-direction: column; gap: 3px;
+    margin-top: 4px;
+    padding: 6px 9px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .ai-tools-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px;
+  }
+  .ai-tools-row-icon { flex-shrink: 0; font-size: 12px; }
+  .ai-tools-row-name { color: var(--text); font-weight: 600; flex-shrink: 0; }
+  .ai-tools-row-desc { color: var(--muted); flex: 1; }
+  .ai-tools-row-time {
+    color: var(--muted); font-family: var(--font-num);
+    font-size: 10px; flex-shrink: 0;
   }
   .ai-msg .ai-h1 { font-size: 15px; font-weight: 800; margin: 6px 0 2px; font-family: var(--font-num); }
   .ai-msg .ai-h2 { font-size: 14px; font-weight: 700; margin: 5px 0 2px; font-family: var(--font-num); }
