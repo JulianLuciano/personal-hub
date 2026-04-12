@@ -965,8 +965,10 @@ async function aiDeleteConversation(id, wrapEl) {
   wrapEl.classList.add('deleting');
   wrapEl.addEventListener('animationend', () => wrapEl.remove(), { once: true });
 
-  // If the deleted conversation was the active one, start fresh
-  if (aiConversationId === id) aiNewConversation();
+  // If the deleted conversation was the active one, reset state silently
+  if (aiConversationId === id) { aiHistory.length = 0; aiConversationId = null; aiMessageSeq = 0; }
+
+
 }
 
 async function aiOpenConversation(id) {
