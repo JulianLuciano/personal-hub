@@ -664,6 +664,220 @@ app.get('/api/ai-transactions-context', async (req, res) => {
   }
 });
 
+// ── Briefing context — prompt completo para el notification worker ────────────
+// Arma el system prompt del briefing diario con todos los datos relevantes:
+// portfolio actual, P&L, day change, histórico 7d/30d, macro, fundamentals
+// de las posiciones actuales, y transacciones recientes.
+// NO incluye: vesting, health score, watchlist extendida, correlaciones.
+app.get('/api/briefing-context', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+
+  const sbHeaders = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Accept': 'application/json',
+  };
+  const fU  = v => '$' + Math.round(v).toLocaleString('en-US');
+  const fG  = v => '£' + Math.round(v).toLocaleString('en-US');
+  const sgn = (v, decimals = 2) => (v >= 0 ? '+' : '') + Number(v).toFixed(decimals) + '%';
+
+  try {
+    // Fetch all data in parallel
+    const [posRes, snapRes, txCtxRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/positions?select=ticker,qty,avg_cost_usd,initial_investment_usd,initial_investment_gbp,category,pricing_currency,currency&order=ticker.asc`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.desc&limit=300`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5`, { headers: sbHeaders }),
+    ]);
+
+    const positions = await posRes.json();
+    const snapshots = await snapRes.json();
+    const txRows    = await txCtxRes.json();
+
+    if (!Array.isArray(positions) || !Array.isArray(snapshots)) {
+      return res.status(502).json({ error: 'Failed to fetch portfolio data' });
+    }
+
+    // ── FX rate + latest snapshot ──
+    const latestSnap  = snapshots[0] || {};
+    const fxRate      = latestSnap.fx_rate || 0.79;
+    const totalUSD    = latestSnap.total_usd || 0;
+    const totalGBP    = latestSnap.total_gbp || (totalUSD * fxRate);
+
+    // Day change: compare latest snap to ~24h ago
+    const msDay = 86400000;
+    const latestTs = latestSnap.captured_at ? new Date(latestSnap.captured_at).getTime() : Date.now();
+    const snap24h  = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 20 * 3600000);
+    const snap7d   = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 6  * msDay);
+    const snap30d  = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 29 * msDay);
+
+    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
+    const dayChangeGBP = snap24h ? totalGBP - (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
+    const dayPct       = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
+    const chg7d        = snap7d  && snap7d.total_usd  > 0 ? ((totalUSD - snap7d.total_usd)  / snap7d.total_usd  * 100) : null;
+    const chg30d       = snap30d && snap30d.total_usd > 0 ? ((totalUSD - snap30d.total_usd) / snap30d.total_usd * 100) : null;
+
+    // ── Get live prices from market-data cache (portfolio tickers) ──
+    const investedPositions = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
+    const tickers = investedPositions.map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker).filter(Boolean);
+    let marketData = {};
+    if (tickers.length > 0 && yf) {
+      // Usar cache si está fresco y completo, sino fetchear directamente con fetchFundamentals.
+      // Esto garantiza que el briefing tenga precios actuales aunque el frontend no haya sido abierto.
+      const cacheValid = portfolioCache &&
+        portfolioTickers &&
+        tickers.every(t => portfolioTickers.includes(t)) &&
+        (Date.now() - portfolioCachedAt) < CACHE_TTL_MS;
+
+      if (cacheValid) {
+        marketData = portfolioCache;
+        console.log('[briefing-context] using portfolioCache for market data');
+      } else {
+        console.log('[briefing-context] fetching fresh fundamentals for', tickers.length, 'tickers');
+        const results = {};
+        await Promise.allSettled(tickers.map(async t => {
+          try { results[t] = await fetchFundamentals(t); }
+          catch (e) { console.warn('[briefing-context] fundamentals failed for', t, e.message); }
+        }));
+        marketData = results;
+        // Actualizar el cache para que el frontend también lo aproveche
+        if (Object.keys(results).length > 0) {
+          portfolioCache    = results;
+          portfolioCachedAt = Date.now();
+          portfolioTickers  = tickers;
+        }
+      }
+    }
+
+    // ── Macro ──
+    let macroSection = '';
+    if (macroCache) {
+      const f2  = v => v != null ? Number(v).toFixed(2) : '—';
+      const sgnM = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+      macroSection = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
+      Object.entries(macroCache).forEach(([ticker, d]) => {
+        if (!d || d.current == null) return;
+        macroSection += `${ticker}|${d.label}|${f2(d.current)}|${d.unit}|${sgnM(d.chg7d)}|${sgnM(d.chg30d)}|${d.trend}\n`;
+      });
+    }
+
+    // ── Positions with P&L and day% ──
+    let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%\n';
+    let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
+
+    investedPositions.forEach(p => {
+      const yticker  = p.ticker === 'RSU_META' ? 'META' : p.ticker;
+      const md       = marketData[yticker] || {};
+      const price    = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+      const qty      = parseFloat(p.qty) || 0;
+      const isGBP    = p.pricing_currency === 'GBP';
+      const valueUSD = isGBP ? price * qty / fxRate : price * qty;
+      const valueGBP = valueUSD * fxRate;
+      const invUSD   = parseFloat(p.initial_investment_usd) || 0;
+      const invGBP   = parseFloat(p.initial_investment_gbp) || invUSD * fxRate;
+      const pnlUSD   = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
+      const pnlGBP   = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
+      const dayPctPos = md.regularMarketChangePercent != null ? md.regularMarketChangePercent * 100 : null;
+
+      totalValUSD += valueUSD;
+      totalInvUSD += invUSD;
+      totalInvGBP += invGBP;
+
+      posSection += [
+        p.ticker, p.category,
+        fU(valueUSD), fG(valueGBP),
+        '',  // weight filled after
+        fU(invUSD), fG(invGBP),
+        pnlUSD != null ? sgn(pnlUSD) : '',
+        pnlGBP != null ? sgn(pnlGBP) : '',
+        dayPctPos != null ? sgn(dayPctPos) : '',
+      ].join('|') + '\n';
+    });
+
+    // Fill weight% now that we have totalValUSD
+    posSection = posSection.split('\n').map((line, i) => {
+      if (i < 2 || !line) return line;
+      const parts = line.split('|');
+      if (parts.length < 3) return line;
+      const valUSD = parseFloat(parts[2].replace(/[$,]/g, '')) || 0;
+      parts[4] = totalValUSD > 0 ? (valUSD / totalValUSD * 100).toFixed(1) + '%' : '';
+      return parts.join('|');
+    }).join('\n');
+
+    // P&L total
+    const totalPnlUSD = totalValUSD - totalInvUSD;
+    const totalPnlGBP = totalValUSD * fxRate - totalInvGBP;
+    const totalPnlPct = totalInvUSD > 0 ? (totalPnlUSD / totalInvUSD * 100) : 0;
+
+    // ── Cash positions ──
+    const cashPositions = positions.filter(p => p.category === 'fiat');
+    let cashSection = 'CASH\nticker|value_gbp\n';
+    cashPositions.forEach(p => {
+      const qty = parseFloat(p.qty) || 0;
+      cashSection += `${p.ticker}|${fG(qty)}\n`;
+    });
+
+    // ── Transactions context ──
+    let txSection = 'RECENT_TRANSACTIONS (últimas 5)\ndate|ticker|type|qty|price_usd|amount_usd|amount_gbp|broker\n';
+    if (Array.isArray(txRows)) {
+      txRows.forEach(r => {
+        txSection += `${r.date}|${r.ticker}|${r.type}|${r.qty}|${r.price_usd ?? ''}|${r.amount_usd ?? ''}|${r.amount_local ?? ''}|${r.broker ?? ''}\n`;
+      });
+    }
+
+    // ── Month invested (reuse existing endpoint logic inline) ──
+    const now2 = new Date();
+    const y = now2.getUTCFullYear(), mo = now2.getUTCMonth() + 1;
+    const currStart = `${y}-${String(mo).padStart(2,'0')}-01`;
+    const prevMo = mo === 1 ? 12 : mo - 1, prevY = mo === 1 ? y - 1 : y;
+    const prevStart = `${prevY}-${String(prevMo).padStart(2,'0')}-01`;
+    const [cmRes, pmRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${prevStart}&date=lt.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`, { headers: sbHeaders }),
+    ]);
+    const cmRows = await cmRes.json(), pmRows = await pmRes.json();
+    const sumF = (rows, field) => Array.isArray(rows) ? rows.reduce((s,r) => s + (parseFloat(r[field])||0), 0) : 0;
+    txSection += `\nMONTH_INVESTED\n`;
+    txSection += `${y}-${String(mo).padStart(2,'0')} (corriente): ${fU(sumF(cmRows,'amount_usd'))} / ${fG(sumF(cmRows,'amount_local'))}\n`;
+    txSection += `${prevY}-${String(prevMo).padStart(2,'0')} (anterior): ${fU(sumF(pmRows,'amount_usd'))} / ${fG(sumF(pmRows,'amount_local'))}`;
+
+    // ── Assemble prompt ──
+    const today = new Date().toLocaleDateString('es-AR', {
+      timeZone: 'Europe/London',
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    const portfolioSummary =
+      `PORTFOLIO\n` +
+      `total: ${fU(totalUSD)} / ${fG(totalGBP)}\n` +
+      `fx: 1 GBP = ${(1/fxRate).toFixed(4)} USD\n` +
+      (dayChangeUSD != null ? `day_change: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} / ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPct)})\n` : '') +
+      (chg7d  != null ? `7d: ${sgn(chg7d)}\n`  : '') +
+      (chg30d != null ? `30d: ${sgn(chg30d)}\n` : '') +
+      `cost_basis: ${fU(totalInvUSD)} / ${fG(totalInvGBP)}\n` +
+      `total_pnl: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} / ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPct)})`;
+
+    const systemPrompt =
+      `Sos el asesor financiero personal de Julián. Hoy es ${today}. La bolsa de Nueva York acaba de cerrar.\n\n` +
+      `Generá un briefing financiero diario conciso en español. Máximo 400 palabras. Usá markdown (negrita, bullets).\n` +
+      `Estructura:\n` +
+      `1. **Cierre de mercado** — macro: VIX, índices, tasas, GBP/USD\n` +
+      `2. **Tu portfolio hoy** — valor total, variación del día en USD y GBP, P&L acumulado, posiciones más impactadas\n` +
+      `3. **Una observación concreta** — algo accionable o a monitorear\n\n` +
+      `Sé directo. No repitas datos que ya están en los números.\n\n` +
+      portfolioSummary + '\n\n' +
+      posSection + '\n' +
+      cashSection + '\n' +
+      txSection + '\n\n' +
+      (macroSection ? macroSection : '');
+
+    res.json({ systemPrompt });
+
+  } catch (e) {
+    console.error('[briefing-context]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── AI Chat Proxy ─────────────────────────────────────────────────────────────
 // Relay del chat AI — evita llamadas directas desde el browser a Anthropic.
 // Anthropic bloquea llamadas browser-side aunque la key tenga créditos.
