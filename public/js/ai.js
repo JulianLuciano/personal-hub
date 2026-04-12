@@ -1026,7 +1026,7 @@ const _aiMsgMeta = new WeakMap();
 
 async function aiToggleStar(el) {
   const meta = _aiMsgMeta.get(el);
-  if (!meta?.dbId) return; // mensaje sin ID de DB (p.ej. bienvenida)
+  if (!meta?.dbId) return;
 
   const nowStarred = el.dataset.starred === 'true';
   const next = !nowStarred;
@@ -1042,57 +1042,14 @@ async function aiToggleStar(el) {
 
   el.dataset.starred = String(next);
   const btn = el.querySelector('.ai-star-btn');
-  if (btn) btn.classList.toggle('active', next);
-
-  // Invalidate starred cache
+  if (btn) {
+    btn.textContent = next ? '★' : '☆';
+    btn.classList.toggle('active', next);
+  }
   aiStarredLoaded = false;
 }
 
-function _aiAttachLongPress(el) {
-  let timer = null;
-  let moved = false;
 
-  function cancel() { clearTimeout(timer); timer = null; }
-
-  el.addEventListener('touchstart', (e) => {
-    moved = false;
-    timer = setTimeout(() => {
-      if (!moved) _aiShowStarMenu(el, e.touches[0]);
-    }, 500);
-  }, { passive: true });
-  el.addEventListener('touchmove',  () => { moved = true; cancel(); }, { passive: true });
-  el.addEventListener('touchend',   cancel, { passive: true });
-  el.addEventListener('touchcancel',cancel, { passive: true });
-}
-
-function _aiShowStarMenu(el, touch) {
-  // Remove any existing menu
-  document.querySelectorAll('.ai-star-menu').forEach(m => m.remove());
-
-  const isStarred = el.dataset.starred === 'true';
-  const menu = document.createElement('div');
-  menu.className = 'ai-star-menu';
-  menu.innerHTML = `<button>${isStarred ? '★ Quitar favorito' : '☆ Guardar como favorito'}</button>`;
-
-  // Position near touch point
-  const x = Math.min(touch.clientX, window.innerWidth - 180);
-  const y = Math.max(touch.clientY - 50, 60);
-  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999`;
-
-  document.body.appendChild(menu);
-
-  menu.querySelector('button').addEventListener('click', () => {
-    menu.remove();
-    aiToggleStar(el);
-  });
-
-  // Dismiss on outside tap
-  setTimeout(() => {
-    document.addEventListener('touchstart', function dismiss(e) {
-      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('touchstart', dismiss); }
-    }, { passive: true });
-  }, 50);
-}
 
 // ── Starred History view ──────────────────────────────────────────────────────
 let aiStarredLoaded = false;
@@ -1420,15 +1377,13 @@ function aiAddMsg(role, text, dbId = null) {
   el.className = 'ai-msg ' + role;
   if (role === 'assistant' && text) {
     el.innerHTML = aiRenderMarkdown(text);
-    // Star button
+    // Star button — always visible, tap to toggle
     const starBtn = document.createElement('button');
     starBtn.className = 'ai-star-btn';
     starBtn.title = 'Guardar como favorito';
-    starBtn.innerHTML = '☆';
+    starBtn.textContent = '☆';
     starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(el); });
     el.appendChild(starBtn);
-    // Long press
-    _aiAttachLongPress(el);
     // Store meta if dbId provided
     if (dbId) {
       _aiMsgMeta.set(el, { dbId });

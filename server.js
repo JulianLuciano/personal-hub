@@ -615,21 +615,37 @@ app.get('/api/ai-transactions-context', async (req, res) => {
     );
     const txRows = await txRes.json();
 
-    // Total del mes corriente (solo BUY, RSU_VEST)
+    // Totales mensuales — mes corriente y mes pasado
     const now = new Date();
-    const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
-    const monthRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${monthStart}&type=in.(BUY,RSU_VEST)`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
-    );
-    const monthRows = await monthRes.json();
+    const y  = now.getUTCFullYear();
+    const m  = now.getUTCMonth() + 1; // 1-based
+    const currStart = `${y}-${String(m).padStart(2, '0')}-01`;
+    const prevM     = m === 1 ? 12 : m - 1;
+    const prevY     = m === 1 ? y - 1 : y;
+    const prevStart = `${prevY}-${String(prevM).padStart(2, '0')}-01`;
 
-    const totalMonthUSD = Array.isArray(monthRows)
-      ? monthRows.reduce((s, r) => s + (parseFloat(r.amount_usd) || 0), 0)
-      : 0;
-    const totalMonthGBP = Array.isArray(monthRows)
-      ? monthRows.reduce((s, r) => s + (parseFloat(r.amount_local) || 0), 0)
-      : 0;
+    const [currMonthRes, prevMonthRes] = await Promise.all([
+      fetch(
+        `${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`,
+        { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+      ),
+      fetch(
+        `${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${prevStart}&date=lt.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`,
+        { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+      ),
+    ]);
+
+    const currRows = await currMonthRes.json();
+    const prevRows = await prevMonthRes.json();
+
+    const sumUSD = rows => Array.isArray(rows) ? rows.reduce((s, r) => s + (parseFloat(r.amount_usd)   || 0), 0) : 0;
+    const sumGBP = rows => Array.isArray(rows) ? rows.reduce((s, r) => s + (parseFloat(r.amount_local) || 0), 0) : 0;
+
+    const currUSD = sumUSD(currRows), currGBP = sumGBP(currRows);
+    const prevUSD = sumUSD(prevRows), prevGBP = sumGBP(prevRows);
+
+    const currLabel = `${y}-${String(m).padStart(2, '0')}`;
+    const prevLabel = `${prevY}-${String(prevM).padStart(2, '0')}`;
 
     let tsv = 'RECENT_TRANSACTIONS (últimas 5)\ndate|ticker|type|qty|price_usd|amount_usd|amount_gbp|broker\n';
     if (Array.isArray(txRows)) {
@@ -637,7 +653,9 @@ app.get('/api/ai-transactions-context', async (req, res) => {
         tsv += `${r.date}|${r.ticker}|${r.type}|${r.qty}|${r.price_usd ?? ''}|${r.amount_usd ?? ''}|${r.amount_local ?? ''}|${r.broker ?? ''}\n`;
       });
     }
-    tsv += `\nMONTH_INVESTED (${monthStart.slice(0, 7)}): $${Math.round(totalMonthUSD).toLocaleString()} USD / £${Math.round(totalMonthGBP).toLocaleString()} GBP`;
+    tsv += `\nMONTH_INVESTED\n`;
+    tsv += `${currLabel} (corriente): $${Math.round(currUSD).toLocaleString()} USD / £${Math.round(currGBP).toLocaleString()} GBP\n`;
+    tsv += `${prevLabel} (anterior):  $${Math.round(prevUSD).toLocaleString()} USD / £${Math.round(prevGBP).toLocaleString()} GBP`;
 
     res.json({ tsv: tsv.trim() });
   } catch (e) {
