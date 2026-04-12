@@ -144,7 +144,7 @@ function computeHealthData() {
   // Denominator includes emergency fund — it's part of total patrimony
   const emergencyUSD = assets.filter(a => a.pos.ticker === 'EMERGENCY_FUND').reduce((s, a) => s + a.valueUSD, 0);
   const incomeBaseUSD = healthTotalUSD + emergencyUSD;
-  const annualFlow = (950 * 12) + 9500 + (2100 * 4); // savings + bonus + RSUs in GBP
+  const annualFlow = (950 * 12) + 9500 + (calcRsuDefault() * 4); // savings + bonus + RSUs in GBP
   const portfolioGBP = incomeBaseUSD * FX_RATE;
   const incomeRatio = portfolioGBP > 0 ? annualFlow / portfolioGBP : 0;
 
@@ -705,6 +705,18 @@ function mcRenderHist(sims, M, yr) {
 }
 
 // Main run
+// Calcula el valor neto por vest RSU basado en los próximos 8 trimestres.
+// Promedia las unidades, multiplica por precio META actual, convierte a GBP y aplica 53% neto.
+function calcRsuDefault() {
+  if (typeof vestSchedule === 'undefined' || !Array.isArray(vestSchedule)) return 2100;
+  const upcoming = vestSchedule.filter(v => !v.vested).slice(0, 8);
+  if (!upcoming.length) return 2100;
+  const avgUnits = upcoming.reduce((s, v) => s + v.units, 0) / upcoming.length;
+  const priceUSD = (typeof getRSUPriceUSD === 'function') ? getRSUPriceUSD() : 600;
+  const rate = (typeof FX_RATE !== 'undefined') ? FX_RATE : 0.79;
+  return Math.round(avgUnits * priceUSD * rate * 0.53);
+}
+
 function mcRun() {
   const btn = document.getElementById('mcRunBtn');
   btn.disabled = true;
@@ -718,7 +730,7 @@ function mcRun() {
     const cashVol  = _n('mc-p-cash-vol',    1);
     const monthly  = _n('mc-p-monthly',950);
     const bonus    = _n('mc-p-bonus',  9500);
-    const rsu      = _n('mc-p-rsu',    2100);
+    const rsu      = _n('mc-p-rsu',    calcRsuDefault());
     const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
     const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
     const startInvested = _n('mc-p-invested', mcGetPortfolioInvested());

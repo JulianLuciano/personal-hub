@@ -960,7 +960,11 @@ si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen
         },
         include_rsu: {
           type: 'boolean',
-          description: 'Si incluir los RSU vests futuros como aportes (£2100 net/vest, trimestral). Default true.',
+          description: 'Si incluir los RSU vests futuros como aportes (valor calculado dinámicamente desde rsu_vests, trimestral). Default true.',
+        },
+        rsu_per_vest_override: {
+          type: 'number',
+          description: 'Override manual del valor neto por vest RSU en GBP. Si se pasa, reemplaza el cálculo dinámico. Útil si el usuario quiere simular con un valor distinto.',
         },
         target_gbp: {
           type: 'number',
@@ -1084,6 +1088,7 @@ async function executeRunMontecarlo(input) {
     monthly_contribution_gbp = 950,
     annual_bonus_gbp         = 9500,
     include_rsu              = true,
+    rsu_per_vest_override    = null, // null = calcular dinámicamente; número = override manual del agente
     target_gbp               = null,
     scenario                 = 'neutral',
     initial_capital_gbp      = null, // null = usar portfolio real; 0 o cualquier número = override
@@ -1101,18 +1106,56 @@ async function executeRunMontecarlo(input) {
   const CASH_RET = 3;
   const CASH_VOL = 1;
 
-  // RSU: £2100 net/vest — meses 1,4,7,10 (alineado con MC_RSU_MONTHS de analytics.js)
-  const RSU_PER_VEST = 2100;
   const RSU_MONTHS   = new Set([1, 4, 7, 10]);
   // Bonus: 50% en mes 3 (marzo) y 50% en mes 9 (sep) — alineado con MC_BONUS_MONTHS
   const BONUS_MONTHS = new Set([3, 9]);
 
-  // ── Fetchear valores iniciales reales de Supabase ──────────────────────────
+  // ── Headers Supabase (compartido por RSU fetch y positions fetch) ──────────
   const sbHeaders = {
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${SUPABASE_KEY}`,
     'Accept': 'application/json',
   };
+
+  // RSU: valor neto por vest — calculado dinámicamente desde rsu_vests (próximos 8 quarters)
+  // Si el agente pasa rsu_per_vest_override, se usa ese valor directamente.
+  let RSU_PER_VEST = 2100; // fallback
+  if (rsu_per_vest_override !== null && typeof rsu_per_vest_override === 'number') {
+    RSU_PER_VEST = rsu_per_vest_override;
+  } else {
+    try {
+      const [rsuVestRes, metaPriceRes, fxSnapRes] = await Promise.all([
+        fetch(`${SUPABASE_URL}/rest/v1/rsu_vests?select=vest_date,units,vested&order=vest_date.asc`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/price_snapshots?ticker=eq.META&order=captured_at.desc&limit=1&select=price_usd`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=fx_rate&order=captured_at.desc&limit=1`, { headers: sbHeaders }),
+      ]);
+      const rsuRows    = await rsuVestRes.json();
+      const priceRows  = await metaPriceRes.json();
+      const fxRows     = await fxSnapRes.json();
+      const metaUSD = (Array.isArray(priceRows) && priceRows[0]?.price_usd) ? parseFloat(priceRows[0].price_usd) : 600;
+      const fxRate  = (Array.isArray(fxRows)    && fxRows[0]?.fx_rate)      ? parseFloat(fxRows[0].fx_rate)      : 0.79;
+      if (Array.isArray(rsuRows) && rsuRows.length > 0) {
+        // Agrupar por vest_date sumando units de distintos grants
+        const grouped = {};
+        rsuRows.forEach(r => {
+          if (!grouped[r.vest_date]) grouped[r.vest_date] = { units: 0, vested: r.vested };
+          grouped[r.vest_date].units += r.units;
+          if (!r.vested) grouped[r.vest_date].vested = false;
+        });
+        const upcomingUnits = Object.entries(grouped)
+          .filter(([, g]) => !g.vested)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, 8)
+          .map(([, g]) => g.units);
+        if (upcomingUnits.length > 0) {
+          const avgUnits = upcomingUnits.reduce((s, u) => s + u, 0) / upcomingUnits.length;
+          RSU_PER_VEST = Math.round(avgUnits * metaUSD * fxRate * 0.53);
+        }
+      }
+    } catch (e) {
+      console.warn('[montecarlo] error calculando RSU_PER_VEST dinámico, usando fallback £2100:', e.message);
+    }
+  }
 
   let startInvested = 8000; // fallbacks por si falla el fetch
   let startCash     = 4000;

@@ -562,6 +562,14 @@ function buildPortfolioContext() {
     ctx += `total_units: ${totalU} | vested: ${vestedU} (${Math.round(vestedU/totalU*100)}%) | pending: ${pendingU}\n`;
     ctx += `pending_gross: ${fU(accumBruto)} | pending_net: ${fU(accumNeto)} (${fG(accumNeto)})\n`;
 
+    // Flujo anual RSU neto: promedio de próximos 8 quarters × 4 (anualizado)
+    const next8 = upcoming.slice(0, 8);
+    if (next8.length > 0) {
+      const avgUnits8 = next8.reduce((s, v) => s + v.units, 0) / next8.length;
+      const annualRsuNet = Math.round(avgUnits8 * rsuP * NET_RATE * 4);
+      ctx += `annual_rsu_net_flow (next 8 quarters avg x4): ${fG(annualRsuNet)}\n`;
+    }
+
     if (upcoming.length > 0) {
       ctx += '\nVEST_SCHEDULE_PENDING\ndate|days|units|gross|net\n';
       upcoming.forEach(v => {

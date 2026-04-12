@@ -2805,23 +2805,35 @@ async function loadRSUVests() {
     const today = new Date();
     today.setHours(0,0,0,0);
 
-    vestSchedule = rows.map(r => {
-      const vestDate = new Date(r.vest_date);
-      vestDate.setHours(0,0,0,0);
-      const diffMs = vestDate - today;
-      const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      // Format date like "May '26"
-      const d = new Date(r.vest_date);
-      const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
-      const yearShort = "'" + String(d.getFullYear()).slice(2);
-      return {
-        date: monthShort + ' ' + yearShort,
-        vest_date: r.vest_date,
-        units: r.units,
-        days: days,
-        vested: r.vested,
-      };
+    // Group by vest_date — sum units across grants sharing the same date
+    const grouped = {};
+    rows.forEach(r => {
+      if (!grouped[r.vest_date]) {
+        grouped[r.vest_date] = { units: 0, vested: r.vested };
+      }
+      grouped[r.vest_date].units += r.units;
+      // If any grant on this date is not vested, the group is not vested
+      if (!r.vested) grouped[r.vest_date].vested = false;
     });
+
+    vestSchedule = Object.entries(grouped)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([vest_date, g]) => {
+        const vestDate = new Date(vest_date);
+        vestDate.setHours(0,0,0,0);
+        const diffMs = vestDate - today;
+        const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        const d = new Date(vest_date);
+        const monthShort = d.toLocaleDateString('en-US', { month: 'short' });
+        const yearShort = "'" + String(d.getFullYear()).slice(2);
+        return {
+          date: monthShort + ' ' + yearShort,
+          vest_date,
+          units: g.units,
+          days,
+          vested: g.vested,
+        };
+      });
 
     // Summary stats for subtitle
     const totalUnits = rows.reduce((s, r) => s + r.units, 0);
