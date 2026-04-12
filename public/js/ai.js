@@ -1135,7 +1135,7 @@ async function aiSendMsg() {
   aiAddMsg('user', msg);
   aiHistory.push({ role: 'user', content: msg });
 
-  // Thinking indicator with animated states
+  // Thinking indicator con soporte para tool calls
   const thinkingEl = aiAddMsg('thinking', '');
   thinkingEl.innerHTML = '<span class="ai-thinking-text">Analizando tu portfolio</span><span class="ai-dots"><span>.</span><span>.</span><span>.</span></span>';
   const thinkingMsgs = ['Analizando tu portfolio', 'Procesando datos', 'Calculando métricas', 'Preparando respuesta'];
@@ -1146,6 +1146,23 @@ async function aiSendMsg() {
     if (textEl) textEl.textContent = thinkingMsgs[tmIdx];
   }, 1800);
   thinkingEl._tmInterval = tmInterval;
+
+  // Muestra una tool call dentro del bubble de thinking
+  function showToolCall(name, detail) {
+    clearInterval(thinkingEl._tmInterval);
+    const TOOL_LABELS = {
+      query_db:       { icon: '🗄', label: 'Consultando base de datos' },
+      run_montecarlo: { icon: '📊', label: 'Simulando Monte Carlo' },
+    };
+    const t = TOOL_LABELS[name] || { icon: '⚙', label: name };
+    thinkingEl.innerHTML =
+      `<span class="ai-tool-call">` +
+        `<span class="ai-tool-icon">${t.icon}</span>` +
+        `<span class="ai-tool-label">${t.label}</span>` +
+        `${detail ? `<span class="ai-tool-detail">${detail}</span>` : ''}` +
+      `</span>` +
+      `<span class="ai-dots"><span>.</span><span>.</span><span>.</span></span>`;
+  }
 
   // ── Logging: ensure conversation exists, log user message ──
   // Do this before the API call so we have the ID ready when the reply comes back.
@@ -1279,13 +1296,58 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
 
     const data = await res.json();
     clearInterval(thinkingEl._tmInterval);
-    thinkingEl.remove();
 
     if (data.error) {
+      thinkingEl.remove();
       aiAddMsg('assistant', '⚠️ Error: ' + (data.error.message || 'No se pudo conectar con la IA.'));
       aiHistory.pop();
       return;
     }
+
+    // Si el agente usó tools, mostrarlas en el bubble antes de la respuesta final
+    const toolLog = data._tool_calls_log || [];
+    if (toolLog.length > 0) {
+      // Construir detalle legible por tool
+      const TOOL_DETAIL = {
+        query_db: (inp) => {
+          const qt = inp?.query_type || '';
+          const ticker = inp?.filters?.ticker;
+          const MAP = {
+            transactions_by_ticker: ticker ? `transacciones · ${ticker}` : 'transacciones',
+            transactions_by_period: 'transacciones por período',
+            transactions_all:       'últimas transacciones',
+            portfolio_history:      'historial del portfolio',
+            price_history:          ticker ? `precios · ${ticker}` : 'historial de precios',
+            rsu_vests:              'schedule de RSUs',
+            positions_snapshot:     'posiciones actuales',
+            daily_returns:          ticker ? `retornos · ${ticker}` : 'retornos diarios',
+          };
+          return MAP[qt] || qt;
+        },
+        run_montecarlo: (inp) => {
+          const sc = inp?.scenario || 'neutral';
+          const yr = inp?.years;
+          return yr ? `${sc} · ${yr} años` : sc;
+        },
+      };
+
+      // Mostrar cada tool brevemente en secuencia (ya corrieron en el server,
+      // solo las mostramos para feedback visual)
+      for (let i = 0; i < toolLog.length; i++) {
+        const entry = toolLog[i];
+        const detailFn = TOOL_DETAIL[entry.tool];
+        const detail   = detailFn ? detailFn(entry.input) : '';
+        showToolCall(entry.tool, detail);
+        // Breve pausa visual entre tools si hay más de una
+        if (i < toolLog.length - 1) {
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
+      // Pausa final para que se vea el último tool antes de la respuesta
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    thinkingEl.remove();
 
     // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
     const textBlock = (data.content || []).find(b => b.type === 'text');

@@ -140,6 +140,22 @@
     background: var(--surface2); color: var(--muted);
     font-style: italic;
   }
+  .ai-tool-call {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-style: normal;
+  }
+  .ai-tool-icon {
+    font-size: 13px; flex-shrink: 0;
+  }
+  .ai-tool-label {
+    color: var(--text); font-weight: 500; font-size: 12px;
+  }
+  .ai-tool-detail {
+    color: var(--muted); font-size: 11px;
+    background: rgba(108,99,255,0.12);
+    border-radius: 4px; padding: 1px 5px;
+    font-style: normal; font-family: var(--font-num);
+  }
   .ai-msg .ai-h1 { font-size: 15px; font-weight: 800; margin: 6px 0 2px; font-family: var(--font-num); }
   .ai-msg .ai-h2 { font-size: 14px; font-weight: 700; margin: 5px 0 2px; font-family: var(--font-num); }
   .ai-msg .ai-h3 { font-size: 13px; font-weight: 700; margin: 4px 0 1px; color: var(--accent3); }
