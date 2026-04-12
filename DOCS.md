@@ -566,7 +566,6 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 - `getNYSECloseUTC()` — calcula dinámicamente a qué minuto UTC corresponde las 16:00 ET usando `Intl.DateTimeFormat`. Maneja DST de EEUU y UK automáticamente sin offsets hardcodeados.
 - `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-4-6` directamente desde el worker con `max_tokens: 600`. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
 - Variables de entorno adicionales requeridas: `ANTHROPIC_API_KEY`, `SERVER_INTERNAL_URL` (URL del service principal, ej: `https://personal-hub-julian.up.railway.app`).
-- **Test server**: corre en el puerto `WORKER_TEST_PORT` (default 3001). `POST /test-briefing` dispara el briefing inmediatamente sin esperar al cierre NYSE. Usar con `curl -X POST https://<worker-url>/test-briefing`.
 
 ---
 
@@ -732,7 +731,6 @@ Requiere las mismas variables que el service principal, **más** las VAPID keys.
 |---|---|
 | `ANTHROPIC_API_KEY` | Misma key que el service principal. Usada para generar el briefing. |
 | `SERVER_INTERNAL_URL` | URL del service principal para fetchear el contexto del briefing. Ej: `https://personal-hub-julian.up.railway.app`. Intentar con URL privada (`http://personal-hub.railway.internal:3000`) si Private Networking está habilitado. |
-| `WORKER_TEST_PORT` | Puerto del test server (default `3001`). Exponer en Railway para poder disparar briefings manualmente con curl. |
 
 ### Generar claves VAPID (una sola vez)
 ```bash
