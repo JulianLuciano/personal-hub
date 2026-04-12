@@ -347,6 +347,18 @@
     opacity: 1;
   }
 
+  /* ── Highlight animation when jumping to a starred message ── */
+  @keyframes ai-msg-pulse {
+    0%   { box-shadow: 0 0 0 0px rgba(245, 197, 24, 0.0); }
+    30%  { box-shadow: 0 0 0 5px rgba(245, 197, 24, 0.5); }
+    70%  { box-shadow: 0 0 0 5px rgba(245, 197, 24, 0.25); }
+    100% { box-shadow: 0 0 0 0px rgba(245, 197, 24, 0.0); }
+  }
+  .ai-msg-highlight {
+    animation: ai-msg-pulse 1.8s ease-out forwards;
+    border-radius: 12px;
+  }
+
   /* ── Starred history view ── */
   .ai-starred-item {
     background: var(--surface2);

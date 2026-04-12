@@ -991,7 +991,7 @@ async function aiDeleteConversation(id, wrapEl) {
 
 }
 
-async function aiOpenConversation(id) {
+async function aiOpenConversation(id, targetMsgId = null) {
   aiShowChatView();
   const msgs = document.getElementById('aiMessages');
   msgs.innerHTML = '<div class="ai-msg assistant" style="opacity:0.5;font-style:italic">Cargando conversación...</div>';
@@ -1004,17 +1004,31 @@ async function aiOpenConversation(id) {
       return;
     }
 
-    // Rebuild aiHistory from the loaded conversation so context is preserved
     aiHistory.length = 0;
     aiConversationId = id;
     aiMessageSeq = rows[rows.length - 1].seq + 1;
 
     msgs.innerHTML = '';
+    const domMap = {}; // dbId → DOM element, para el scroll posterior
     rows.forEach(row => {
-      aiAddMsg(row.role, row.content);
+      const el = aiAddMsg(row.role, row.content, row.id || null, row.starred === true);
       aiHistory.push({ role: row.role, content: row.content });
+      if (row.id) domMap[row.id] = el;
     });
-    msgs.scrollTop = msgs.scrollHeight;
+
+    // Scroll: si hay targetMsgId scrollamos a ese mensaje y lo animamos,
+    // si no, scrollamos al final como siempre.
+    if (targetMsgId && domMap[targetMsgId]) {
+      const target = domMap[targetMsgId];
+      // Pequeño delay para asegurar que el layout ya está pintado
+      setTimeout(() => {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('ai-msg-highlight');
+        setTimeout(() => target.classList.remove('ai-msg-highlight'), 1800);
+      }, 80);
+    } else {
+      msgs.scrollTop = msgs.scrollHeight;
+    }
   } catch(e) {
     msgs.innerHTML = '<div class="ai-msg assistant">⚠️ Error al cargar la conversación.</div>';
   }
@@ -1087,7 +1101,7 @@ async function aiLoadStarred() {
           <span class="ai-starred-conv">${title.slice(0, 40)}</span>
         </div>`;
 
-      card.addEventListener('click', () => aiOpenConversation(row.conversation_id));
+      card.addEventListener('click', () => aiOpenConversation(row.conversation_id, row.id));
       list.appendChild(card);
     });
   } catch (e) {
@@ -1288,9 +1302,9 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
       output_tokens:     data.usage?.output_tokens ?? null,
       context_start_seq: contextStartSeq,
     }).then(dbId => {
+      // Actualizar el dbId en el meta — el elemento ya fue inicializado por aiAddMsg
       if (dbId && replyEl) {
         _aiMsgMeta.set(replyEl, { dbId });
-        replyEl.dataset.starred = 'false';
       }
     });
 
@@ -1371,7 +1385,7 @@ function aiRenderMarkdown(text) {
   return text;
 }
 
-function aiAddMsg(role, text, dbId = null) {
+function aiAddMsg(role, text, dbId = null, isStarred = false) {
   const msgs = document.getElementById('aiMessages');
   const el = document.createElement('div');
   el.className = 'ai-msg ' + role;
@@ -1381,14 +1395,13 @@ function aiAddMsg(role, text, dbId = null) {
     const starBtn = document.createElement('button');
     starBtn.className = 'ai-star-btn';
     starBtn.title = 'Guardar como favorito';
-    starBtn.textContent = '☆';
+    starBtn.textContent = isStarred ? '★' : '☆';
+    if (isStarred) starBtn.classList.add('active');
     starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(el); });
     el.appendChild(starBtn);
-    // Store meta if dbId provided
-    if (dbId) {
-      _aiMsgMeta.set(el, { dbId });
-      el.dataset.starred = 'false';
-    }
+    // Siempre inicializar dataset + meta, aunque el dbId llegue después async
+    el.dataset.starred = String(isStarred);
+    _aiMsgMeta.set(el, { dbId }); // dbId puede ser null y actualizarse después
   } else {
     el.textContent = text;
   }
