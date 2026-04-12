@@ -1359,7 +1359,8 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
         detail.appendChild(row);
       });
 
-      // Toggle expand/collapse
+      // Colapsado por default
+      detail.style.display = 'none';
       let expanded = false;
       header.addEventListener('click', () => {
         expanded = !expanded;
