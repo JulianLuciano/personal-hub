@@ -41,6 +41,11 @@ self.addEventListener('notificationclick', event => {
   const notifData = event.notification.data || {};
   const type      = notifData.type;
 
+  if (type === 'DAILY_BRIEFING') {
+    event.waitUntil(focusOrOpenApp('/?briefing=1'));
+    return;
+  }
+
   if (type === 'WATER_CHECK') {
     if (action === 'water_yes') {
       event.waitUntil(

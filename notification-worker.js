@@ -437,15 +437,33 @@ async function generateAndSendBriefing() {
 
   if (!briefingText) return;
 
+  // Guardar en daily_briefings (upsert por fecha — reemplaza si ya existe del día)
+  const todayDate = new Date().toISOString().slice(0, 10);
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/daily_briefings', {
+      method: 'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type':  'application/json',
+        'Prefer':        'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({ date: todayDate, content: briefingText }),
+    });
+    console.log('[briefing] saved to DB for', todayDate);
+  } catch (e) {
+    console.warn('[briefing] DB save failed:', e.message);
+  }
+
   const shortBody = briefingText.slice(0, 110) + (briefingText.length > 110 ? '\u2026' : '');
 
   await sendPushToAll({
     type:    'DAILY_BRIEFING',
-    title:   'Briefing del dia',
+    title:   '📊 Briefing financiero del día',
     body:    shortBody,
     tag:     'daily-briefing',
-    data:    { fullText: briefingText },
-    actions: [{ action: 'open', title: 'Ver analisis' }],
+    data:    { fullText: briefingText, date: todayDate },
+    actions: [{ action: 'open', title: 'Ver análisis' }],
   });
 
   console.log('[briefing] sent, chars:', briefingText.length);

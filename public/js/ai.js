@@ -1410,3 +1410,117 @@ function aiAddMsg(role, text, dbId = null, isStarred = false) {
   return el;
 }
 // ── END AI CHAT ─────────────────────────────────────────────────────────────
+
+// ── BRIEFING MODAL ────────────────────────────────────────────────────────────
+
+let briefingHistoryLoaded = false;
+let briefingHistoryVisible = false;
+
+function openBriefingModal(content = null) {
+  // Navegar a portfolio si no estamos ahí
+  const portfolioNav = document.querySelector('.nav-item[onclick*="portfolio"]');
+  if (portfolioNav && !portfolioNav.classList.contains('active')) {
+    switchNav(portfolioNav, 'portfolio');
+  }
+
+  document.getElementById('briefingModal').classList.add('open');
+  briefingHistoryVisible = false;
+  document.getElementById('briefingLatestView').style.display = 'block';
+  document.getElementById('briefingHistoryView').style.display = 'none';
+  document.getElementById('briefingHistoryBtn').classList.remove('active');
+
+  if (content) {
+    _briefingRender(content);
+  } else {
+    briefingLoadLatest();
+  }
+}
+
+function closeBriefingModal() {
+  document.getElementById('briefingModal').classList.remove('open');
+}
+
+async function briefingLoadLatest() {
+  const el = document.getElementById('briefingContent');
+  const title = document.getElementById('briefingModalTitle');
+  el.textContent = 'Cargando…';
+  try {
+    const r = await fetch('/api/db/daily_briefings?select=date,content&order=date.desc&limit=1');
+    const rows = await r.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      el.textContent = 'Aún no hay briefings generados. El primero llegará hoy después del cierre de NYSE.';
+      return;
+    }
+    const row = rows[0];
+    const dateStr = new Date(row.date + 'T12:00:00Z').toLocaleDateString('es-AR', {
+      weekday: 'long', day: 'numeric', month: 'long',
+    });
+    title.textContent = 'Briefing — ' + dateStr;
+    _briefingRender(row.content);
+  } catch (e) {
+    el.textContent = '⚠️ Error al cargar el briefing.';
+  }
+}
+
+function _briefingRender(content) {
+  document.getElementById('briefingContent').textContent = content;
+}
+
+function briefingToggleHistory() {
+  briefingHistoryVisible = !briefingHistoryVisible;
+  document.getElementById('briefingLatestView').style.display  = briefingHistoryVisible ? 'none'  : 'block';
+  document.getElementById('briefingHistoryView').style.display = briefingHistoryVisible ? 'flex'  : 'none';
+  document.getElementById('briefingHistoryBtn').classList.toggle('active', briefingHistoryVisible);
+  document.getElementById('briefingModalTitle').textContent = briefingHistoryVisible ? 'Historial de briefings' : 'Briefing del día';
+  if (briefingHistoryVisible && !briefingHistoryLoaded) briefingLoadHistory();
+}
+
+async function briefingLoadHistory() {
+  const list = document.getElementById('briefingHistoryList');
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Cargando...</div>';
+  try {
+    const r = await fetch('/api/db/daily_briefings?select=date,content&order=date.desc&limit=30');
+    const rows = await r.json();
+    briefingHistoryLoaded = true;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Sin briefings anteriores.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    rows.forEach(row => {
+      const dateStr = new Date(row.date + 'T12:00:00Z').toLocaleDateString('es-AR', {
+        weekday: 'long', day: 'numeric', month: 'long',
+      });
+      const card = document.createElement('div');
+      card.className = 'briefing-hist-item';
+      card.innerHTML = '<div class="briefing-hist-date">' + dateStr + '</div>' +
+        '<div class="briefing-hist-preview">' + row.content.slice(0, 140) + (row.content.length > 140 ? '…' : '') + '</div>';
+      card.addEventListener('click', () => {
+        briefingHistoryVisible = false;
+        document.getElementById('briefingLatestView').style.display  = 'block';
+        document.getElementById('briefingHistoryView').style.display = 'none';
+        document.getElementById('briefingHistoryBtn').classList.remove('active');
+        const dateLabel = new Date(row.date + 'T12:00:00Z').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+        document.getElementById('briefingModalTitle').textContent = 'Briefing — ' + dateLabel;
+        _briefingRender(row.content);
+      });
+      list.appendChild(card);
+    });
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Error al cargar.</div>';
+  }
+}
+
+// Detectar ?briefing=1 al cargar la app (viene del SW al tocar la notificación)
+(function checkBriefingParam() {
+  if (window.location.search.includes('briefing=1')) {
+    // Limpiar el param de la URL sin recargar
+    const clean = window.location.pathname;
+    window.history.replaceState({}, '', clean);
+    // Esperar a que el DOM esté listo y los módulos cargados
+    window.addEventListener('load', () => {
+      setTimeout(() => openBriefingModal(), 400);
+    });
+  }
+})();
+// ── END BRIEFING MODAL ────────────────────────────────────────────────────────

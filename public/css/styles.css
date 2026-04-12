@@ -397,6 +397,36 @@
   #aiStarredBtn.active { color: #f5c518; }
   #aiHistoryBtn.active { color: var(--accent); }
 
+  /* ── Briefing modal ── */
+  #briefingHistoryBtn.active { color: var(--accent); }
+
+  .briefing-hist-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    margin-bottom: 8px;
+  }
+  .briefing-hist-item:active { border-color: var(--accent); }
+  .briefing-hist-date {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 5px;
+    text-transform: capitalize;
+  }
+  .briefing-hist-preview {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   /* Pull-to-refresh indicator */
   #ptr-indicator {
     position: fixed;
