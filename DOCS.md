@@ -67,6 +67,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Tool calls no se guardan en historial | `ai.js` (`aiLogMessage`) + `server.js` (POST `/api/ai-messages`) |
 | Tool calls no aparecen al reabrir conversación vieja | `ai.js` (`aiOpenConversation`) |
 | Bug en Monte Carlo del agente (valores, parámetros) | `server.js` (`executeRunMontecarlo`) |
+| Simulación Monte Carlo ignora capital especificado por el usuario | `server.js` (`executeRunMontecarlo` → parámetro `initial_capital_gbp`) |
 | Bug en Monte Carlo del frontend (UI, parámetros, gráfico) | `analytics.js` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
@@ -497,6 +498,7 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
 - `include_rsu` (default true)
 - `target_gbp` (opcional)
 - `scenario`: `neutral` | `bull` | `bear` (default `neutral`)
+- `initial_capital_gbp` (opcional): `null` (default) = fetchea el portfolio real de Supabase. `0` o cualquier número = override directo, saltea el fetch. Útil para simular desde cero o desde un monto hipotético. La comparación es `!== null` así que `0` funciona correctamente.
 
 **Endpoints de chat history:**
 - `POST /api/ai-conversations` — crea fila en `ai_conversations`, devuelve `{ id }` (UUID)
