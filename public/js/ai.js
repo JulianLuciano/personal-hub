@@ -919,6 +919,7 @@ function _aiHistShowConfirm(wrap, id, title) {
   if (bg)   bg.classList.remove('active');
 
   const sheet = document.getElementById('aiSheet');
+  void sheet; // keep reference in case needed later
 
   const overlay = document.createElement('div');
   overlay.className = 'ai-confirm-overlay';
@@ -932,7 +933,7 @@ function _aiHistShowConfirm(wrap, id, title) {
       </div>
     </div>`;
 
-  sheet.appendChild(overlay);
+  document.body.appendChild(overlay);
 
   overlay.querySelector('.ai-confirm-cancel').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });

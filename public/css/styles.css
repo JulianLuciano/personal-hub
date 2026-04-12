@@ -224,8 +224,7 @@
   /* ── Swipe-to-delete wrapper ─────────────────────────────────────────────── */
   .ai-hist-swipe-wrap {
     position: relative;
-    overflow: hidden;
-    border-radius: 12px;
+    /* No overflow:hidden — would clip the card's border/shadow and look flat */
     touch-action: pan-y;
   }
   .ai-hist-delete-bg {
@@ -244,11 +243,11 @@
     stroke: #fff; fill: none;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
   }
+  /* Only add transform behaviour — do NOT override padding/bg/border from .ai-hist-item */
   .ai-hist-swipe-wrap .ai-hist-item {
     position: relative;
     z-index: 1;
     transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    margin: 0;
   }
   .ai-hist-swipe-wrap .ai-hist-item.swiping {
     transition: none;
@@ -267,14 +266,13 @@
 
   /* ── Confirm delete popup ────────────────────────────────────────────────── */
   .ai-confirm-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    z-index: 500;
+    z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: inherit;
     animation: fade-in-overlay 0.15s ease;
   }
   @keyframes fade-in-overlay { from { opacity: 0; } to { opacity: 1; } }
