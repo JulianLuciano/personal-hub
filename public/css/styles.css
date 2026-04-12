@@ -221,6 +221,107 @@
   }
   #aiHistoryBtn.active { color: var(--accent); }
 
+  /* ── Swipe-to-delete wrapper ─────────────────────────────────────────────── */
+  .ai-hist-swipe-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    touch-action: pan-y;
+  }
+  .ai-hist-delete-bg {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 80px;
+    background: #e53935;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    pointer-events: none;
+  }
+  .ai-hist-delete-bg svg {
+    width: 22px; height: 22px;
+    stroke: #fff; fill: none;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ai-hist-swipe-wrap .ai-hist-item {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    margin: 0;
+  }
+  .ai-hist-swipe-wrap .ai-hist-item.swiping {
+    transition: none;
+  }
+  .ai-hist-delete-bg.active {
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .ai-hist-swipe-wrap.deleting {
+    animation: hist-slide-out 0.28s ease forwards;
+  }
+  @keyframes hist-slide-out {
+    from { max-height: 60px; opacity: 1; margin-bottom: 8px; }
+    to   { max-height: 0;    opacity: 0; margin-bottom: 0;   }
+  }
+
+  /* ── Confirm delete popup ────────────────────────────────────────────────── */
+  .ai-confirm-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+    animation: fade-in-overlay 0.15s ease;
+  }
+  @keyframes fade-in-overlay { from { opacity: 0; } to { opacity: 1; } }
+  .ai-confirm-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 20px 16px;
+    width: calc(100% - 48px);
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ai-confirm-title {
+    font-family: var(--font-num);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    text-align: center;
+  }
+  .ai-confirm-body {
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.45;
+  }
+  .ai-confirm-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .ai-confirm-cancel {
+    flex: 1; padding: 11px; border-radius: 12px;
+    border: 1.5px solid var(--border); background: var(--surface2);
+    color: var(--muted); font-size: 14px;
+    font-family: 'DM Sans', sans-serif; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .ai-confirm-cancel:active { border-color: var(--accent); color: var(--accent); }
+  .ai-confirm-delete {
+    flex: 1; padding: 11px; border-radius: 12px;
+    border: none; background: #e53935; color: #fff;
+    font-size: 14px; font-family: 'DM Sans', sans-serif; font-weight: 700;
+    cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+  }
+  .ai-confirm-delete:active { opacity: 0.85; transform: scale(0.97); }
+
   /* Pull-to-refresh indicator */
   #ptr-indicator {
     position: fixed;

@@ -779,7 +779,8 @@ async function aiLoadHistory() {
       return;
     }
 
-    list.innerHTML = convos.map(c => {
+    list.innerHTML = '';
+    convos.forEach(c => {
       const date = new Date(c.started_at);
       const dateStr = date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
       const timeStr = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
@@ -787,18 +788,179 @@ async function aiLoadHistory() {
       const modelLabel = model === 'opus' ? 'OPUS' : 'SONNET';
       const title = c.title || '(sin título)';
       const msgs = c.message_count ? `${c.message_count} msgs` : '';
-      return `<div class="ai-hist-item" onclick="aiOpenConversation('${c.id}')">
+
+      // Wrapper with swipe gesture
+      const wrap = document.createElement('div');
+      wrap.className = 'ai-hist-swipe-wrap';
+      wrap.style.marginBottom = '8px';
+      wrap.dataset.id = c.id;
+
+      // Red delete background
+      const bg = document.createElement('div');
+      bg.className = 'ai-hist-delete-bg';
+      bg.innerHTML = `<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+
+      // Card
+      const card = document.createElement('div');
+      card.className = 'ai-hist-item';
+      card.innerHTML = `
         <div class="ai-hist-item-title">${title}</div>
         <div class="ai-hist-item-meta">
           <span>${dateStr} ${timeStr}</span>
           ${msgs ? `<span>·</span><span>${msgs}</span>` : ''}
           <span class="ai-hist-item-model ${model}">${modelLabel}</span>
-        </div>
-      </div>`;
-    }).join('');
+        </div>`;
+
+      wrap.appendChild(bg);
+      wrap.appendChild(card);
+      list.appendChild(wrap);
+
+      // Open conversation on tap (only if not swiping)
+      card.addEventListener('click', () => aiOpenConversation(c.id));
+
+      // Swipe gesture
+      _aiHistInitSwipe(wrap, card, bg, c.id, title);
+    });
+
   } catch(e) {
     list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Error al cargar historial.</div>';
   }
+}
+
+// Initialises the swipe-left-to-delete gesture on one history card.
+function _aiHistInitSwipe(wrap, card, bg, id, title) {
+  const THRESHOLD = 72; // px — how far to swipe before revealing delete
+  let startX = 0, startY = 0, dx = 0, isSwiping = false, didSwipe = false;
+
+  function onStart(e) {
+    const touch = e.touches ? e.touches[0] : e;
+    startX = touch.clientX;
+    startY = touch.clientY;
+    dx = 0;
+    isSwiping = false;
+    didSwipe = false;
+  }
+
+  function onMove(e) {
+    const touch = e.touches ? e.touches[0] : e;
+    const rawDx = touch.clientX - startX;
+    const rawDy = touch.clientY - startY;
+
+    // Decide axis on first meaningful move
+    if (!isSwiping && Math.abs(rawDx) < 5 && Math.abs(rawDy) < 5) return;
+    if (!isSwiping) {
+      // If mostly vertical → don't capture, let scroll happen
+      if (Math.abs(rawDy) > Math.abs(rawDx)) return;
+      isSwiping = true;
+    }
+
+    // Only allow left swipe (negative dx)
+    dx = Math.min(0, rawDx);
+    card.classList.add('swiping');
+    card.style.transform = `translateX(${dx}px)`;
+
+    // Show/activate bg when past threshold
+    if (dx < -THRESHOLD) {
+      bg.classList.add('active');
+    } else {
+      bg.classList.remove('active');
+    }
+
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function onEnd() {
+    card.classList.remove('swiping');
+
+    if (dx < -THRESHOLD) {
+      // Snap to reveal state: lock card at -80px
+      card.style.transform = 'translateX(-80px)';
+      didSwipe = true;
+    } else {
+      // Snap back
+      card.style.transform = '';
+      bg.classList.remove('active');
+      didSwipe = false;
+    }
+  }
+
+  function onSnapBack() {
+    if (didSwipe) {
+      card.style.transform = '';
+      bg.classList.remove('active');
+      didSwipe = false;
+    }
+  }
+
+  // Touch events
+  wrap.addEventListener('touchstart', onStart, { passive: true });
+  wrap.addEventListener('touchmove',  onMove,  { passive: false });
+  wrap.addEventListener('touchend',   onEnd,   { passive: true });
+
+  // Tap on red zone → show confirm
+  bg.addEventListener('click', (e) => {
+    e.stopPropagation();
+    _aiHistShowConfirm(wrap, id, title);
+  });
+
+  // Tap elsewhere (outside wrap) when revealed → snap back
+  document.addEventListener('touchstart', (e) => {
+    if (didSwipe && !wrap.contains(e.target)) onSnapBack();
+  }, { passive: true });
+}
+
+// Shows the confirmation popup for delete, mounted inside the aiSheet so it
+// stays within the modal boundaries.
+function _aiHistShowConfirm(wrap, id, title) {
+  // Snap card back before showing modal
+  const card = wrap.querySelector('.ai-hist-item');
+  const bg   = wrap.querySelector('.ai-hist-delete-bg');
+  if (card) card.style.transform = '';
+  if (bg)   bg.classList.remove('active');
+
+  const sheet = document.getElementById('aiSheet');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'ai-confirm-overlay';
+  overlay.innerHTML = `
+    <div class="ai-confirm-box">
+      <div class="ai-confirm-title">Eliminar conversación</div>
+      <div class="ai-confirm-body">¿Eliminás "<strong>${title.slice(0, 50)}</strong>"? Esta acción no se puede deshacer.</div>
+      <div class="ai-confirm-actions">
+        <button class="ai-confirm-cancel">Cancelar</button>
+        <button class="ai-confirm-delete">Eliminar</button>
+      </div>
+    </div>`;
+
+  sheet.appendChild(overlay);
+
+  overlay.querySelector('.ai-confirm-cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('.ai-confirm-delete').addEventListener('click', async () => {
+    overlay.remove();
+    await aiDeleteConversation(id, wrap);
+  });
+}
+
+async function aiDeleteConversation(id, wrapEl) {
+  try {
+    const r = await fetch(`/api/ai-conversations/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      console.warn('[ai-delete] server error:', await r.text());
+      return;
+    }
+  } catch(e) {
+    console.warn('[ai-delete] fetch error:', e.message);
+    return;
+  }
+
+  // Animate removal from DOM
+  wrapEl.classList.add('deleting');
+  wrapEl.addEventListener('animationend', () => wrapEl.remove(), { once: true });
+
+  // If the deleted conversation was the active one, start fresh
+  if (aiConversationId === id) aiNewConversation();
 }
 
 async function aiOpenConversation(id) {

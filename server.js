@@ -750,6 +750,30 @@ app.get('/api/ai-conversations', async (req, res) => {
   }
 });
 
+// DELETE /api/ai-conversations/:id  →  delete conversation + cascade messages
+app.delete('/api/ai-conversations/:id', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'id requerido' });
+  try {
+    const sbRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_conversations?id=eq.${id}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Prefer': 'return=minimal',
+        },
+      }
+    );
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('[ai-conversations DELETE]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // GET /api/ai-conversations/:id/messages  →  all messages ordered by seq
 app.get('/api/ai-conversations/:id/messages', async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
