@@ -601,6 +601,51 @@ Return this JSON structure:
   }
 });
 
+// ── AI Transactions Context ───────────────────────────────────────────────────
+// Devuelve las últimas 5 transacciones + total invertido en el mes corriente
+// en formato TSV compact para incluir en el system prompt del agente.
+app.get('/api/ai-transactions-context', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+
+  try {
+    // Últimas 5 transacciones
+    const txRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+    );
+    const txRows = await txRes.json();
+
+    // Total del mes corriente (solo BUY, RSU_VEST)
+    const now = new Date();
+    const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    const monthRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/transactions?select=amount_usd,amount_local&date=gte.${monthStart}&type=in.(BUY,RSU_VEST)`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+    );
+    const monthRows = await monthRes.json();
+
+    const totalMonthUSD = Array.isArray(monthRows)
+      ? monthRows.reduce((s, r) => s + (parseFloat(r.amount_usd) || 0), 0)
+      : 0;
+    const totalMonthGBP = Array.isArray(monthRows)
+      ? monthRows.reduce((s, r) => s + (parseFloat(r.amount_local) || 0), 0)
+      : 0;
+
+    let tsv = 'RECENT_TRANSACTIONS (últimas 5)\ndate|ticker|type|qty|price_usd|amount_usd|amount_gbp|broker\n';
+    if (Array.isArray(txRows)) {
+      txRows.forEach(r => {
+        tsv += `${r.date}|${r.ticker}|${r.type}|${r.qty}|${r.price_usd ?? ''}|${r.amount_usd ?? ''}|${r.amount_local ?? ''}|${r.broker ?? ''}\n`;
+      });
+    }
+    tsv += `\nMONTH_INVESTED (${monthStart.slice(0, 7)}): $${Math.round(totalMonthUSD).toLocaleString()} USD / £${Math.round(totalMonthGBP).toLocaleString()} GBP`;
+
+    res.json({ tsv: tsv.trim() });
+  } catch (e) {
+    console.error('[ai-transactions-context]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── AI Chat Proxy ─────────────────────────────────────────────────────────────
 // Relay del chat AI — evita llamadas directas desde el browser a Anthropic.
 // Anthropic bloquea llamadas browser-side aunque la key tenga créditos.
@@ -731,6 +776,44 @@ app.post('/api/ai-messages', async (req, res) => {
     res.json({ id: rows[0]?.id ?? null });
   } catch(e) {
     console.error('[ai-messages POST]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// PATCH /api/ai-messages/:id/star  →  toggle starred on a message
+app.patch('/api/ai-messages/:id/star', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const { id } = req.params;
+  const { starred } = req.body || {};
+  if (typeof starred !== 'boolean') return res.status(400).json({ error: 'starred (boolean) requerido' });
+  try {
+    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/ai_messages?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ starred }),
+    });
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-messages/starred  →  all starred messages with conversation context
+app.get('/api/ai-messages/starred', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  try {
+    // Fetch starred messages joined with conversation title + started_at
+    const sbRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_messages?starred=eq.true&select=id,conversation_id,seq,role,content,created_at,ai_conversations(title,started_at)&order=created_at.desc&limit=50`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' } }
+    );
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    res.json(await sbRes.json());
+  } catch (e) {
     res.status(502).json({ error: e.message });
   }
 });

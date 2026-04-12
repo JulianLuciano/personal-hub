@@ -305,6 +305,178 @@ async function checkAndSendWaterNotif() {
   });
 }
 
+
+// ── BRIEFING DIARIO — cierre NYSE ─────────────────────────────────────────────
+// NYSE cierra a las 16:00 ET. ET usa DST propio (cambia en mar y nov).
+// Calculamos el offset ET↔UTC dinámicamente en cada tick para que el horario
+// sea siempre correcto sin importar si es verano/invierno en UK o en EEUU.
+// El briefing se manda 5 minutos después del cierre, lunes a viernes.
+
+function getNYSECloseUTC() {
+  // Computa a qué minuto UTC corresponde las 16:00 ET de hoy.
+  const now = new Date();
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(now);
+  const etH = parseInt(etParts.find(p => p.type === 'hour').value, 10);
+  const etM = parseInt(etParts.find(p => p.type === 'minute').value, 10);
+  const etMinutes  = etH * 60 + etM;
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  // offset = UTC - ET (e.g. 300 en invierno, 240 en verano)
+  const offsetMin = ((utcMinutes - etMinutes) + 1440) % 1440;
+  // NYSE cierra a las 16:00 ET → 16*60 + offset UTC
+  return (16 * 60 + offsetMin) % 1440;
+}
+
+const ANTHROPIC_KEY        = process.env.ANTHROPIC_API_KEY  || '';
+const SERVER_INTERNAL_URL  = process.env.SERVER_INTERNAL_URL || 'http://localhost:3000';
+
+async function buildBriefingContext() {
+  const headers = { Accept: 'application/json' };
+  const results = {};
+  try {
+    const [txRes, macroRes] = await Promise.allSettled([
+      fetch(SERVER_INTERNAL_URL + '/api/ai-transactions-context', { headers }),
+      fetch(SERVER_INTERNAL_URL + '/api/macro-data',              { headers }),
+    ]);
+    if (txRes.status === 'fulfilled' && txRes.value.ok) {
+      results.tx = (await txRes.value.json()).tsv || '';
+    }
+    if (macroRes.status === 'fulfilled' && macroRes.value.ok) {
+      const md  = (await macroRes.value.json()).data || {};
+      const f2  = v => (v != null ? Number(v).toFixed(2) : '\u2014');
+      const sgn = v => v == null ? '\u2014' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+      let tsv = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
+      Object.entries(md).forEach(function(entry) {
+        const ticker = entry[0], d = entry[1];
+        if (!d || d.current == null) return;
+        tsv += ticker + '|' + d.label + '|' + f2(d.current) + '|' + d.unit + '|' + sgn(d.chg7d) + '|' + sgn(d.chg30d) + '|' + d.trend + '\n';
+      });
+      results.macro = tsv.trim();
+    }
+  } catch (e) {
+    console.warn('[briefing] context fetch error:', e.message);
+  }
+  return results;
+}
+
+async function generateAndSendBriefing() {
+  if (!ANTHROPIC_KEY) {
+    console.warn('[briefing] ANTHROPIC_API_KEY not set, skipping');
+    return;
+  }
+  console.log('[briefing] generating daily briefing...');
+
+  let ctx = {};
+  try { ctx = await buildBriefingContext(); } catch (_) {}
+
+  const today = new Date().toLocaleDateString('es-AR', {
+    timeZone: 'Europe/London',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  const contextLines = [
+    ctx.macro ? ctx.macro : null,
+    ctx.tx    ? ctx.tx    : null,
+  ].filter(Boolean).join('\n\n');
+
+  const systemPrompt =
+    'Sos el asesor financiero personal de Julian. Hoy es ' + today + '. La bolsa de Nueva York acaba de cerrar.\n\n' +
+    'Genera un briefing financiero diario conciso en espanol. Maximo 400 palabras. Sin markdown excesivo.\n' +
+    'Estructura:\n' +
+    '1. Cierre de mercado (macro: VIX, indices, tasas, FX GBP/USD)\n' +
+    '2. Impacto estimado en el portfolio de Julian segun variaciones del dia\n' +
+    '3. Una observacion concreta o accion a considerar\n\n' +
+    (contextLines ? contextLines + '\n\n' : '') +
+    'Se directo. No repitas informacion obvia. Si no tenes datos suficientes, indicalo brevemente.';
+
+  let briefingText = '';
+  try {
+    const https    = require('https');
+    const bodyStr  = JSON.stringify({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 600,
+      system:     systemPrompt,
+      messages:   [{ role: 'user', content: 'Genera el briefing del dia.' }],
+    });
+
+    briefingText = await new Promise(function(resolve, reject) {
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path:     '/v1/messages',
+        method:   'POST',
+        headers: {
+          'Content-Type':        'application/json',
+          'Content-Length':      Buffer.byteLength(bodyStr),
+          'x-api-key':           ANTHROPIC_KEY,
+          'anthropic-version':   '2023-06-01',
+        },
+      }, function(res) {
+        let data = '';
+        res.on('data', function(c) { data += c; });
+        res.on('end', function() {
+          try {
+            const parsed = JSON.parse(data);
+            const text = (parsed.content || []).filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('');
+            resolve(text);
+          } catch (err) { reject(err); }
+        });
+      });
+      req.on('error', reject);
+      req.setTimeout(30000, function() { req.destroy(); reject(new Error('Timeout 30s')); });
+      req.write(bodyStr);
+      req.end();
+    });
+  } catch (e) {
+    console.error('[briefing] Claude API error:', e.message);
+    briefingText = 'Briefing no disponible: ' + e.message.slice(0, 60);
+  }
+
+  if (!briefingText) return;
+
+  const shortBody = briefingText.slice(0, 110) + (briefingText.length > 110 ? '\u2026' : '');
+
+  await sendPushToAll({
+    type:    'DAILY_BRIEFING',
+    title:   'Briefing del dia',
+    body:    shortBody,
+    tag:     'daily-briefing',
+    data:    { fullText: briefingText },
+    actions: [{ action: 'open', title: 'Ver analisis' }],
+  });
+
+  console.log('[briefing] sent, chars:', briefingText.length);
+}
+
+// ── Test server — para disparar el briefing sin esperar al cierre NYSE ────────
+// Uso: curl -X POST http://localhost:3001/test-briefing
+(function startTestServer() {
+  const http = require('http');
+  const port = parseInt(process.env.WORKER_TEST_PORT || '3001', 10);
+  const srv  = http.createServer(function(req, res) {
+    if (req.method === 'POST' && req.url === '/test-briefing') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      generateAndSendBriefing().catch(function(e) {
+        console.error('[briefing-test] error:', e.message);
+      });
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  srv.listen(port, function() {
+    console.log('[briefing-test] test server on :' + port + ' — POST /test-briefing to trigger');
+  });
+  srv.on('error', function(e) {
+    console.warn('[briefing-test] server error:', e.message);
+  });
+})();
+
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 // Runs every minute, checks if any notification should fire.
 
@@ -312,13 +484,18 @@ const CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
 let habitNotifSentToday = '';  // date string, reset each day
 
+let briefingSentToday = '';
+
 async function tick() {
   const today = todayStr();
   const now   = nowHHMM();
 
-  // Reset daily habit notif flag at midnight
+  // Reset daily flags at midnight
   if (habitNotifSentToday !== today) {
     habitNotifSentToday = '';
+  }
+  if (briefingSentToday !== today) {
+    briefingSentToday = '';
   }
 
   // Habit notif — once at 22:30
@@ -329,6 +506,18 @@ async function tick() {
   ) {
     habitNotifSentToday = today;
     await checkAndSendHabitNotif();
+  }
+
+  // Daily briefing — 5 min after NYSE close (Mon–Fri only)
+  // NYSE closes at 16:00 ET. We compute the UTC equivalent dynamically.
+  const dayOfWeek = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  if (dayOfWeek >= 1 && dayOfWeek <= 5 && briefingSentToday !== today) {
+    const nyseCloseUTC = getNYSECloseUTC(); // minutes from midnight UTC
+    const briefingTime = (nyseCloseUTC + 5) % 1440; // +5 min
+    if (now >= briefingTime && now < briefingTime + 2) { // 2-min window
+      briefingSentToday = today;
+      await generateAndSendBriefing();
+    }
   }
 
   // Water notif — check every tick, sendWater() decides internally

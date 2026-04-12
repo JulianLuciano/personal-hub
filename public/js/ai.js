@@ -736,23 +736,43 @@ let aiHistoryLoaded = false;
 function aiShowChatView() {
   document.getElementById('aiChatView').style.display    = 'flex';
   document.getElementById('aiHistoryView').style.display = 'none';
+  document.getElementById('aiStarredView').style.display = 'none';
   document.getElementById('aiSheetTitle').textContent    = 'Asesor Financiero';
   document.getElementById('aiHistoryBtn').classList.remove('active');
+  document.getElementById('aiStarredBtn').classList.remove('active');
   document.getElementById('aiModelToggle').style.display = 'flex';
 }
 
 function aiShowHistoryView() {
   document.getElementById('aiChatView').style.display    = 'none';
   document.getElementById('aiHistoryView').style.display = 'flex';
+  document.getElementById('aiStarredView').style.display = 'none';
   document.getElementById('aiSheetTitle').textContent    = 'Historial';
   document.getElementById('aiHistoryBtn').classList.add('active');
+  document.getElementById('aiStarredBtn').classList.remove('active');
   document.getElementById('aiModelToggle').style.display = 'none';
   if (!aiHistoryLoaded) aiLoadHistory();
+}
+
+function aiShowStarredView() {
+  document.getElementById('aiChatView').style.display    = 'none';
+  document.getElementById('aiHistoryView').style.display = 'none';
+  document.getElementById('aiStarredView').style.display = 'flex';
+  document.getElementById('aiSheetTitle').textContent    = 'Guardados';
+  document.getElementById('aiHistoryBtn').classList.remove('active');
+  document.getElementById('aiStarredBtn').classList.add('active');
+  document.getElementById('aiModelToggle').style.display = 'none';
+  if (!aiStarredLoaded) aiLoadStarred();
 }
 
 function aiToggleHistory() {
   const historyVisible = document.getElementById('aiHistoryView').style.display !== 'none';
   historyVisible ? aiShowChatView() : aiShowHistoryView();
+}
+
+function aiToggleStarred() {
+  const starredVisible = document.getElementById('aiStarredView').style.display !== 'none';
+  starredVisible ? aiShowChatView() : aiShowStarredView();
 }
 
 function aiNewConversation() {
@@ -999,8 +1019,126 @@ async function aiOpenConversation(id) {
     msgs.innerHTML = '<div class="ai-msg assistant">⚠️ Error al cargar la conversación.</div>';
   }
 }
+// ── Star / Favoritos ──────────────────────────────────────────────────────────
+// Guarda el ID de DB de cada mensaje assistant para poder starearlos.
+// Map: DOM element → { dbId, conversationId, seq }
+const _aiMsgMeta = new WeakMap();
+
+async function aiToggleStar(el) {
+  const meta = _aiMsgMeta.get(el);
+  if (!meta?.dbId) return; // mensaje sin ID de DB (p.ej. bienvenida)
+
+  const nowStarred = el.dataset.starred === 'true';
+  const next = !nowStarred;
+
+  try {
+    const r = await fetch(`/api/ai-messages/${meta.dbId}/star`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ starred: next }),
+    });
+    if (!r.ok) { console.warn('[ai-star] error:', await r.text()); return; }
+  } catch (e) { console.warn('[ai-star] fetch error:', e.message); return; }
+
+  el.dataset.starred = String(next);
+  const btn = el.querySelector('.ai-star-btn');
+  if (btn) btn.classList.toggle('active', next);
+
+  // Invalidate starred cache
+  aiStarredLoaded = false;
+}
+
+function _aiAttachLongPress(el) {
+  let timer = null;
+  let moved = false;
+
+  function cancel() { clearTimeout(timer); timer = null; }
+
+  el.addEventListener('touchstart', (e) => {
+    moved = false;
+    timer = setTimeout(() => {
+      if (!moved) _aiShowStarMenu(el, e.touches[0]);
+    }, 500);
+  }, { passive: true });
+  el.addEventListener('touchmove',  () => { moved = true; cancel(); }, { passive: true });
+  el.addEventListener('touchend',   cancel, { passive: true });
+  el.addEventListener('touchcancel',cancel, { passive: true });
+}
+
+function _aiShowStarMenu(el, touch) {
+  // Remove any existing menu
+  document.querySelectorAll('.ai-star-menu').forEach(m => m.remove());
+
+  const isStarred = el.dataset.starred === 'true';
+  const menu = document.createElement('div');
+  menu.className = 'ai-star-menu';
+  menu.innerHTML = `<button>${isStarred ? '★ Quitar favorito' : '☆ Guardar como favorito'}</button>`;
+
+  // Position near touch point
+  const x = Math.min(touch.clientX, window.innerWidth - 180);
+  const y = Math.max(touch.clientY - 50, 60);
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999`;
+
+  document.body.appendChild(menu);
+
+  menu.querySelector('button').addEventListener('click', () => {
+    menu.remove();
+    aiToggleStar(el);
+  });
+
+  // Dismiss on outside tap
+  setTimeout(() => {
+    document.addEventListener('touchstart', function dismiss(e) {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('touchstart', dismiss); }
+    }, { passive: true });
+  }, 50);
+}
+
+// ── Starred History view ──────────────────────────────────────────────────────
+let aiStarredLoaded = false;
+
+async function aiLoadStarred() {
+  const list = document.getElementById('aiStarredList');
+  if (!list) return;
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
+  try {
+    const r = await fetch('/api/ai-messages/starred');
+    const rows = await r.json();
+    aiStarredLoaded = true;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Sin mensajes guardados.<br><span style="font-size:11px">Mantené presionado un mensaje del asistente para guardarlo.</span></div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    rows.forEach(row => {
+      const conv = row.ai_conversations;
+      const date = new Date(row.created_at);
+      const dateStr = date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+      const timeStr = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+      const title = conv?.title || '(sin título)';
+
+      const card = document.createElement('div');
+      card.className = 'ai-starred-item';
+      card.innerHTML = `
+        <div class="ai-starred-preview">${row.content.slice(0, 120)}${row.content.length > 120 ? '…' : ''}</div>
+        <div class="ai-starred-meta">
+          <span>★</span>
+          <span>${dateStr} ${timeStr}</span>
+          <span>·</span>
+          <span class="ai-starred-conv">${title.slice(0, 40)}</span>
+        </div>`;
+
+      card.addEventListener('click', () => aiOpenConversation(row.conversation_id));
+      list.appendChild(card);
+    });
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Error al cargar.</div>';
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Copies a preset message into the input box (doesn't send — lets user edit first)
 function aiCopyToInput(msg) {
   const input = document.getElementById('aiInput');
   input.value = msg;
@@ -1054,6 +1192,13 @@ async function aiSendMsg() {
     const wlExtended = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
     const macroSection = buildMacroContext();
     const corrSection  = buildCorrelationContext();
+
+    // Recent transactions context (fire in parallel, graceful fallback)
+    let txSection = null;
+    try {
+      const txRes = await fetch('/api/ai-transactions-context');
+      if (txRes.ok) { const d = await txRes.json(); txSection = d.tsv || null; }
+    } catch (_) {}
 
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
@@ -1144,6 +1289,7 @@ ${buildPortfolioContext()}
 
 ${buildHealthContext()}
 ${buildMarketContext()}
+${txSection      ? '\n' + txSection      : ''}
 ${corrSection    ? '\n' + corrSection    : ''}
 ${macroSection   ? '\n' + macroSection   : ''}
 ${wlBase         ? '\n' + wlBase         : ''}
@@ -1173,10 +1319,10 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
     // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
     const textBlock = (data.content || []).find(b => b.type === 'text');
     const reply = textBlock?.text || '(sin respuesta)';
-    aiAddMsg('assistant', reply);
+    const replyEl = aiAddMsg('assistant', reply);
     aiHistory.push({ role: 'assistant', content: reply });
 
-    // ── Logging: record assistant reply (fire-and-forget) ──
+    // ── Logging: record assistant reply — capture dbId to enable starring ──
     aiLogMessage({
       role: 'assistant',
       content: reply,
@@ -1184,6 +1330,11 @@ ${wlExtended     ? '\n' + wlExtended     : ''}`;
       input_tokens:      data.usage?.input_tokens  ?? null,
       output_tokens:     data.usage?.output_tokens ?? null,
       context_start_seq: contextStartSeq,
+    }).then(dbId => {
+      if (dbId && replyEl) {
+        _aiMsgMeta.set(replyEl, { dbId });
+        replyEl.dataset.starred = 'false';
+      }
     });
 
   } catch(e) {
@@ -1263,12 +1414,26 @@ function aiRenderMarkdown(text) {
   return text;
 }
 
-function aiAddMsg(role, text) {
+function aiAddMsg(role, text, dbId = null) {
   const msgs = document.getElementById('aiMessages');
   const el = document.createElement('div');
   el.className = 'ai-msg ' + role;
   if (role === 'assistant' && text) {
     el.innerHTML = aiRenderMarkdown(text);
+    // Star button
+    const starBtn = document.createElement('button');
+    starBtn.className = 'ai-star-btn';
+    starBtn.title = 'Guardar como favorito';
+    starBtn.innerHTML = '☆';
+    starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(el); });
+    el.appendChild(starBtn);
+    // Long press
+    _aiAttachLongPress(el);
+    // Store meta if dbId provided
+    if (dbId) {
+      _aiMsgMeta.set(el, { dbId });
+      el.dataset.starred = 'false';
+    }
   } else {
     el.textContent = text;
   }

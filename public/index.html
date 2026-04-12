@@ -1135,6 +1135,9 @@
         <button id="aiHistoryBtn" onclick="aiToggleHistory()" title="Historial" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </button>
+        <button id="aiStarredBtn" onclick="aiToggleStarred()" title="Guardados" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
         <button class="ai-close" onclick="closeAIChat()">×</button>
       </div>
 
@@ -1168,6 +1171,16 @@
         <div style="padding:10px 14px 14px;border-top:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:space-between">
           <span style="font-size:11px;color:var(--muted)">Últimas 15 conversaciones</span>
           <button onclick="aiNewConversation()" style="font-size:12px;font-weight:700;padding:7px 14px;border-radius:100px;border:none;background:var(--accent);color:#fff;cursor:pointer;letter-spacing:0.2px">+ Nueva</button>
+        </div>
+      </div>
+
+      <!-- ── STARRED VIEW ── -->
+      <div id="aiStarredView" style="display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+        <div id="aiStarredList" style="flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px">
+          <div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>
+        </div>
+        <div style="padding:10px 14px 14px;border-top:1px solid var(--border);flex-shrink:0">
+          <span style="font-size:11px;color:var(--muted)">Mensajes guardados con ★ (tap largo)</span>
         </div>
       </div>
 
