@@ -833,6 +833,8 @@ function _aiHistInitSwipe(wrap, card, bg, id, title) {
   let startX = 0, startY = 0, dx = 0, isSwiping = false, didSwipe = false;
 
   function onStart(e) {
+    // If card is revealed and user taps the bg, let bg's touchstart handle it
+    if (didSwipe && bg.contains(e.target)) return;
     const touch = e.touches ? e.touches[0] : e;
     startX = touch.clientX;
     startY = touch.clientY;
@@ -897,13 +899,16 @@ function _aiHistInitSwipe(wrap, card, bg, id, title) {
   wrap.addEventListener('touchmove',  onMove,  { passive: false });
   wrap.addEventListener('touchend',   onEnd,   { passive: true });
 
-  // Tap on red zone → show confirm
-  bg.addEventListener('click', (e) => {
+  // Use touchstart on bg (fires before card snaps back) instead of click
+  bg.addEventListener('touchstart', (e) => {
+    if (!didSwipe) return;
     e.stopPropagation();
+    e.preventDefault();
+    onSnapBack();
     _aiHistShowConfirm(wrap, id, title);
-  });
+  }, { passive: false });
 
-  // Tap elsewhere (outside wrap) when revealed → snap back
+  // Tap elsewhere when revealed → snap back
   document.addEventListener('touchstart', (e) => {
     if (didSwipe && !wrap.contains(e.target)) onSnapBack();
   }, { passive: true });
