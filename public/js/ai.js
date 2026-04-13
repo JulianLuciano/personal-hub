@@ -683,6 +683,160 @@ function openAIChat() {
   app.style.overflow = 'hidden';
   app.style.touchAction = 'none';
   setTimeout(() => document.getElementById('aiInput').focus(), 300);
+  aiRenderAlerts();
+}
+
+// ── Alert signals ─────────────────────────────────────────────────────────────
+// Reads liveData, _macroData, vestSchedule — returns structured signals object.
+function aiComputeSignals() {
+  const s = {
+    vix:          null,
+    vixHigh:      false,
+    equityDayPct: null,
+    equityDrop:   false,
+    equityRise:   false,
+    bigMovers:    [],  // [{ ticker, dayPct }] abs >= 5%
+    deepRed:      [],  // [{ ticker, pnlPct }] pnlPct <= -10%
+  };
+
+  // VIX
+  const md = window._macroData || {};
+  if (md['^VIX']?.current != null) {
+    s.vix     = md['^VIX'].current;
+    s.vixHigh = s.vix > 28;
+  }
+
+  // Portfolio positions
+  if (liveData && liveData.assets) {
+    const EXCL = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+    const equityAssets = liveData.assets.filter(
+      a => a.pos.category !== 'fiat' && !EXCL.has(a.pos.ticker) && a.valueUSD > 0.5
+    );
+
+    // Equity-only weighted day change
+    const totalEquityUSD = equityAssets.reduce((sum, a) => sum + a.valueUSD, 0);
+    if (totalEquityUSD > 0) {
+      let wSum = 0;
+      equityAssets.forEach(a => {
+        const d = a.dayPct ?? a.dayPctGBP ?? null;
+        if (d != null) wSum += d * (a.valueUSD / totalEquityUSD);
+      });
+      s.equityDayPct = wSum;
+      s.equityDrop   = wSum <= -3;
+      s.equityRise   = wSum >= 3;
+    }
+
+    // Individual big movers (abs >= 5%)
+    equityAssets.forEach(a => {
+      const d = a.dayPct ?? a.dayPctGBP ?? null;
+      if (d != null && Math.abs(d) >= 5) {
+        const ticker = a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker;
+        s.bigMovers.push({ ticker, dayPct: d });
+      }
+    });
+    s.bigMovers.sort((a, b) => Math.abs(b.dayPct) - Math.abs(a.dayPct));
+
+    // Deep red (pnlUSD% <= -10%)
+    equityAssets.forEach(a => {
+      if (a.pctUSD != null && a.pctUSD <= -10) {
+        const ticker = a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker;
+        s.deepRed.push({ ticker, pnlPct: a.pctUSD });
+      }
+    });
+    s.deepRed.sort((a, b) => a.pnlPct - b.pnlPct);
+  }
+
+  return s;
+}
+
+// ── Alert banner ──────────────────────────────────────────────────────────────
+// Injected dynamically above #aiQuickPrompts (or #aiInputArea if that's absent).
+// Dismissed per session via ×.
+let _alertsDismissed = false;
+
+function aiRenderAlerts() {
+  // Create banner if it doesn't exist yet
+  let container = document.getElementById('aiAlertBanner');
+  if (!container) {
+    const anchor = document.getElementById('aiQuickPrompts') || document.getElementById('aiInputArea');
+    if (!anchor) return;
+    container = document.createElement('div');
+    container.id = 'aiAlertBanner';
+    container.style.cssText = 'display:none;align-items:flex-start;gap:6px;padding:6px 12px 4px;flex-shrink:0';
+    anchor.parentNode.insertBefore(container, anchor);
+  }
+
+  if (_alertsDismissed) { container.style.display = 'none'; return; }
+
+  const s = aiComputeSignals();
+  const alerts = [];
+
+  if (s.vixHigh)
+    alerts.push({ icon: '⚠️', text: 'VIX en ' + s.vix.toFixed(1) + ' — mercado en pánico' });
+
+  if (s.equityDrop)
+    alerts.push({ icon: '📉', text: 'Cartera variable ' + s.equityDayPct.toFixed(1) + '% hoy' });
+  else if (s.equityRise)
+    alerts.push({ icon: '📈', text: 'Cartera variable +' + s.equityDayPct.toFixed(1) + '% hoy' });
+
+  s.bigMovers.forEach(m => {
+    const sign = m.dayPct > 0 ? '+' : '';
+    alerts.push({ icon: m.dayPct > 0 ? '📈' : '📉', text: m.ticker + ' ' + sign + m.dayPct.toFixed(1) + '% hoy' });
+  });
+
+  s.deepRed.forEach(m => {
+    alerts.push({ icon: '🔴', text: m.ticker + ' en rojo: ' + m.pnlPct.toFixed(1) + '% vs costo' });
+  });
+
+  if (alerts.length === 0) { container.style.display = 'none'; return; }
+
+  container.style.display = 'flex';
+  container.innerHTML = '';
+
+  // Pills
+  const pillsWrap = document.createElement('div');
+  pillsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0';
+  alerts.forEach(a => {
+    const pill = document.createElement('div');
+    pill.style.cssText = [
+      'display:inline-flex;align-items:center;gap:4px',
+      'padding:4px 10px;border-radius:20px',
+      'background:var(--surface2);border:1px solid var(--border)',
+      'font-size:12px;color:var(--text);white-space:nowrap;cursor:pointer;flex-shrink:0',
+    ].join(';');
+    pill.innerHTML = '<span>' + a.icon + '</span><span>' + a.text + '</span>';
+    pill.addEventListener('click', () => aiCopyToInput(_alertToPrompt(a)));
+    pillsWrap.appendChild(pill);
+  });
+
+  // Dismiss button
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'flex-shrink:0;background:none;border:none;color:var(--muted);font-size:18px;line-height:1;padding:0 2px 0 6px;cursor:pointer;align-self:center';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Cerrar alertas';
+  closeBtn.addEventListener('click', () => { _alertsDismissed = true; container.style.display = 'none'; });
+
+  container.appendChild(pillsWrap);
+  container.appendChild(closeBtn);
+}
+
+// Maps a rendered alert to a pre-filled prompt for the input
+function _alertToPrompt(alert) {
+  const t = alert.text;
+  if (t.includes('VIX'))
+    return 'El VIX está en ' + (window._macroData?.['^VIX']?.current?.toFixed(1) ?? '') + '. ¿Cómo afecta a mi cartera y qué debería hacer?';
+  if (t.includes('Cartera') && alert.icon === '📉')
+    return '¿Por qué cayó mi cartera hoy y qué hago?';
+  if (t.includes('Cartera') && alert.icon === '📈')
+    return 'Mi cartera subió bastante hoy. ¿Conviene tomar algo de ganancia o sigo quieto?';
+  if (t.includes('rojo')) {
+    const ticker = t.split(' ')[0];
+    return ticker + ' está en rojo histórico. ¿Promedio, mantengo o corto pérdidas?';
+  }
+  // Big mover — extract ticker from start of text
+  const tickerMatch = t.match(/^([A-Z0-9.\-]+)\s/);
+  if (tickerMatch) return '¿Qué pasó con ' + tickerMatch[1] + ' hoy y cómo me afecta?';
+  return t;
 }
 
 // Wire textarea keyboard behavior once DOM is ready
