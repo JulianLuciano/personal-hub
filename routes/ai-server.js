@@ -832,9 +832,15 @@ router.get('/briefing-context', async (req, res) => {
 
     const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
     const dayChangeGBP = snap24h ? totalGBP - (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
-    const dayPct       = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
-    const chg7d        = snap7d  && snap7d.total_usd  > 0 ? ((totalUSD - snap7d.total_usd)  / snap7d.total_usd  * 100) : null;
-    const chg30d       = snap30d && snap30d.total_usd > 0 ? ((totalUSD - snap30d.total_usd) / snap30d.total_usd * 100) : null;
+    const snap24hGBP   = snap24h ? (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
+    const dayPctUSD    = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
+    const dayPctGBP    = snap24h && snap24hGBP > 0 ? (dayChangeGBP / snap24hGBP * 100) : null;
+    const snap7dGBP    = snap7d  ? (snap7d.total_gbp  || snap7d.total_usd  * fxRate) : null;
+    const snap30dGBP   = snap30d ? (snap30d.total_gbp || snap30d.total_usd * fxRate) : null;
+    const chg7dUSD     = snap7d  && snap7d.total_usd  > 0 ? ((totalUSD - snap7d.total_usd)  / snap7d.total_usd  * 100) : null;
+    const chg30dUSD    = snap30d && snap30d.total_usd > 0 ? ((totalUSD - snap30d.total_usd) / snap30d.total_usd * 100) : null;
+    const chg7dGBP     = snap7dGBP  > 0 ? ((totalGBP - snap7dGBP)  / snap7dGBP  * 100) : null;
+    const chg30dGBP    = snap30dGBP > 0 ? ((totalGBP - snap30dGBP) / snap30dGBP * 100) : null;
 
     const investedPositions = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
     const tickers = investedPositions.map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker).filter(Boolean);
@@ -873,8 +879,12 @@ router.get('/briefing-context', async (req, res) => {
       });
     }
 
-    let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%\n';
+    let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp\n';
     let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
+
+    // Build per-ticker day% from snapshot breakdown (24h ago vs latest)
+    const latestBreakdown = latestSnap.breakdown || {};
+    const prev24hBreakdown = snap24h ? (snap24h.breakdown || {}) : {};
 
     investedPositions.forEach(p => {
       const yticker   = p.ticker === 'RSU_META' ? 'META' : p.ticker;
@@ -888,13 +898,28 @@ router.get('/briefing-context', async (req, res) => {
       const invGBP    = parseFloat(p.initial_investment_gbp) || invUSD * fxRate;
       const pnlUSD    = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
-      const dayPctPos = md.regularMarketChangePercent != null ? md.regularMarketChangePercent * 100 : null;
+
+      // day% USD: prefer Yahoo live data, fallback to snapshot diff
+      let dayPctPosUSD = md.regularMarketChangePercent != null ? md.regularMarketChangePercent * 100 : null;
+      if (dayPctPosUSD === null) {
+        const curVal  = latestBreakdown[p.ticker]?.value_usd;
+        const prevVal = prev24hBreakdown[p.ticker]?.value_usd;
+        if (curVal != null && prevVal != null && prevVal > 0) dayPctPosUSD = (curVal - prevVal) / prevVal * 100;
+      }
+
+      // day% GBP: from snapshot breakdown (value_gbp)
+      let dayPctPosGBP = null;
+      const curGBP  = latestBreakdown[p.ticker]?.value_gbp;
+      const prevGBP = prev24hBreakdown[p.ticker]?.value_gbp;
+      if (curGBP != null && prevGBP != null && prevGBP > 0) dayPctPosGBP = (curGBP - prevGBP) / prevGBP * 100;
+
       totalValUSD += valueUSD;
       totalInvUSD += invUSD;
       totalInvGBP += invGBP;
       posSection += [p.ticker, p.category, fU(valueUSD), fG(valueGBP), '', fU(invUSD), fG(invGBP),
         pnlUSD != null ? sgn(pnlUSD) : '', pnlGBP != null ? sgn(pnlGBP) : '',
-        dayPctPos != null ? sgn(dayPctPos) : ''].join('|') + '\n';
+        dayPctPosUSD != null ? sgn(dayPctPosUSD) : '',
+        dayPctPosGBP != null ? sgn(dayPctPosGBP) : ''].join('|') + '\n';
     });
 
     // Fill weight% now that we have totalValUSD
@@ -907,9 +932,10 @@ router.get('/briefing-context', async (req, res) => {
       return parts.join('|');
     }).join('\n');
 
-    const totalPnlUSD = totalValUSD - totalInvUSD;
-    const totalPnlGBP = totalValUSD * fxRate - totalInvGBP;
-    const totalPnlPct = totalInvUSD > 0 ? (totalPnlUSD / totalInvUSD * 100) : 0;
+    const totalPnlUSD    = totalValUSD - totalInvUSD;
+    const totalPnlGBP    = totalValUSD * fxRate - totalInvGBP;
+    const totalPnlPctUSD = totalInvUSD > 0 ? (totalPnlUSD / totalInvUSD * 100) : 0;
+    const totalPnlPctGBP = totalInvGBP > 0 ? (totalPnlGBP / totalInvGBP * 100) : 0;
 
     const cashPositions = positions.filter(p => p.category === 'fiat');
     let cashSection = 'CASH\nticker|value_gbp\n';
@@ -944,21 +970,69 @@ router.get('/briefing-context', async (req, res) => {
       `PORTFOLIO\n` +
       `total: ${fU(totalUSD)} / ${fG(totalGBP)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
-      (dayChangeUSD != null ? `day_change: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} / ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPct)})\n` : '') +
-      (chg7d  != null ? `7d: ${sgn(chg7d)}\n`  : '') +
-      (chg30d != null ? `30d: ${sgn(chg30d)}\n` : '') +
+      (dayChangeUSD != null ? `day_change_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)})\n` : '') +
+      (dayChangeGBP != null ? `day_change_gbp: ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPctGBP)})\n` : '') +
       `cost_basis: ${fU(totalInvUSD)} / ${fG(totalInvGBP)}\n` +
-      `total_pnl: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} / ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPct)})`;
+      `total_pnl_usd: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} (${sgn(totalPnlPctUSD)})\n` +
+      `total_pnl_gbp: ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPctGBP)})\n` +
+      `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase); USD positions converted at today's FX\n`;
+
+    // HISTORICAL_PERFORMANCE
+    let histSection = '';
+    if (snap7d) {
+      const chg7abs    = totalUSD - snap7d.total_usd;
+      const chg7absGBP = totalGBP - snap7dGBP;
+      histSection += `7d: ${chg7abs >= 0 ? '+' : ''}${fU(chg7abs)} (${fG(chg7absGBP)}) USD ${sgn(chg7dUSD)} / GBP ${sgn(chg7dGBP)}\n`;
+    }
+    if (snap30d) {
+      const chg30abs    = totalUSD - snap30d.total_usd;
+      const chg30absGBP = totalGBP - snap30dGBP;
+      histSection += `30d: ${chg30abs >= 0 ? '+' : ''}${fU(chg30abs)} (${fG(chg30absGBP)}) USD ${sgn(chg30dUSD)} / GBP ${sgn(chg30dGBP)}\n`;
+    }
+    if (histSection) histSection = 'HISTORICAL_PERFORMANCE\n' + histSection;
+
+    // PNL_ATTRIBUTION per category
+    let pnlAttrSection = '';
+    const byCategory = {};
+    investedPositions.forEach(p => {
+      const yticker  = p.ticker === 'RSU_META' ? 'META' : p.ticker;
+      const md       = marketData[yticker] || {};
+      const price    = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+      const qty      = parseFloat(p.qty) || 0;
+      const isGBP    = p.pricing_currency === 'GBP';
+      const valueUSD = isGBP ? price * qty / fxRate : price * qty;
+      const invUSD   = parseFloat(p.initial_investment_usd) || 0;
+      const invGBP   = parseFloat(p.initial_investment_gbp) || invUSD * fxRate;
+      const cat      = p.category;
+      if (!byCategory[cat]) byCategory[cat] = { valueUSD: 0, investedUSD: 0, investedGBP: 0 };
+      byCategory[cat].valueUSD    += valueUSD;
+      byCategory[cat].investedUSD += invUSD;
+      byCategory[cat].investedGBP += invGBP;
+    });
+    if (Object.keys(byCategory).length > 0) {
+      pnlAttrSection = 'PNL_ATTRIBUTION\ncategory|invested_usd|invested_gbp|current_usd|pnl_usd|pnl_gbp|pnl_usd%|pnl_gbp%\n';
+      Object.entries(byCategory).forEach(([cat, d]) => {
+        const pnlUSD    = d.valueUSD - d.investedUSD;
+        const pnlGBP    = d.valueUSD * fxRate - d.investedGBP;
+        const pnlPctUSD = d.investedUSD > 0 ? (pnlUSD / d.investedUSD * 100) : 0;
+        const pnlPctGBP = d.investedGBP > 0 ? (pnlGBP / d.investedGBP * 100) : 0;
+        pnlAttrSection += `${cat}|${fU(d.investedUSD)}|${fG(d.investedGBP)}|${fU(d.valueUSD)}|${pnlUSD >= 0 ? '+' : ''}${fU(pnlUSD)}|${pnlGBP >= 0 ? '+' : ''}${fG(pnlGBP)}|${sgn(pnlPctUSD)}|${sgn(pnlPctGBP)}\n`;
+      });
+    }
 
     const systemPrompt =
       `Sos el asesor financiero personal de Julián. Hoy es ${today}. La bolsa de Nueva York acaba de cerrar.\n\n` +
-      `Generá un briefing financiero diario conciso en español. Máximo 400 palabras. Usá markdown (negrita, bullets).\n` +
+      `Generá un briefing financiero diario conciso en español. Máximo 600 palabras. Usá markdown (negrita, bullets).\n` +
       `Estructura:\n` +
       `1. **Cierre de mercado** — macro: VIX, índices, tasas, GBP/USD\n` +
-      `2. **Tu portfolio hoy** — valor total, variación del día en USD y GBP, P&L acumulado, posiciones más impactadas\n` +
+      `2. **Tu portfolio hoy** — valor total, variación del día en USD (nominal + %) y GBP (nominal + %), P&L acumulado en USD (nominal + %) y GBP (nominal + %), posiciones más impactadas con day%_usd y day%_gbp\n` +
       `3. **Una observación concreta** — algo accionable o a monitorear\n\n` +
       `Sé directo. No repitas datos que ya están en los números.\n\n` +
-      portfolioSummary + '\n\n' + posSection + '\n' + cashSection + '\n' + txSection + '\n\n' +
+      portfolioSummary + '\n' +
+      (histSection   ? histSection   + '\n' : '') +
+      posSection + '\n' + cashSection + '\n' +
+      (pnlAttrSection ? pnlAttrSection + '\n' : '') +
+      txSection + '\n\n' +
       (macroSection ? macroSection : '');
 
     res.json({ systemPrompt });
