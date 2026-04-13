@@ -847,10 +847,13 @@ router.get('/briefing-context', async (req, res) => {
       .map(p => p.ticker);
     const tickerIn = investedTickers.map(t => encodeURIComponent(t)).join(',');
 
-    const [priceLatest, price24h] = tickerIn.length > 0 ? await Promise.all([
-      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&order=captured_at.desc&limit=${investedTickers.length * 2}`),
-      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t24h}&order=captured_at.desc&limit=${investedTickers.length * 2}`),
-    ]) : [[], []];
+    const limit = investedTickers.length * 2;
+    const [priceLatest, price24h, price7d, price30d] = tickerIn.length > 0 ? await Promise.all([
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&order=captured_at.desc&limit=${limit}`),
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t24h}&order=captured_at.desc&limit=${limit}`),
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t7d}&order=captured_at.desc&limit=${limit}`),
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t30d}&order=captured_at.desc&limit=${limit}`),
+    ]) : [[], [], [], []];
 
     // Deduplicate: keep only the most recent row per ticker
     const dedup = rows => {
@@ -860,6 +863,8 @@ router.get('/briefing-context', async (req, res) => {
     };
     const priceLatestMap = dedup(priceLatest);
     const price24hMap    = dedup(price24h);
+    const price7dMap     = dedup(price7d);
+    const price30dMap    = dedup(price30d);
 
     const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
     const dayChangeGBP = snap24h ? totalGBP - (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
@@ -922,7 +927,7 @@ router.get('/briefing-context', async (req, res) => {
     } catch (e) {
       console.warn('[briefing-context] macro fetch error:', e.message);
     }
-    let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp\n';
+    let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp|7d%_usd|7d%_gbp|30d%_usd|30d%_gbp\n';
     let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
 
     investedPositions.forEach(p => {
@@ -938,29 +943,40 @@ router.get('/briefing-context', async (req, res) => {
       const pnlUSD    = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
 
-      // day% from price_snapshots (latest vs 24h anchor), fallback to Yahoo for USD
       const psNow  = priceLatestMap[p.ticker];
       const ps24h  = price24hMap[p.ticker];
-      let dayPctPosUSD = null;
-      let dayPctPosGBP = null;
-      if (psNow && ps24h) {
-        const pNowUSD = parseFloat(psNow.price_usd);
-        const p24hUSD = parseFloat(ps24h.price_usd);
-        const pNowGBP = parseFloat(psNow.price_gbp);
-        const p24hGBP = parseFloat(ps24h.price_gbp);
-        if (p24hUSD > 0) dayPctPosUSD = (pNowUSD - p24hUSD) / p24hUSD * 100;
-        if (p24hGBP > 0) dayPctPosGBP = (pNowGBP - p24hGBP) / p24hGBP * 100;
-      } else if (md.regularMarketChangePercent != null) {
+      const ps7d   = price7dMap[p.ticker];
+      const ps30d  = price30dMap[p.ticker];
+
+      const pricePct = (now, prev, field) => {
+        if (!now || !prev) return null;
+        const pNow = parseFloat(now[field]), pPrev = parseFloat(prev[field]);
+        return pPrev > 0 ? (pNow - pPrev) / pPrev * 100 : null;
+      };
+
+      let dayPctPosUSD = pricePct(psNow, ps24h, 'price_usd');
+      let dayPctPosGBP = pricePct(psNow, ps24h, 'price_gbp');
+      if (dayPctPosUSD === null && md.regularMarketChangePercent != null)
         dayPctPosUSD = md.regularMarketChangePercent * 100;
-      }
+
+      const chg7dPosUSD  = pricePct(psNow, ps7d,  'price_usd');
+      const chg7dPosGBP  = pricePct(psNow, ps7d,  'price_gbp');
+      const chg30dPosUSD = pricePct(psNow, ps30d, 'price_usd');
+      const chg30dPosGBP = pricePct(psNow, ps30d, 'price_gbp');
 
       totalValUSD += valueUSD;
       totalInvUSD += invUSD;
       totalInvGBP += invGBP;
       posSection += [p.ticker, p.category, fU(valueUSD), fG(valueGBP), '', fU(invUSD), fG(invGBP),
-        pnlUSD != null ? sgn(pnlUSD) : '', pnlGBP != null ? sgn(pnlGBP) : '',
-        dayPctPosUSD != null ? sgn(dayPctPosUSD) : '',
-        dayPctPosGBP != null ? sgn(dayPctPosGBP) : ''].join('|') + '\n';
+        pnlUSD    != null ? sgn(pnlUSD)    : '',
+        pnlGBP    != null ? sgn(pnlGBP)    : '',
+        dayPctPosUSD  != null ? sgn(dayPctPosUSD)  : '',
+        dayPctPosGBP  != null ? sgn(dayPctPosGBP)  : '',
+        chg7dPosUSD   != null ? sgn(chg7dPosUSD)   : '',
+        chg7dPosGBP   != null ? sgn(chg7dPosGBP)   : '',
+        chg30dPosUSD  != null ? sgn(chg30dPosUSD)  : '',
+        chg30dPosGBP  != null ? sgn(chg30dPosGBP)  : '',
+      ].join('|') + '\n';
     });
 
     // Fill weight% now that we have totalValUSD
@@ -973,12 +989,35 @@ router.get('/briefing-context', async (req, res) => {
       return parts.join('|');
     }).join('\n');
 
-    const totalPnlUSD    = totalValUSD - totalInvUSD;
-    const totalPnlGBP    = totalValUSD * fxRate - totalInvGBP;
-    const totalPnlPctUSD = totalInvUSD > 0 ? (totalPnlUSD / totalInvUSD * 100) : 0;
-    const totalPnlPctGBP = totalInvGBP > 0 ? (totalPnlGBP / totalInvGBP * 100) : 0;
-
+    // Cost basis includes cash (same logic as portfolio.js):
+    // fiat positions use current qty as cost (no P&L), non-fiat use initial_investment.
     const cashPositions = positions.filter(p => p.category === 'fiat');
+    let cashBasisUSD = 0, cashBasisGBP = 0, cashValueUSD = 0, cashValueGBP = 0;
+    cashPositions.forEach(p => {
+      const qty = parseFloat(p.qty) || 0;
+      if (p.currency === 'GBP') {
+        cashBasisGBP  += qty;
+        cashBasisUSD  += qty / fxRate;
+        cashValueGBP  += qty;
+        cashValueUSD  += qty / fxRate;
+      } else {
+        cashBasisUSD  += qty;
+        cashBasisGBP  += qty * fxRate;
+        cashValueUSD  += qty;
+        cashValueGBP  += qty * fxRate;
+      }
+    });
+
+    const costBasisUSD = totalInvUSD + cashBasisUSD;
+    const costBasisGBP = totalInvGBP + cashBasisGBP;
+    const portfolioTotalUSD = totalValUSD + cashValueUSD;
+    const portfolioTotalGBP = totalValUSD * fxRate + cashValueGBP;
+
+    const totalPnlUSD    = portfolioTotalUSD - costBasisUSD;
+    const totalPnlGBP    = portfolioTotalGBP - costBasisGBP;
+    const totalPnlPctUSD = costBasisUSD > 0 ? (totalPnlUSD / costBasisUSD * 100) : 0;
+    const totalPnlPctGBP = costBasisGBP > 0 ? (totalPnlGBP / costBasisGBP * 100) : 0;
+
     let cashSection = 'CASH\nticker|value_gbp\n';
     cashPositions.forEach(p => { cashSection += `${p.ticker}|${fG(parseFloat(p.qty) || 0)}\n`; });
 
@@ -1009,11 +1048,12 @@ router.get('/briefing-context', async (req, res) => {
 
     const portfolioSummary =
       `PORTFOLIO\n` +
-      `total: ${fU(totalUSD)} / ${fG(totalGBP)}\n` +
+      `total: ${fU(portfolioTotalUSD)} / ${fG(portfolioTotalGBP)} (equity + cash)\n` +
+      `equity_only: ${fU(totalValUSD)} / ${fG(totalValUSD * fxRate)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
       (dayChangeUSD != null ? `day_change_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)})\n` : '') +
       (dayChangeGBP != null ? `day_change_gbp: ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPctGBP)})\n` : '') +
-      `cost_basis: ${fU(totalInvUSD)} / ${fG(totalInvGBP)}\n` +
+      `cost_basis: ${fU(costBasisUSD)} / ${fG(costBasisGBP)} (invested + cash)\n` +
       `total_pnl_usd: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} (${sgn(totalPnlPctUSD)})\n` +
       `total_pnl_gbp: ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPctGBP)})\n` +
       `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase); USD positions converted at today's FX\n`;
