@@ -1095,6 +1095,55 @@ FUTURE PARAM CHANGE (e.g. promotion in 6 months): chain two calls — first simu
       required: ['years'],
     },
   },
+  {
+    name: 'run_montecarlo_target',
+    description: `Run an INVERSE Monte Carlo simulation: given a capital target in GBP, returns the distribution of how many months it takes to reach it.
+Use when the user asks "when will I reach £X?", "how long until I have £X?", "¿cuándo llego a £X?", "¿en cuánto tiempo tengo £X?", or any question where the goal is a capital amount and the unknown is time.
+Do NOT use for questions where the horizon is known — use run_montecarlo for those.
+Returns p10/p25/p50/p75/p90 of months-to-target, plus probability of reaching target within common horizons (1y, 2y, 3y, 5y, 10y).
+If p90 > max_horizon_months, reports that as "unlikely within N years".`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target_gbp: {
+          type: 'number',
+          description: 'Capital target in GBP. Required.',
+        },
+        max_horizon_months: {
+          type: 'integer',
+          minimum: 12,
+          maximum: 240,
+          description: 'Maximum months to simulate. Default: 180 (15 years). Increase only if target is very large.',
+        },
+        monthly_contribution_gbp: {
+          type: 'number',
+          description: 'Monthly contribution in GBP. Default: £950.',
+        },
+        annual_bonus_gbp: {
+          type: 'number',
+          description: 'Annual bonus in GBP. Default: £8000.',
+        },
+        include_rsu: {
+          type: 'boolean',
+          description: 'Include future RSU vests as contributions. Default true.',
+        },
+        rsu_per_vest_override: {
+          type: 'number',
+          description: 'Override net RSU value per vest in GBP.',
+        },
+        scenario: {
+          type: 'string',
+          enum: ['neutral', 'bull', 'bear'],
+          description: 'neutral=historical (9% ret, 18% vol) | bull=optimistic (16%, 22%) | bear=conservative (3%, 25%). Default: neutral.',
+        },
+        initial_capital_gbp: {
+          type: 'number',
+          description: 'Starting capital in GBP. Overrides current portfolio value.',
+        },
+      },
+      required: ['target_gbp'],
+    },
+  },
 ];
 
 // ── Ejecutores de tools ───────────────────────────────────────────────────────
@@ -1446,6 +1495,220 @@ async function executeRunMontecarlo(input) {
   };
 }
 
+// ── Monte Carlo inverso: dado un target, devuelve distribución de tiempo ──────
+async function executeRunMontecarloTarget(input) {
+  const {
+    target_gbp,
+    max_horizon_months       = 180,
+    monthly_contribution_gbp = 950,
+    annual_bonus_gbp         = 8000,
+    include_rsu              = true,
+    rsu_per_vest_override    = null,
+    scenario                 = 'neutral',
+    initial_capital_gbp      = null,
+  } = input;
+
+  if (!target_gbp || target_gbp <= 0) return { error: 'target_gbp es requerido y debe ser > 0' };
+
+  const SCENARIOS = {
+    bear:    { ret: 3,  vol: 25 },
+    neutral: { ret: 9,  vol: 18 },
+    bull:    { ret: 16, vol: 22 },
+  };
+  const scen = SCENARIOS[scenario] ?? SCENARIOS.neutral;
+
+  const CASH_RET = 3;
+  const CASH_VOL = 1;
+  const RSU_MONTHS   = new Set([1, 4, 7, 10]);
+  const BONUS_MONTHS = new Set([3, 9]);
+  const N_SIMULATIONS = 2000;
+  const M = Math.min(max_horizon_months, 240);
+
+  const sbHeaders = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Accept': 'application/json',
+  };
+
+  // RSU_PER_VEST (mismo cálculo que executeRunMontecarlo)
+  let RSU_PER_VEST = 2100;
+  if (rsu_per_vest_override !== null && typeof rsu_per_vest_override === 'number') {
+    RSU_PER_VEST = rsu_per_vest_override;
+  } else {
+    try {
+      const [rsuVestRes, metaPriceRes, fxSnapRes] = await Promise.all([
+        fetch(`${SUPABASE_URL}/rest/v1/rsu_vests?select=vest_date,units,vested&order=vest_date.asc`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/price_snapshots?ticker=eq.META&order=captured_at.desc&limit=1&select=price_usd`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=fx_rate&order=captured_at.desc&limit=1`, { headers: sbHeaders }),
+      ]);
+      const rsuRows   = await rsuVestRes.json();
+      const priceRows = await metaPriceRes.json();
+      const fxRows    = await fxSnapRes.json();
+      const metaUSD = (Array.isArray(priceRows) && priceRows[0]?.price_usd) ? parseFloat(priceRows[0].price_usd) : 600;
+      const fxRate  = (Array.isArray(fxRows)    && fxRows[0]?.fx_rate)      ? parseFloat(fxRows[0].fx_rate)      : 0.79;
+      if (Array.isArray(rsuRows) && rsuRows.length > 0) {
+        const grouped = {};
+        rsuRows.forEach(r => {
+          if (!grouped[r.vest_date]) grouped[r.vest_date] = { units: 0, vested: r.vested };
+          grouped[r.vest_date].units += r.units;
+          if (!r.vested) grouped[r.vest_date].vested = false;
+        });
+        const upcomingUnits = Object.entries(grouped)
+          .filter(([, g]) => !g.vested)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .slice(0, 8)
+          .map(([, g]) => g.units);
+        if (upcomingUnits.length > 0) {
+          const avgUnits = upcomingUnits.reduce((s, u) => s + u, 0) / upcomingUnits.length;
+          RSU_PER_VEST = Math.round(avgUnits * metaUSD * fxRate * 0.53);
+        }
+      }
+    } catch (e) {
+      console.warn('[montecarlo-target] RSU_PER_VEST fallback £2100:', e.message);
+    }
+  }
+
+  // Capital inicial (mismo cálculo que executeRunMontecarlo)
+  let startInvested = 8000;
+  let startCash     = 4000;
+
+  if (initial_capital_gbp !== null) {
+    startInvested = initial_capital_gbp;
+    startCash     = 0;
+  } else {
+    try {
+      const [posRes, snapRes, priceRes] = await Promise.all([
+        fetch(`${SUPABASE_URL}/rest/v1/positions?select=ticker,category,qty,avg_cost_usd,pricing_currency`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=fx_rate&order=captured_at.desc&limit=1`, { headers: sbHeaders }),
+        fetch(`${SUPABASE_URL}/rest/v1/price_snapshots?select=ticker,price_usd&order=captured_at.desc&limit=50`, { headers: sbHeaders }),
+      ]);
+      const positions = await posRes.json();
+      const snapRows  = await snapRes.json();
+      const priceRows = await priceRes.json();
+      const fxRate = (Array.isArray(snapRows) && snapRows[0]?.fx_rate) ? parseFloat(snapRows[0].fx_rate) : 0.79;
+      const priceMap = {};
+      if (Array.isArray(priceRows)) priceRows.forEach(r => { if (!priceMap[r.ticker]) priceMap[r.ticker] = parseFloat(r.price_usd); });
+      if (Array.isArray(positions)) {
+        let investedUSD = 0, cashUSD = 0;
+        positions.forEach(p => {
+          const qty = parseFloat(p.qty) || 0;
+          if (qty <= 0) return;
+          const priceUSD = priceMap[p.ticker] ?? parseFloat(p.avg_cost_usd) ?? 0;
+          const valueUSD = priceUSD * qty;
+          if (p.category === 'fiat') {
+            cashUSD += p.pricing_currency === 'GBP' ? qty / fxRate : valueUSD;
+          } else {
+            investedUSD += valueUSD;
+          }
+        });
+        startInvested = Math.round(investedUSD * fxRate);
+        startCash     = Math.round(cashUSD     * fxRate);
+      }
+    } catch (e) {
+      console.warn('[montecarlo-target] posiciones fallback:', e.message);
+    }
+  }
+
+  // Simulación
+  const mr = scen.ret / 100 / 12;
+  const mv = scen.vol / 100 / Math.sqrt(12);
+  const cr = CASH_RET / 100 / 12;
+  const cv = CASH_VOL / 100 / Math.sqrt(12);
+  const nowMonth = new Date().getMonth();
+
+  function randn() {
+    let u, v;
+    do { u = Math.random(); } while (!u);
+    do { v = Math.random(); } while (!v);
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  // Para cada simulación: mes en que cruza target por primera vez (Infinity = no llega)
+  const crossingMonths = new Array(N_SIMULATIONS);
+
+  for (let s = 0; s < N_SIMULATIONS; s++) {
+    let inv  = startInvested;
+    let cash = startCash;
+    let crossed = Infinity;
+
+    for (let m = 1; m <= M; m++) {
+      inv  *= 1 + mr + mv * randn();
+      cash *= 1 + cr + cv * randn();
+
+      const calMonth = (nowMonth + m) % 12;
+      inv += monthly_contribution_gbp;
+      if (BONUS_MONTHS.has(calMonth))               inv += annual_bonus_gbp / 2;
+      if (include_rsu && RSU_MONTHS.has(calMonth))  inv += RSU_PER_VEST;
+
+      if (inv + cash >= target_gbp) { crossed = m; break; }
+    }
+
+    crossingMonths[s] = crossed;
+  }
+
+  const reached     = crossingMonths.filter(m => m !== Infinity).sort((a, b) => a - b);
+  const notReachedN = N_SIMULATIONS - reached.length;
+  const pctReached  = Math.round(reached.length / N_SIMULATIONS * 100);
+
+  const pct = (arr, p) => {
+    if (arr.length === 0) return null;
+    const i = Math.floor(arr.length * p / 100);
+    return arr[Math.min(i, arr.length - 1)];
+  };
+
+  const fmtM = m => {
+    if (m === null || m === undefined) return null;
+    const y = Math.floor(m / 12);
+    const mo = m % 12;
+    if (y === 0) return `${mo} meses`;
+    if (mo === 0) return `${y} año${y !== 1 ? 's' : ''}`;
+    return `${y} año${y !== 1 ? 's' : ''} y ${mo} mes${mo !== 1 ? 'es' : ''}`;
+  };
+
+  const HORIZONS = [12, 24, 36, 60, 120];
+  const prob_by_horizon = HORIZONS
+    .filter(h => h <= M)
+    .map(h => ({
+      horizon:     fmtM(h),
+      months:      h,
+      probability: `${Math.round(crossingMonths.filter(m => m <= h).length / N_SIMULATIONS * 100)}%`,
+    }));
+
+  const fmt = v => `£${Math.round(v).toLocaleString('en-GB')}`;
+
+  const result = {
+    scenario,
+    target:      fmt(target_gbp),
+    pct_reached: `${pctReached}%`,
+    note: notReachedN > 0
+      ? `${notReachedN}/${N_SIMULATIONS} simulaciones no alcanzaron el target en ${fmtM(M)}`
+      : `Todas las simulaciones alcanzan el target dentro de ${fmtM(M)}`,
+    params: {
+      start_total_gbp:          fmt(startInvested + startCash),
+      monthly_contribution_gbp: fmt(monthly_contribution_gbp),
+      annual_bonus_gbp:         fmt(annual_bonus_gbp),
+      rsu_per_vest_gbp:         include_rsu ? fmt(RSU_PER_VEST) : 'no incluido',
+      assumed_annual_return:    `${scen.ret}%`,
+      assumed_annual_vol:       `${scen.vol}%`,
+    },
+    months_to_target: reached.length > 0 ? {
+      p10:    fmtM(pct(reached, 10)),
+      p25:    fmtM(pct(reached, 25)),
+      median: fmtM(pct(reached, 50)),
+      p75:    fmtM(pct(reached, 75)),
+      p90:    fmtM(pct(reached, 90)),
+    } : null,
+    months_raw: reached.length > 0 ? {
+      p10: pct(reached, 10), p25: pct(reached, 25), p50: pct(reached, 50),
+      p75: pct(reached, 75), p90: pct(reached, 90),
+    } : null,
+    prob_by_horizon,
+    simulations: N_SIMULATIONS,
+  };
+
+  return result;
+}
+
 // ── Helper: llamada a Anthropic API ─────────────────────────────────────────
 // Reintentos automáticos para 429 (rate limit) y 529 (overloaded).
 // Estrategia: hasta 2 reintentos con backoff exponencial (2s → 4s).
@@ -1521,7 +1784,16 @@ app.get('/api/token-diag', async (req, res) => {
 });
 // ── FIN DIAGNÓSTICO ───────────────────────────────────────────────────────────
 
-// ── Endpoint principal ───────────────────────────────────────────────────────
+// ── Endpoint principal (streaming SSE) ───────────────────────────────────────
+// Fase 1: tool loop no-streaming (se resuelven todas las tools server-side).
+// Fase 2: se hace una llamada stream=true a Anthropic y se forwardean chunks
+//         al cliente via Server-Sent Events.
+//
+// Eventos SSE:
+//   data: {"type":"tool_log","log":[...]}   — emitido una sola vez tras resolver tools
+//   data: {"type":"delta","text":"..."}      — chunk de texto
+//   data: {"type":"done","usage":{...}}      — cierre con token counts
+//   data: {"type":"error","message":"..."}   — error
 app.post('/api/ai-chat', async (req, res) => {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
@@ -1530,18 +1802,26 @@ app.post('/api/ai-chat', async (req, res) => {
   const { model, max_tokens = 3000, system, messages } = req.body;
   const MAX_TOOL_ITERATIONS = 5;
 
-  // ── Log de entrada ──────────────────────────────────────────────────────────
   const userMsg = messages?.findLast?.(m => m.role === 'user')?.content;
   console.log(`[ai-chat] ← request | model: ${model} | system: ${system?.length} chars | messages: ${messages?.length}`);
   console.log(`[ai-chat] ← user_msg: ${String(userMsg).slice(0, 200)}`);
-  console.log(`[ai-chat] ← system_preview: ${system?.slice(0, 400)}`);
 
-  const toolCallsLog  = [];
-  let loopMessages    = [...messages];
-  let finalResponse   = null;
-  let iterations      = 0;
+  // ── SSE setup ──────────────────────────────────────────────────────────────
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable Railway/nginx proxy buffering
+
+  const send = (obj) => {
+    try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch (_) {}
+  };
+
+  const toolCallsLog = [];
+  let loopMessages   = [...messages];
+  let iterations     = 0;
 
   try {
+    // ── Fase 1: tool loop (non-streaming) ──────────────────────────────────
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++;
 
@@ -1558,110 +1838,137 @@ app.post('/api/ai-chat', async (req, res) => {
 
       if (raw.status !== 200) {
         console.error('[ai-chat] Anthropic error:', raw.body.slice(0, 400));
-        return res.status(raw.status).json(JSON.parse(raw.body));
+        send({ type: 'error', message: `Anthropic ${raw.status}` });
+        return res.end();
       }
 
       const response = JSON.parse(raw.body);
 
-      if (response.stop_reason === 'end_turn') {
-        finalResponse = response;
-        break;
-      }
+      // Si no hay tool_use, listo para streamear
+      if (response.stop_reason === 'end_turn' || response.stop_reason !== 'tool_use') break;
 
-      if (response.stop_reason === 'tool_use') {
-        const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
+      const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
+      if (toolUseBlocks.length === 0) break;
 
-        if (toolUseBlocks.length === 0) {
-          finalResponse = response;
-          break;
+      loopMessages.push({ role: 'assistant', content: response.content });
+
+      const toolResults = [];
+      for (const toolBlock of toolUseBlocks) {
+        const { id, name, input } = toolBlock;
+        const startTime = Date.now();
+        console.log(`[ai-chat] ejecutando tool: ${name}`, JSON.stringify(input));
+
+        let result;
+        try {
+          if      (name === 'query_db')              result = await executeQueryDb(input);
+          else if (name === 'run_montecarlo')         result = await executeRunMontecarlo(input);
+          else if (name === 'run_montecarlo_target')  result = await executeRunMontecarloTarget(input);
+          else                                        result = { error: `Tool desconocida: ${name}` };
+        } catch (toolErr) {
+          console.error(`[ai-chat] tool ${name} error:`, toolErr.message);
+          result = { error: toolErr.message };
         }
 
-        loopMessages.push({ role: 'assistant', content: response.content });
-
-        const toolResults = [];
-
-        for (const toolBlock of toolUseBlocks) {
-          const { id, name, input } = toolBlock;
-          const startTime = Date.now();
-
-          console.log(`[ai-chat] ejecutando tool: ${name}`, JSON.stringify(input));
-
-          let result;
-          try {
-            if (name === 'query_db') {
-              result = await executeQueryDb(input);
-            } else if (name === 'run_montecarlo') {
-              result = await executeRunMontecarlo(input); // async ahora
-            } else {
-              result = { error: `Tool desconocida: ${name}` };
-            }
-          } catch (toolErr) {
-            console.error(`[ai-chat] tool ${name} error:`, toolErr.message);
-            result = { error: toolErr.message };
-          }
-
-          const elapsed = Date.now() - startTime;
-
-          // ── Log del resultado de la tool ──────────────────────────────────
-          if (result?.error) {
-            console.error(`[ai-chat] tool ${name} ERROR (${elapsed}ms):`, result.error);
-          } else {
-            const resultPreview = JSON.stringify(result).slice(0, 600);
-            console.log(`[ai-chat] tool ${name} OK (${elapsed}ms) | rows: ${result?.row_count ?? '—'} | preview: ${resultPreview}`);
-          }
-
-          toolCallsLog.push({
-            tool:      name,
-            input:     input,
-            elapsed_ms: elapsed,
-            row_count: result?.row_count ?? null,
-            error:     result?.error ?? null,
-          });
-
-          toolResults.push({
-            type:        'tool_result',
-            tool_use_id: id,
-            content:     JSON.stringify(result),
-          });
+        const elapsed = Date.now() - startTime;
+        if (result?.error) {
+          console.error(`[ai-chat] tool ${name} ERROR (${elapsed}ms):`, result.error);
+        } else {
+          console.log(`[ai-chat] tool ${name} OK (${elapsed}ms) | rows: ${result?.row_count ?? '—'}`);
         }
 
-        loopMessages.push({ role: 'user', content: toolResults });
-        continue;
+        toolCallsLog.push({ tool: name, input, elapsed_ms: elapsed, row_count: result?.row_count ?? null, error: result?.error ?? null });
+        toolResults.push({ type: 'tool_result', tool_use_id: id, content: JSON.stringify(result) });
       }
 
-      // max_tokens u otro stop_reason inesperado
-      finalResponse = response;
-      break;
+      loopMessages.push({ role: 'user', content: toolResults });
     }
 
-    if (!finalResponse) {
-      console.warn('[ai-chat] límite de iteraciones alcanzado');
-      finalResponse = {
-        content: [{ type: 'text', text: 'Lo siento, la consulta requirió demasiados pasos. Intentá ser más específico.' }],
-        stop_reason: 'max_iterations',
-        usage: {},
-      };
-    }
-
-    finalResponse._tool_calls_log = toolCallsLog;
-
-    // ── Log de respuesta final ────────────────────────────────────────────────
-    const finalText = finalResponse?.content?.find(b => b.type === 'text')?.text;
-    const usage     = finalResponse?.usage;
-    const cacheHit  = usage?.cache_read_input_tokens ?? 0;
-    const cacheStr  = cacheHit > 0 ? ` | cache_read: ${cacheHit}` : '';
-    console.log(`[ai-chat] → response | stop: ${finalResponse?.stop_reason} | iterations: ${iterations} | tokens in: ${usage?.input_tokens} out: ${usage?.output_tokens}${cacheStr}`);
-    console.log(`[ai-chat] → reply_preview: ${finalText?.slice(0, 300)}`);
-
+    // Emitir tool log antes de que empiece el texto
     if (toolCallsLog.length > 0) {
+      send({ type: 'tool_log', log: toolCallsLog });
       console.log(`[ai-chat] tools usadas: ${toolCallsLog.map(t => t.tool).join(', ')} | iteraciones: ${iterations}`);
     }
 
-    res.json(finalResponse);
+    // ── Fase 2: stream de la respuesta final ────────────────────────────────
+    const streamReqBody = JSON.stringify({
+      model,
+      max_tokens,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      messages: loopMessages,
+      tools: AI_TOOLS,
+      stream: true,
+    });
+
+    await new Promise((resolve, reject) => {
+      const streamReq = https.request({
+        hostname: 'api.anthropic.com',
+        path:     '/v1/messages',
+        method:   'POST',
+        headers: {
+          'Content-Type':      'application/json',
+          'Content-Length':    Buffer.byteLength(streamReqBody),
+          'x-api-key':         anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta':    'prompt-caching-2024-07-31',
+        },
+      }, (streamRes) => {
+        let buffer = '';
+        let inputTokens = null, outputTokens = null;
+
+        streamRes.on('data', chunk => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete last line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6).trim();
+            if (!raw || raw === '[DONE]') continue;
+            try {
+              const evt = JSON.parse(raw);
+              if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+                send({ type: 'delta', text: evt.delta.text });
+              } else if (evt.type === 'message_start' && evt.message?.usage) {
+                inputTokens  = evt.message.usage.input_tokens  ?? null;
+                outputTokens = evt.message.usage.output_tokens ?? null;
+              } else if (evt.type === 'message_delta' && evt.usage) {
+                outputTokens = evt.usage.output_tokens ?? outputTokens;
+              } else if (evt.type === 'message_stop') {
+                const cacheHit = evt.message?.usage?.cache_read_input_tokens ?? 0;
+                console.log(`[ai-chat] stream done | in: ${inputTokens} out: ${outputTokens}${cacheHit > 0 ? ` cache_read: ${cacheHit}` : ''}`);
+                send({ type: 'done', usage: { input_tokens: inputTokens, output_tokens: outputTokens } });
+              }
+            } catch (_) {}
+          }
+        });
+
+        streamRes.on('end', () => {
+          if (buffer.trim().startsWith('data: ')) {
+            try {
+              const evt = JSON.parse(buffer.slice(6).trim());
+              if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+                send({ type: 'delta', text: evt.delta.text });
+              }
+            } catch (_) {}
+          }
+          resolve();
+        });
+
+        streamRes.on('error', reject);
+      });
+
+      streamReq.on('error', reject);
+      streamReq.setTimeout(90000, () => { streamReq.destroy(); reject(new Error('Stream timeout 90s')); });
+      streamReq.write(streamReqBody);
+      streamReq.end();
+    });
+
+    res.end();
 
   } catch (e) {
     console.error('[ai-chat] error:', e.message);
-    res.status(502).json({ error: e.message });
+    send({ type: 'error', message: e.message });
+    res.end();
   }
 });
 
@@ -1792,6 +2099,49 @@ app.get('/api/ai-messages/starred', async (req, res) => {
     if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
     res.json(await sbRes.json());
   } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// GET /api/ai-conversations/search?q=...  →  fulltext search over title + message content
+app.get('/api/ai-conversations/search', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json([]);
+
+  const sbHeaders = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept': 'application/json' };
+
+  try {
+    // Search messages whose content contains the query (case-insensitive via ilike)
+    const msgRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_messages?content=ilike.*${encodeURIComponent(q)}*&select=conversation_id&limit=200`,
+      { headers: sbHeaders }
+    );
+    const msgRows = await msgRes.json();
+
+    // Also search conversation titles
+    const titleRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_conversations?title=ilike.*${encodeURIComponent(q)}*&select=id&limit=50`,
+      { headers: sbHeaders }
+    );
+    const titleRows = await titleRes.json();
+
+    // Collect unique conversation IDs
+    const ids = new Set();
+    if (Array.isArray(msgRows))   msgRows.forEach(r => ids.add(r.conversation_id));
+    if (Array.isArray(titleRows)) titleRows.forEach(r => ids.add(r.id));
+
+    if (ids.size === 0) return res.json([]);
+
+    // Fetch full conversation records for those IDs
+    const idList = [...ids].slice(0, 50).map(id => `"${id}"`).join(',');
+    const convRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_conversations?id=in.(${idList})&select=id,started_at,model,title,message_count&order=started_at.desc`,
+      { headers: sbHeaders }
+    );
+    res.json(await convRes.json());
+  } catch (e) {
+    console.error('[ai-conversations/search]', e.message);
     res.status(502).json({ error: e.message });
   }
 });

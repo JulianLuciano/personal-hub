@@ -778,6 +778,32 @@ function aiShowHistoryView() {
   document.getElementById('aiHistoryBtn').classList.add('active');
   document.getElementById('aiStarredBtn').classList.remove('active');
   document.getElementById('aiModelToggle').style.display = 'none';
+
+  // Inject search bar if not already present
+  const historyView = document.getElementById('aiHistoryView');
+  if (!document.getElementById('aiHistorySearch')) {
+    const searchWrap = document.createElement('div');
+    searchWrap.style.cssText = 'padding:8px 16px 4px;flex-shrink:0';
+    const searchInput = document.createElement('input');
+    searchInput.id = 'aiHistorySearch';
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Buscar en conversaciones…';
+    searchInput.style.cssText = 'width:100%;box-sizing:border-box;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;outline:none';
+    searchWrap.appendChild(searchInput);
+    // Insert before the list
+    const list = document.getElementById('aiHistoryList');
+    historyView.insertBefore(searchWrap, list);
+
+    let searchTimer = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        aiHistoryLoaded = false;
+        aiLoadHistory(searchInput.value.trim());
+      }, 320);
+    });
+  }
+
   if (!aiHistoryLoaded) aiLoadHistory();
 }
 
@@ -813,16 +839,19 @@ function aiNewConversation() {
   aiShowChatView();
 }
 
-async function aiLoadHistory() {
+async function aiLoadHistory(searchQuery = '') {
   const list = document.getElementById('aiHistoryList');
   list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
   try {
-    const r = await fetch('/api/ai-conversations?limit=15');
+    const url = searchQuery
+      ? `/api/ai-conversations/search?q=${encodeURIComponent(searchQuery)}`
+      : '/api/ai-conversations?limit=15';
+    const r = await fetch(url);
     const convos = await r.json();
-    aiHistoryLoaded = true;
+    if (!searchQuery) aiHistoryLoaded = true;
 
     if (!Array.isArray(convos) || convos.length === 0) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Sin conversaciones guardadas.</div>';
+      list.innerHTML = `<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">${searchQuery ? 'Sin resultados para "' + searchQuery + '".' : 'Sin conversaciones guardadas.'}</div>`;
       return;
     }
 
@@ -1162,8 +1191,9 @@ function aiRenderToolLog(toolLog, container) {
   if (!toolLog || toolLog.length === 0) return;
 
   const TOOL_META = {
-    query_db:       { icon: '🗄', label: 'Base de datos' },
-    run_montecarlo: { icon: '📊', label: 'Monte Carlo' },
+    query_db:                { icon: '🗄', label: 'Base de datos' },
+    run_montecarlo:          { icon: '📊', label: 'Monte Carlo' },
+    run_montecarlo_target:   { icon: '🎯', label: 'Monte Carlo (objetivo)' },
   };
   const QUERY_LABELS = {
     transactions_by_ticker: 'transacciones',
@@ -1251,7 +1281,7 @@ async function aiSendMsg() {
   aiAddMsg('user', msg);
   aiHistory.push({ role: 'user', content: msg });
 
-  // Thinking indicator con soporte para tool calls
+  // Thinking indicator
   const thinkingEl = aiAddMsg('thinking', '');
   thinkingEl.innerHTML = '<span class="ai-thinking-text">Analizando tu portfolio</span><span class="ai-dots"><span>.</span><span>.</span><span>.</span></span>';
   const thinkingMsgs = ['Analizando tu portfolio', 'Procesando datos', 'Calculando métricas', 'Preparando respuesta'];
@@ -1261,22 +1291,17 @@ async function aiSendMsg() {
     const textEl = thinkingEl.querySelector('.ai-thinking-text');
     if (textEl) textEl.textContent = thinkingMsgs[tmIdx];
   }, 1800);
-  thinkingEl._tmInterval = tmInterval;
 
-
-  // ── Logging: ensure conversation exists, log user message ──
-  // Do this before the API call so we have the ID ready when the reply comes back.
-  // aiHistory at this point already includes the current user message as the last item.
-  // The context slice is the last AI_CONTEXT_WINDOW items of aiHistory *before* this push,
-  const historySnapshot = aiHistory.slice();
-  const contextSlice    = historySnapshot.slice(-AI_CONTEXT_WINDOW);
-  const contextStartSeq = historySnapshot.length - contextSlice.length;
+  // Logging
+  const historySnapshot  = aiHistory.slice();
+  const contextSlice     = historySnapshot.slice(-AI_CONTEXT_WINDOW);
+  const contextStartSeq  = historySnapshot.length - contextSlice.length;
 
   await aiEnsureConversation(AI_MODELS[aiModel], msg);
   aiLogMessage({ role: 'user', content: msg, context_start_seq: contextStartSeq });
 
   try {
-    // Correlation context — server-side endpoint (siempre disponible, no depende del tab Analytics)
+    // Context sections (same as before)
     let corrSection = null;
     try {
       const corrRes = await fetch('/api/ai-correlation-context');
@@ -1287,88 +1312,73 @@ async function aiSendMsg() {
     const wlExtended   = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
     const macroSection = buildMacroContext();
 
-    // Recent transactions context (fire in parallel, graceful fallback)
     let txSection = null;
     try {
       const txRes = await fetch('/api/ai-transactions-context');
       if (txRes.ok) { const d = await txRes.json(); txSection = d.tsv || null; }
     } catch (_) {}
 
-    // ── System prompt (cached per liveData snapshot) ──────────────────────────
-    // La clave de cache es el timestamp del snapshot más reciente en liveData.
-    // Si liveData no cambió desde el último mensaje, reutilizamos el string.
-    // txSection, corrSection, wlExtended varían por mensaje → siempre se recalculan
-    // y se concatenan FUERA del bloque cacheado.
-    const _snapKey = liveData?.snapshots?.[0]?.captured_at ?? null;
+    // System prompt (cached)
+    const _snapKey    = liveData?.snapshots?.[0]?.captured_at ?? null;
     const _needsRebuild = _snapKey !== _cachedSystemPromptKey || _cachedSystemPrompt === null;
 
     if (_needsRebuild) {
-    // Calculate USD vs GBP exposure dynamically from live portfolio
-    let usdExposurePct = null;
-    if (liveData && liveData.totalUSD > 0) {
-      const usdAssets = liveData.assets.filter(a => {
-        const pos = a.pos;
-        const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
-        return !isGBP;
-      });
-      const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
-      usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
-    }
-    const fxLine = usdExposurePct !== null
-      ? `earns+spends GBP, ~${usdExposurePct}% portfolio in USD — GBP/USD moves directly impact GBP wealth`
-      : `earns+spends GBP, mixed USD/GBP portfolio — GBP/USD moves impact GBP wealth`;
+      let usdExposurePct = null;
+      if (liveData && liveData.totalUSD > 0) {
+        const usdAssets = liveData.assets.filter(a => {
+          const pos = a.pos;
+          const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
+          return !isGBP;
+        });
+        const usdTotal = usdAssets.reduce((s, a) => s + a.valueUSD, 0);
+        usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
+      }
+      const fxLine = usdExposurePct !== null
+        ? `earns+spends GBP, ~${usdExposurePct}% portfolio in USD — GBP/USD moves directly impact GBP wealth`
+        : `earns+spends GBP, mixed USD/GBP portfolio — GBP/USD moves impact GBP wealth`;
 
-    // ── Profile from Railway env vars with hardcoded fallbacks ──
-    const _cfg          = await getAppConfig();
-    const _name         = _cfg.aiProfileName       || 'Julián';
-    const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
-    const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
-    const _bonusRange   = _cfg.aiBonusRange        || '£7500-8500/yr';
-    // RSU range: calcula dinámicamente desde vestSchedule si está disponible
-    const _rsuCalc      = (typeof calcRsuDefault === 'function') ? calcRsuDefault() : null;
-    const _rsuRangeDyn  = _rsuCalc ? `META quarterly ~£${_rsuCalc.toLocaleString()} net/vest` : null;
-    const _rsuRange     = _cfg.aiRsuRange          || _rsuRangeDyn || 'META quarterly RSU net/vest';
-    const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
-    const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
-    // Annual investable: cota inferior (900 salary + 7500 bonus + rsuAnual*0.95) y superior (1000 + 8500 + rsuAnual*1.05)
-    const _rsuAnnual    = _rsuCalc ? _rsuCalc * 4 : null;
-    const _aiLow        = _rsuAnnual ? Math.round((900 * 12) + 7500 + (_rsuAnnual * 0.95)) : null;
-    const _aiHigh       = _rsuAnnual ? Math.round((1000 * 12) + 8500 + (_rsuAnnual * 1.05)) : null;
-    const _annualInvest = _cfg.aiAnnualInvestable  ||
-      (_aiLow && _aiHigh
-        ? `~£${Math.round(_aiLow/1000)}k-${Math.round(_aiHigh/1000)}k/yr (salary+bonus+RSUs)`
-        : '~£28k-31k/yr salary+bonus+RSUs');
+      const _cfg          = await getAppConfig();
+      const _name         = _cfg.aiProfileName       || 'Julián';
+      const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
+      const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
+      const _bonusRange   = _cfg.aiBonusRange        || '£7500-8500/yr';
+      const _rsuCalc      = (typeof calcRsuDefault === 'function') ? calcRsuDefault() : null;
+      const _rsuRangeDyn  = _rsuCalc ? `META quarterly ~£${_rsuCalc.toLocaleString()} net/vest` : null;
+      const _rsuRange     = _cfg.aiRsuRange          || _rsuRangeDyn || 'META quarterly RSU net/vest';
+      const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
+      const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
+      const _rsuAnnual    = _rsuCalc ? _rsuCalc * 4 : null;
+      const _aiLow        = _rsuAnnual ? Math.round((900 * 12) + 7500 + (_rsuAnnual * 0.95)) : null;
+      const _aiHigh       = _rsuAnnual ? Math.round((1000 * 12) + 8500 + (_rsuAnnual * 1.05)) : null;
+      const _annualInvest = _cfg.aiAnnualInvestable  ||
+        (_aiLow && _aiHigh
+          ? `~£${Math.round(_aiLow/1000)}k-${Math.round(_aiHigh/1000)}k/yr (salary+bonus+RSUs)`
+          : '~£28k-31k/yr salary+bonus+RSUs');
 
-    // ── Live values from Supabase positions ──
-    let _gbpLiquidQty = '?', _emergencyQty = '?';
-    if (liveData && liveData.assets) {
-      const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
-      const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
-      if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
-      if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
-    }
+      let _gbpLiquidQty = '?', _emergencyQty = '?';
+      if (liveData && liveData.assets) {
+        const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
+        const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
+        if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
+        if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
+      }
 
-    // ── Today + next bonus date ──
-    const _now      = new Date();
-    const _todayStr = _now.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-    const _todayISO = _now.toISOString().slice(0,10);
+      const _now      = new Date();
+      const _todayISO = _now.toISOString().slice(0,10);
 
-    // Last business day of March (month0=2) and September (month0=8)
-    function lastBizDay(year, month0) {
-      let d = new Date(Date.UTC(year, month0 + 1, 0)); // last day of month
-      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
-      return d.toISOString().slice(0,10);
-    }
-    const yr = _now.getUTCFullYear();
-    const bonusDates = [
-      lastBizDay(yr, 2),
-      lastBizDay(yr, 8),
-      lastBizDay(yr + 1, 2),
-    ].filter(d => d >= _todayISO);
-    const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
-    const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
+      function lastBizDay(year, month0) {
+        let d = new Date(Date.UTC(year, month0 + 1, 0));
+        while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0,10);
+      }
+      const yr = _now.getUTCFullYear();
+      const bonusDates = [
+        lastBizDay(yr, 2), lastBizDay(yr, 8), lastBizDay(yr + 1, 2),
+      ].filter(d => d >= _todayISO);
+      const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
+      const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
 
-    _cachedSystemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown. All tool call reasoning, intermediate steps, and error messages must also be in Spanish.
+      _cachedSystemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown. All tool call reasoning, intermediate steps, and error messages must also be in Spanish.
 
 TODAY: ${_todayISO} | NEXT_BONUS: ${_nextBonus} (${_daysToBonus}d) — 50% annual net bonus
 
@@ -1396,10 +1406,9 @@ ${buildPortfolioContext()}
 
 ${buildHealthContext()}
 ${buildMarketContext()}`;
-    _cachedSystemPromptKey = _snapKey;
-    } // end if (_needsRebuild)
+      _cachedSystemPromptKey = _snapKey;
+    }
 
-    // Secciones dinámicas (varían por mensaje o son externas): siempre concatenadas fresh
     const systemPrompt = _cachedSystemPrompt
       + (txSection    ? '\n' + txSection    : '')
       + (corrSection  ? '\n' + corrSection  : '')
@@ -1407,58 +1416,138 @@ ${buildMarketContext()}`;
       + (wlBase       ? '\n' + wlBase       : '')
       + (wlExtended   ? '\n' + wlExtended   : '');
 
-    const res = await fetch('/api/ai-chat', {
+    // ── SSE fetch ────────────────────────────────────────────────────────────
+    const sseRes = await fetch('/api/ai-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODELS[aiModel],
         max_tokens: 3000,
         system: systemPrompt,
-        messages: contextSlice // already computed above
-      })
+        messages: contextSlice,
+      }),
     });
 
-    const data = await res.json();
-    clearInterval(thinkingEl._tmInterval);
-    thinkingEl.remove();
-
-    if (data.error) {
-      aiAddMsg('assistant', '⚠️ Error: ' + (data.error.message || 'No se pudo conectar con la IA.'));
+    if (!sseRes.ok || !sseRes.body) {
+      clearInterval(tmInterval);
+      thinkingEl.remove();
+      aiAddMsg('assistant', '⚠️ Error de conexión con el servidor.');
       aiHistory.pop();
       return;
     }
 
-    // ── Tool calls log — elemento permanente colapsable antes del mensaje ────
-    const toolLog = data._tool_calls_log || [];
-    if (toolLog.length > 0) {
-      aiRenderToolLog(toolLog, document.getElementById('aiMessages'));
+    const reader  = sseRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer    = '';
+    let replyEl   = null;        // DOM element — created on first delta
+    let replyText = '';          // accumulated full text
+    let toolLog   = [];
+    let usage     = null;
+    let thinkingRemoved = false;
+
+    const msgs = document.getElementById('aiMessages');
+
+    const ensureReplyEl = () => {
+      if (!replyEl) {
+        replyEl = document.createElement('div');
+        replyEl.className = 'ai-msg assistant';
+        // Star button
+        const starBtn = document.createElement('button');
+        starBtn.className = 'ai-star-btn';
+        starBtn.title = 'Guardar como favorito';
+        starBtn.textContent = '☆';
+        starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(replyEl); });
+        replyEl.appendChild(starBtn);
+        replyEl.dataset.starred = 'false';
+        _aiMsgMeta.set(replyEl, { dbId: null });
+        msgs.appendChild(replyEl);
+      }
+    };
+
+    // We'll build a <span> for the streaming text, separate from the star button
+    let textSpan = null;
+    const ensureTextSpan = () => {
+      if (!textSpan) {
+        textSpan = document.createElement('span');
+        textSpan.className = 'ai-msg-text';
+        replyEl.insertBefore(textSpan, replyEl.querySelector('.ai-star-btn'));
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+
+        let evt;
+        try { evt = JSON.parse(raw); } catch (_) { continue; }
+
+        if (evt.type === 'tool_log') {
+          toolLog = evt.log || [];
+          // Render tool log before the reply element
+          if (toolLog.length > 0) aiRenderToolLog(toolLog, msgs);
+
+        } else if (evt.type === 'delta') {
+          // Remove thinking indicator on first text delta
+          if (!thinkingRemoved) {
+            clearInterval(tmInterval);
+            thinkingEl.remove();
+            thinkingRemoved = true;
+          }
+          ensureReplyEl();
+          ensureTextSpan();
+          replyText += evt.text;
+          // Re-render markdown on every delta
+          textSpan.innerHTML = aiRenderMarkdown(replyText);
+          msgs.scrollTop = msgs.scrollHeight;
+
+        } else if (evt.type === 'done') {
+          usage = evt.usage;
+
+        } else if (evt.type === 'error') {
+          if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); thinkingRemoved = true; }
+          aiAddMsg('assistant', '⚠️ Error: ' + (evt.message || 'No se pudo conectar con la IA.'));
+          aiHistory.pop();
+          return;
+        }
+      }
     }
 
-    // Filter out thinking blocks (Opus extended thinking) — only keep text blocks
-    const textBlock = (data.content || []).find(b => b.type === 'text');
-    const reply     = textBlock?.text || '(sin respuesta)';
-    const replyEl   = aiAddMsg('assistant', reply);
+    // Ensure thinking is gone even if no deltas arrived
+    if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); }
 
-    aiHistory.push({ role: 'assistant', content: reply });
+    if (!replyText) {
+      aiAddMsg('assistant', '(sin respuesta)');
+      aiHistory.pop();
+      return;
+    }
 
-    // ── Logging: record assistant reply — capture dbId to enable starring ──
+    aiHistory.push({ role: 'assistant', content: replyText });
+
+    // Log assistant message and wire up star dbId
     aiLogMessage({
       role: 'assistant',
-      content: reply,
+      content: replyText,
       model: AI_MODELS[aiModel],
-      input_tokens:      data.usage?.input_tokens  ?? null,
-      output_tokens:     data.usage?.output_tokens ?? null,
+      input_tokens:      usage?.input_tokens  ?? null,
+      output_tokens:     usage?.output_tokens ?? null,
       context_start_seq: contextStartSeq,
       tool_calls:        toolLog.length > 0 ? toolLog : null,
     }).then(dbId => {
-      // Actualizar el dbId en el meta — el elemento ya fue inicializado por aiAddMsg
-      if (dbId && replyEl) {
-        _aiMsgMeta.set(replyEl, { dbId });
-      }
+      if (dbId && replyEl) _aiMsgMeta.set(replyEl, { dbId });
     });
 
-  } catch(e) {
-    clearInterval(thinkingEl._tmInterval);
+  } catch (e) {
+    clearInterval(tmInterval);
+    if (!thinkingEl.parentNode) return; // already removed
     thinkingEl.remove();
     aiAddMsg('assistant', '⚠️ Error de conexión: ' + e.message);
     aiHistory.pop();
