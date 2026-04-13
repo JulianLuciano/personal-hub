@@ -755,17 +755,8 @@ function aiComputeSignals() {
 let _alertsDismissed = false;
 
 function aiRenderAlerts() {
-  // Create banner if it doesn't exist yet
-  let container = document.getElementById('aiAlertBanner');
-  if (!container) {
-    const anchor = document.getElementById('aiQuickPrompts') || document.getElementById('aiInputArea');
-    if (!anchor) return;
-    container = document.createElement('div');
-    container.id = 'aiAlertBanner';
-    container.style.cssText = 'display:none;align-items:flex-start;gap:6px;padding:6px 12px 4px;flex-shrink:0';
-    anchor.parentNode.insertBefore(container, anchor);
-  }
-
+  const container = document.getElementById('aiAlertBanner');
+  if (!container) return;
   if (_alertsDismissed) { container.style.display = 'none'; return; }
 
   const s = aiComputeSignals();
