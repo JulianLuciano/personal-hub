@@ -4,8 +4,8 @@ const express = require('express');
 const https   = require('https');
 const router  = express.Router();
 
-const { SUPABASE_URL, SUPABASE_KEY, isConfigured, headers, sb } = require('../lib/supabase');
-const { getPortfolioCache, setPortfolioCache, getMacroCache, fetchFundamentals, CACHE_TTL_MS } = require('./market');
+const { SUPABASE_URL, SUPABASE_KEY, isConfigured, headers, sb } = require('../lib/supabase-server');
+const { getPortfolioCache, setPortfolioCache, getMacroCache, fetchFundamentals, CACHE_TTL_MS } = require('./market-server');
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 

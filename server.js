@@ -4,8 +4,8 @@ const express = require('express');
 const path    = require('path');
 const { recalculatePositions } = require('./recalculator');
 
-const { SUPABASE_URL, SUPABASE_KEY, isConfigured, headers, sb } = require('./lib/supabase');
-const marketRouter = require('./routes/market');
+const { SUPABASE_URL, SUPABASE_KEY, isConfigured, headers, sb } = require('./lib/supabase-server');
+const marketRouter = require('./routes/market-server');
 const aiRouter     = require('./routes/ai-server');
 
 const app  = express();
