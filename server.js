@@ -946,7 +946,14 @@ CÁLCULO DE HORIZONTE: cuando el usuario mencione una fecha o mes concreto, calc
 desde TODAY (exclusive) hasta el mes target (inclusive) y usar el parámetro months.
 Ejemplo: TODAY=2026-04-13, target=diciembre 2027 → contar may/jun/jul/ago/sep/oct/nov/dic 2026 (8 meses)
 + ene/feb/mar/abr/may/jun/jul/ago/sep/oct/nov/dic 2027 (12 meses) = 20 meses → months:20.
-Cuando se usa months, NO incluir el parámetro years.`,
+Cuando se usa months, NO incluir el parámetro years.
+
+ESCENARIOS CON CAMBIO DE PARÁMETROS EN EL FUTURO: si el usuario pide comparar un escenario donde
+los parámetros cambian en una fecha futura (ej: ascenso en marzo 2027), modelarlo en DOS llamadas
+encadenadas: (1) simular desde hoy hasta la fecha del cambio con los parámetros actuales, tomar
+la mediana del resultado como initial_capital_gbp; (2) simular desde esa fecha hasta el horizonte
+final con los nuevos parámetros. Reportar el resultado de la segunda llamada como el escenario
+final. Esto da una aproximación más precisa que aplicar los nuevos parámetros desde el inicio.`,
     input_schema: {
       type: 'object',
       properties: {
