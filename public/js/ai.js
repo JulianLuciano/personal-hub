@@ -1190,9 +1190,11 @@ function aiRenderToolLog(toolLog, container) {
       if (to)     desc += ` → ${to}`;
     } else if (entry.tool === 'run_montecarlo') {
       const sc  = inp.scenario || 'neutral';
-      const yr  = inp.years;
       const rsu = inp.include_rsu === false ? ' · sin RSU' : '';
-      desc = `${sc} · ${yr} año${yr !== 1 ? 's' : ''}${rsu}`;
+      const horizonLabel = inp.months != null
+        ? `${inp.months} meses`
+        : inp.years != null ? `${inp.years} año${inp.years !== 1 ? 's' : ''}` : '?';
+      desc = `${sc} · ${horizonLabel}${rsu}`;
     }
 
     const errStr  = entry.error ? ` ⚠ ${entry.error}` : '';
