@@ -54,6 +54,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en Portfolio (posiciones, gráfico, pie, RSU, P&L) | `portfolio.js` |
 | Bug en Analytics (Health Score, Monte Carlo, Correlación) | `analytics.js` |
 | Bug en correlación (valores raros, no carga, períodos) | `analytics.js` + `worker.js` |
+| Bug en contexto de correlación del agente (siempre null, datos viejos) | `server.js` → `/api/ai-correlation-context` |
+| Anthropic devuelve 429/529 y el chat falla | `server.js` → `callAnthropic()` (retry automático) |
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
@@ -78,9 +80,10 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
 | Feature nueva que toca varias tabs | `core.js` + módulos relevantes |
-| Cambiar/recortar el system prompt del agente | `ai.js` → `aiSendMsg()` (funciones `build*Context`) |
+| Cambiar/recortar el system prompt del agente | `ai.js` → `aiSendMsg()` (funciones `build*Context`, `_cachedSystemPrompt`) |
 | Cambiar descripciones/parámetros de tools del agente | `server.js` → `AI_TOOLS` |
 | El prompt caching no funciona / cache_read siempre 0 | `server.js` → `callAnthropic()` (header `anthropic-beta` + formato `system` como array) |
+| Chat falla con 429 o 529 y no reintenta | `server.js` → `callAnthropic()` / `_callAnthropicOnce()` (retry automático) |
 
 ---
 
@@ -98,7 +101,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
 | `ai.js` | Chat con Claude: builders de contexto, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete, mensajes favoritos (★), modal de briefing diario. |
-| `server.js` | Express: proxy Supabase, loop agentic (`/api/ai-chat`), ejecutores de tools (`query_db`, `run_montecarlo`), endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history, contexto de transacciones, contexto completo para briefing. |
+| `server.js` | Express: proxy Supabase, loop agentic (`/api/ai-chat`), ejecutores de tools (`query_db`, `run_montecarlo`), endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history, contexto de transacciones, contexto de correlaciones, contexto completo para briefing. |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -372,7 +375,7 @@ Formulario para registrar transacciones manualmente (~522 líneas).
 Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto para el system prompt, el logging de conversaciones a Supabase, el rendering de respuestas, los mensajes favoritos y el modal de briefing diario.
 
 **Configuración:**
-- `AI_CONTEXT_WINDOW = 8` — cuántos mensajes se pasan como contexto en cada turn. **Cambiar este único valor** para ajustar el sliding window en toda la app.
+- `AI_CONTEXT_WINDOW = 10` — cuántos mensajes se pasan como contexto en cada turn (5 pares Q&A). **Cambiar este único valor** para ajustar el sliding window en toda la app.
 - `AI_MODELS` — mapa `{ sonnet: 'claude-sonnet-4-6', opus: 'claude-opus-4-6' }`.
 - `max_tokens: 3000` para ambos modelos.
 
@@ -393,7 +396,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 
 **Chat UI:**
 - `openAIChat()` / `closeAIChat()` — abre y cierra el modal (close siempre vuelve a la vista de chat)
-- `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat`, filtra thinking blocks de Opus, loggea a Supabase
+- `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat`, filtra thinking blocks de Opus, loggea a Supabase. Construye el system prompt con cache (`_cachedSystemPrompt`, invalidado por `captured_at` del snapshot más reciente de `liveData`): el bloque pesado (portfolio, health, market) se reconstruye solo cuando `liveData` cambia; txSection, corrSection, wlExtended se concatenan siempre fresh porque varían por mensaje. El contexto de correlación se fetchea desde `/api/ai-correlation-context` (server-side), no desde `corrAllRows` del frontend.
 - `setAiModel(m)` — cambia entre Sonnet y Opus con feedback visual. El modelo se lee en el momento del envío, así que puede cambiar mid-conversación — cada mensaje assistant loggea el modelo usado.
 - `aiRenderMarkdown(text)` — parsea tablas, bold, italic, headers y listas para renderizar en HTML
 
@@ -515,6 +518,7 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
 
 **Endpoints de contexto para el agente AI:**
 - `GET /api/ai-transactions-context` — últimas 5 transacciones + total invertido en mes corriente y anterior en USD y GBP. Devuelve `{ tsv }`. Usado en el system prompt del chat en cada turn.
+- `GET /api/ai-correlation-context` — correlaciones del portfolio a 90d en TSV compacto. Devuelve `{ tsv }` con: `vs_SPY` (correlación de cada posición vs SPY), `vs_portfolio` (aproximación ponderada corr(i, P) ≈ Σ_j w_j × corr(i,j)), `high_corr_pairs` (pares con |r| ≥ 0.7), matriz completa de pares. Replica la lógica de `buildCorrelationContext()` del frontend pero server-side — disponible siempre, independientemente de si el usuario abrió el tab Analytics.
 - `GET /api/briefing-context` — arma el system prompt completo para el briefing diario. Fetcha posiciones, snapshots (day change, 7d, 30d), market fundamentals de las posiciones actuales via `fetchFundamentals()` directamente (no depende del cache del frontend), macro cache, y transacciones recientes. Devuelve `{ systemPrompt }`. Usado exclusivamente por `notification-worker.js`.
 
 **Endpoints de push (VAPID):**
@@ -902,7 +906,9 @@ El asesor financiero es un agente con capacidad de consultar datos reales y corr
 ```
 Usuario escribe mensaje
     ↓
-ai.js construye system prompt (contexto portfolio, macro, watchlist, etc.)
+ai.js construye system prompt:
+  - bloque cacheado: portfolio, health, market (solo si liveData cambió)
+  - secciones fresh: txContext, corrContext (server-side), macro, watchlist base/extended
     ↓
 POST /api/ai-chat → server.js
     ↓
@@ -929,6 +935,15 @@ El system prompt le instruye al modelo cuándo usar cada tool:
 - Si la información ya está en el contexto (portfolio actual, posiciones, P&L) → responde directo, NO hace query.
 - Si necesita datos históricos no incluidos en el contexto → `query_db`.
 - Si el usuario pide proyecciones con parámetros específicos → `run_montecarlo`.
+
+### Watchlist extendida — activación condicional
+
+`needsExtendedWatchlist(userMsg)` decide si incluir `WATCHLIST_EXTENDED` (~50 tickers adicionales agrupados por tema) en el system prompt. Si no se activa, solo se incluye `WATCHLIST_BASE` (~14 tickers de referencia). Se activa por cualquiera de estas keywords (case-insensitive):
+
+- **Intent:** `watchlist`, `comprar`, `agregar`, `comparar`, `busco`, `oportunidad`, `qué está barato`, `fundamentals`, `fwd pe`, `forward pe`, `compro`, `screener`, `qué comprarías`, `dónde metería`, `alternativa`, `diversificar`, `rotar`, `rotación`
+- **Rioplatense / coloquial:** `pongo plata`, `vale la pena`, `conviene`, `qué conviene`, `fuera del portfolio`, `afuera del portfolio`, `por fuera`, `algo interesante`, `algo lindo`, `algo bueno`, `donde pongo`
+- **Themes:** `latam`, `argentina`, `brasil`, `china`, `emergentes`, `bonos`, `bond`, `commodities`, `defensivo`, `dividendo`, `uk`, `cripto`, `crypto`, `india`
+- **Tickers directos:** `aapl`, `amzn`, `tsm`, `ko`, `mcd`, `jnj`, `xom`, `vnq`, `xlk`, `xlf`, `xle`, `soxx`, `icln`, `vig`, `schd`, `inda`, `ewz`, `argt`, `ilf`, `fxi`, `kweb`, `baba`, `ief`, `hyg`, `iglt`, `vuke`, `slv`, `uso`, `pdbc`, `eth`, `sol`, `ypf`, `pbr`, `ggal`
 
 ### Widget de tools en el chat
 
@@ -985,6 +1000,8 @@ Cada request al agente genera:
 6. **buildMarketContext** — filas vacías (tickers fallback sin datos live) filtradas.
 
 7. **Prompt caching activado** (`server.js`, `callAnthropic`) — header `anthropic-beta: prompt-caching-2024-07-31` + system prompt como array con `cache_control: { type: 'ephemeral' }`. El cache dura 5 min y se resetea con cada hit. Mensajes 2+ en una sesión activa pagan ~10% del costo del system prompt.
+
+8. **System prompt cache en JS** (`ai.js`, `_cachedSystemPrompt`) — el bloque pesado del system prompt (portfolio, health, market) se reconstruye solo cuando cambia `liveData` (clave = `captured_at` del snapshot más reciente). En una conversación normal dentro de la misma sesión, `buildPortfolioContext()`, `buildHealthContext()` y `buildMarketContext()` se ejecutan una sola vez. Las secciones dinámicas (txSection, corrSection, wlExtended) se concatenan fresh en cada mensaje.
 
 **Cómo medir el costo real:**
 - La consola de Anthropic muestra `input_tokens` brutos (no refleja el descuento del cache).
