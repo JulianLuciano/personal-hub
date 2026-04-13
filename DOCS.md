@@ -10,11 +10,18 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 
 ```
 /personal-hub
-├── server.js                  ← Servidor Express (API, proxy Supabase, OCR, push, water)
+├── server.js                  ← Servidor Express (bootstrap, proxy Supabase, chart, habits, push, water, jacket)
 ├── worker.js                  ← Worker de precios (corre cada 15 min, Yahoo Finance)
 ├── notification-worker.js     ← Worker de notificaciones push (hábitos + agua + briefing diario, corre 24/7 en Railway)
 ├── recalculator.js            ← Motor de recálculo de posiciones desde transacciones
 ├── package.json
+│
+├── /lib
+│   └── supabase-server.js     ← Helper de credenciales Supabase: headers() + sb() fetch wrapper
+│
+├── /routes
+│   ├── market-server.js       ← Yahoo Finance: fetchFundamentals, fetchMacro, caches, /api/market-data, /api/watchlist-data, /api/macro-data
+│   └── ai-server.js           ← Todo lo de AI: OCR, context helpers, agentic chat SSE, tools, Monte Carlo, historial de conversaciones
 │
 └── /public
     ├── index.html         ← Esqueleto HTML puro. Sin lógica, sin estilos inline.
@@ -36,6 +43,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
     │
     └── /logos
         └── *.png              ← Logos de activos (no tocar)
+
+test-server.sh             ← Smoke tests locales (19 checks, correr antes de cada deploy)
 ```
 
 ---
@@ -54,8 +63,8 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en Portfolio (posiciones, gráfico, pie, RSU, P&L) | `portfolio.js` |
 | Bug en Analytics (Health Score, Monte Carlo, Correlación) | `analytics.js` |
 | Bug en correlación (valores raros, no carga, períodos) | `analytics.js` + `worker.js` |
-| Bug en contexto de correlación del agente (siempre null, datos viejos) | `server.js` → `/api/ai-correlation-context` |
-| Anthropic devuelve 429/529 y el chat falla | `server.js` → `callAnthropic()` (retry automático) |
+| Bug en contexto de correlación del agente (siempre null, datos viejos) | `routes/ai-server.js` → `/api/ai-correlation-context` |
+| Anthropic devuelve 429/529 y el chat falla | `routes/ai-server.js` → `callAnthropic()` (retry automático) |
 | Bug en nueva transacción o en OCR | `transactions.js` |
 | Bug en el chat AI / cambiar modelo / contexto | `ai.js` |
 | Bug en logging de conversaciones / historial de chats | `ai.js` + `server.js` |
@@ -63,13 +72,13 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en mensajes favoritos (star, starred view) | `ai.js` + `server.js` + `styles.css` |
 | Bug en briefing diario (push, contenido, modal) | `notification-worker.js` + `server.js` + `ai.js` |
 | Bug en modal de briefing (UI, historial, render) | `ai.js` + `index.html` + `styles.css` |
-| Bug en tool calls del agente (query_db, run_montecarlo) | `server.js` (ejecutores de tools) |
-| Bug en loop agentic / iteraciones / tool_use | `server.js` (endpoint `/api/ai-chat`) |
+| Bug en tool calls del agente (query_db, run_montecarlo) | `routes/ai-server.js` (ejecutores de tools) |
+| Bug en loop agentic / iteraciones / tool_use | `routes/ai-server.js` (endpoint `/api/ai-chat`) |
 | Bug en widget de tools usadas en el chat | `ai.js` (`aiRenderToolLog`) + `styles.css` |
-| Tool calls no se guardan en historial | `ai.js` (`aiLogMessage`) + `server.js` (POST `/api/ai-messages`) |
+| Tool calls no se guardan en historial | `ai.js` (`aiLogMessage`) + `routes/ai-server.js` (POST `/api/ai-messages`) |
 | Tool calls no aparecen al reabrir conversación vieja | `ai.js` (`aiOpenConversation`) |
-| Bug en Monte Carlo del agente (valores, parámetros) | `server.js` (`executeRunMontecarlo`) |
-| Simulación Monte Carlo ignora capital especificado por el usuario | `server.js` (`executeRunMontecarlo` → parámetro `initial_capital_gbp`) |
+| Bug en Monte Carlo del agente (valores, parámetros) | `routes/ai-server.js` (`executeRunMontecarlo`) |
+| Simulación Monte Carlo ignora capital especificado por el usuario | `routes/ai-server.js` (`executeRunMontecarlo` → parámetro `initial_capital_gbp`) |
 | Bug en Monte Carlo del frontend (UI, parámetros, gráfico) | `analytics.js` |
 | `annualFlow` del Health Score incorrecto (flujo anual RSU) | `analytics.js` → `computeHealthData()` + `calcRsuDefault()` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
@@ -81,9 +90,9 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en recálculo de posiciones | `recalculator.js` |
 | Feature nueva que toca varias tabs | `core.js` + módulos relevantes |
 | Cambiar/recortar el system prompt del agente | `ai.js` → `aiSendMsg()` (funciones `build*Context`, `_cachedSystemPrompt`) |
-| Cambiar descripciones/parámetros de tools del agente | `server.js` → `AI_TOOLS` |
-| El prompt caching no funciona / cache_read siempre 0 | `server.js` → `callAnthropic()` (header `anthropic-beta` + formato `system` como array) |
-| Chat falla con 429 o 529 y no reintenta | `server.js` → `callAnthropic()` / `_callAnthropicOnce()` (retry automático) |
+| Cambiar descripciones/parámetros de tools del agente | `routes/ai-server.js` → `AI_TOOLS` |
+| El prompt caching no funciona / cache_read siempre 0 | `routes/ai-server.js` → `callAnthropic()` (header `anthropic-beta` + formato `system` como array) |
+| Chat falla con 429 o 529 y no reintenta | `routes/ai-server.js` → `callAnthropic()` / `_callAnthropicOnce()` (retry automático) |
 
 ---
 
@@ -101,7 +110,10 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
 | `ai.js` | Chat con Claude: builders de contexto, SSE streaming de respuestas, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete y búsqueda fulltext, mensajes favoritos (★), modal de briefing diario, banner de alertas proactivas colapsable. |
-| `server.js` | Express: proxy Supabase, loop agentic + streaming SSE (`/api/ai-chat`), ejecutores de tools (`query_db`, `run_montecarlo`, `run_montecarlo_target`), endpoint OCR, proxy `/api/abrigo`, servir archivos estáticos, endpoints de chat history y búsqueda, contexto de transacciones, contexto de correlaciones, contexto completo para briefing. |
+| `server.js` | Express: bootstrap, proxy genérico Supabase, chart downsampling, positions, habits, push notifications, water, jacket proxy. ~270 líneas. |
+| `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
+| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache` para que `ai-server.js` reutilice el mismo estado. |
+| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~620 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -456,13 +468,49 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 
 ---
 
-### `server.js`
-Servidor Express. Puntos clave:
+### `lib/supabase-server.js`
+Helper centralizado de credenciales Supabase. Exporta:
+- `SUPABASE_URL`, `SUPABASE_KEY` — leídos de env vars
+- `isConfigured()` — devuelve `true` si ambas vars están presentes
+- `headers(extra?)` — objeto con `apikey`, `Authorization`, `Accept` + cualquier header extra
+- `sb(path, opts?)` — fetch conveniente contra `/rest/v1/{path}`. Hace `throw` si el status no es 2xx. Usar para reads y writes donde un error genérico 502 está bien. **No usar** para endpoints donde el frontend necesita el status exacto de Supabase (ej. POST a `ai_conversations` o `ai_messages` — esos usan fetch directo).
+
+---
+
+### `routes/market-server.js`
+Yahoo Finance y caches de market data. Puntos clave:
+- `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC y BRK.B.
+- `fetchMacro(yahooTicker)` — 35 días de historial diario, calcula chg7d/chg30d/trend.
+- Tres caches independientes en memoria: `portfolioCache`, `watchlistCache`, `macroCache` — TTL 1 hora.
+- Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/fetchFundamentals/CACHE_TTL_MS` para que `ai-server.js` reutilice el mismo estado sin duplicar cache.
+- Pre-warm de watchlist + macro a los 30s del arranque.
+
+---
+
+### `routes/ai-server.js`
+Todo lo de AI server-side (~620 líneas). Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). Contiene:
+
+**Helpers internos compartidos:**
+- `fetchRsuPerVest()` — calcula dinámicamente el valor neto promedio por vest RSU desde `rsu_vests` + precio META + FX. Antes duplicado en los dos Monte Carlo.
+- `fetchStartCapital()` — fetchea `startInvested` y `startCash` en GBP desde posiciones actuales + price snapshots. Antes duplicado.
+
+**Tool executors:**
+- `executeQueryDb(input)` — usa `sb()` del helper para todas las queries read-only.
+- `executeRunMontecarlo(input)` — 2000 simulaciones, tasas separadas invested/cash, bonus meses 3/9, RSU meses 1/4/7/10.
+- `executeRunMontecarloTarget(input)` — Monte Carlo inverso: distribución de meses para alcanzar un target.
+
+**Anthropic caller:**
+- `callAnthropic(key, body)` — retry automático en 429/529, backoff 2s/4s, máx 2 reintentos.
+
+**Nota sobre error handling en writes:**
+- `POST /api/ai-conversations` y `POST /api/ai-messages` usan fetch directo (no `sb()`) para forwardear el status code exacto de Supabase al cliente. Si Supabase devuelve 409 o 422, el frontend lo recibe tal cual.
+
+---
+
+### `server.js` (refactorizado)
+Bootstrap + endpoints que no justifican módulo propio (~270 líneas). Puntos clave:
 - Sirve los archivos estáticos de `/public`
 - `GET /api/db/:table` — proxy hacia Supabase con la secret key server-side
-- `POST /api/transactions` — inserta en la tabla transactions y dispara recálculo
-- `POST /api/ocr-transaction` — recibe imagen base64, llama a Claude Vision, devuelve JSON con datos de la transacción
-- `GET /api/price/:ticker` — proxy hacia Yahoo Finance para obtener precio actual
 - `GET /api/chart/:period` — downsampling server-side de portfolio_snapshots (1S/1M/3M/6M/1A → ~180 pts)
 
 **Loop agentic + streaming SSE — `/api/ai-chat`:**
@@ -1040,7 +1088,7 @@ Cada request al agente genera:
 
 6. **buildMarketContext** — filas vacías (tickers fallback sin datos live) filtradas.
 
-7. **Prompt caching activado** (`server.js`, `callAnthropic`) — header `anthropic-beta: prompt-caching-2024-07-31` + system prompt como array con `cache_control: { type: 'ephemeral' }`. El cache dura 5 min y se resetea con cada hit. Mensajes 2+ en una sesión activa pagan ~10% del costo del system prompt.
+7. **Prompt caching activado** (`routes/ai-server.js`, `callAnthropic`) — header `anthropic-beta: prompt-caching-2024-07-31` + system prompt como array con `cache_control: { type: 'ephemeral' }`. El cache dura 5 min y se resetea con cada hit. Mensajes 2+ en una sesión activa pagan ~10% del costo del system prompt.
 
 8. **System prompt cache en JS** (`ai.js`, `_cachedSystemPrompt`) — el bloque pesado del system prompt (portfolio, health, market) se reconstruye solo cuando cambia `liveData` (clave = `captured_at` del snapshot más reciente). En una conversación normal dentro de la misma sesión, `buildPortfolioContext()`, `buildHealthContext()` y `buildMarketContext()` se ejecutan una sola vez. Las secciones dinámicas (txSection, corrSection, wlExtended) se concatenan fresh en cada mensaje.
 
@@ -1055,6 +1103,36 @@ Cada request al agente genera:
 - System prompt (~8.880 chars): ~4.780 tokens
 - Total sin cache: ~6.200 tokens
 - Total con cache (turn 2+): ~390 tokens input efectivo
+
+---
+
+## Desarrollo local
+
+### Requisitos
+```bash
+npm install dotenv   # solo primera vez
+```
+
+### Arrancar
+```bash
+# crear .env en la raíz (nunca commitear):
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+ANTHROPIC_API_KEY=sk-ant-...
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+
+# arrancar servidor:
+node -r dotenv/config server.js
+```
+
+### Smoke tests
+```bash
+# en otra terminal, con el servidor corriendo:
+bash test-server.sh
+```
+
+`test-server.sh` en la raíz del proyecto. Corre 19 checks contra `localhost:3000`. Resultado esperado: 16/19 — los 3 fallos restantes son falsos negativos del script (curl `-sf` trata 4xx como error de red; habits devuelve 204 si no hay datos del día).
 
 ---
 
