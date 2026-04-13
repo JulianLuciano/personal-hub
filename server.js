@@ -940,7 +940,13 @@ Usá esta tool cuando el usuario quiera explorar proyecciones futuras del portfo
 probabilidad de alcanzar un objetivo de capital, o escenarios con parámetros distintos
 a los ya calculados (distinto horizonte, distinto ahorro mensual, con o sin RSUs, etc.).
 El resultado incluye mediana, percentiles 10/25/75/90, probabilidad de alcanzar el target
-si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen en el horizonte.`,
+si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen en el horizonte.
+
+CÁLCULO DE HORIZONTE: cuando el usuario mencione una fecha o mes concreto, calcular los meses
+desde TODAY (exclusive) hasta el mes target (inclusive) y usar el parámetro months.
+Ejemplo: TODAY=2026-04-13, target=diciembre 2027 → contar may/jun/jul/ago/sep/oct/nov/dic 2026 (8 meses)
++ ene/feb/mar/abr/may/jun/jul/ago/sep/oct/nov/dic 2027 (12 meses) = 20 meses → months:20.
+Cuando se usa months, NO incluir el parámetro years.`,
     input_schema: {
       type: 'object',
       properties: {
