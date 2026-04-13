@@ -876,38 +876,42 @@ router.get('/briefing-context', async (req, res) => {
     const investedPositions = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
     const tickers = investedTickers.filter(Boolean);
 
+    // Always fetch fresh — briefing must be self-contained regardless of cache state
     let marketData = {};
     if (tickers.length > 0 && fetchFundamentals) {
-      const { data: cachedData, tickers: cachedTickers, cachedAt } = getPortfolioCache();
-      const cacheValid = cachedData && cachedTickers &&
-        tickers.every(t => cachedTickers.includes(t)) &&
-        (Date.now() - cachedAt) < CACHE_TTL_MS;
-
-      if (cacheValid) {
-        marketData = cachedData;
-        console.log('[briefing-context] using portfolioCache for market data');
-      } else {
-        console.log('[briefing-context] fetching fresh fundamentals for', tickers.length, 'tickers');
-        const results = {};
-        await Promise.allSettled(tickers.map(async t => {
-          try { results[t] = await fetchFundamentals(t); }
-          catch (e) { console.warn('[briefing-context] fundamentals failed for', t, e.message); }
-        }));
-        marketData = results;
-        if (Object.keys(results).length > 0) setPortfolioCache(results, tickers);
-      }
+      console.log('[briefing-context] fetching fresh fundamentals for', tickers.length, 'tickers');
+      const results = {};
+      await Promise.allSettled(tickers.map(async t => {
+        try { results[t] = await fetchFundamentals(t); }
+        catch (e) { console.warn('[briefing-context] fundamentals failed for', t, e.message); }
+      }));
+      marketData = results;
+      if (Object.keys(results).length > 0) setPortfolioCache(results, tickers);
     }
 
-    const macroCache = getMacroCache();
+    // Fetch macro fresh via internal HTTP — don't rely on in-memory cache
     let macroSection = '';
-    if (macroCache) {
-      const f2   = v => v != null ? Number(v).toFixed(2) : '—';
-      const sgnM = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
-      macroSection = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
-      Object.entries(macroCache).forEach(([ticker, d]) => {
-        if (!d || d.current == null) return;
-        macroSection += `${ticker}|${d.label}|${f2(d.current)}|${d.unit}|${sgnM(d.chg7d)}|${sgnM(d.chg30d)}|${d.trend}\n`;
-      });
+    try {
+      const SERVER_URL = process.env.SERVER_INTERNAL_URL || 'http://localhost:3000';
+      const macroRes = await fetch(`${SERVER_URL}/api/macro-data`);
+      if (macroRes.ok) {
+        const macroJson = await macroRes.json();
+        const macroData = macroJson.data || macroJson;
+        if (macroData && typeof macroData === 'object') {
+          const f2   = v => v != null ? Number(v).toFixed(2) : '—';
+          const sgnM = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+          macroSection = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
+          Object.entries(macroData).forEach(([ticker, d]) => {
+            if (!d || d.current == null) return;
+            macroSection += `${ticker}|${d.label}|${f2(d.current)}|${d.unit}|${sgnM(d.chg7d)}|${sgnM(d.chg30d)}|${d.trend}\n`;
+          });
+          console.log('[briefing-context] macro loaded, tickers:', Object.keys(macroData).length);
+        }
+      } else {
+        console.warn('[briefing-context] macro-data fetch failed:', macroRes.status);
+      }
+    } catch (e) {
+      console.warn('[briefing-context] macro-data fetch error:', e.message);
     }
 
     let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp\n';
