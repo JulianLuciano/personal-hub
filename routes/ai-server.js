@@ -997,31 +997,27 @@ router.get('/briefing-context', async (req, res) => {
     // Cost basis includes cash (same logic as portfolio.js):
     // fiat positions use current qty as cost (no P&L), non-fiat use initial_investment.
     const cashPositions = positions.filter(p => p.category === 'fiat');
-    let cashBasisUSD = 0, cashBasisGBP = 0, cashValueUSD = 0, cashValueGBP = 0;
+    // Cash basis: fiat positions use current qty as cost (no P&L possible on cash)
+    let cashBasisUSD = 0, cashBasisGBP = 0;
     cashPositions.forEach(p => {
       const qty = parseFloat(p.qty) || 0;
       if (p.currency === 'GBP') {
-        cashBasisGBP  += qty;
-        cashBasisUSD  += qty / fxRate;
-        cashValueGBP  += qty;
-        cashValueUSD  += qty / fxRate;
+        cashBasisGBP += qty;
+        cashBasisUSD += qty / fxRate;
       } else {
-        cashBasisUSD  += qty;
-        cashBasisGBP  += qty * fxRate;
-        cashValueUSD  += qty;
-        cashValueGBP  += qty * fxRate;
+        cashBasisUSD += qty;
+        cashBasisGBP += qty * fxRate;
       }
     });
 
+    // cost basis = invested (non-fiat, locked-in FX) + cash (current face value)
     const costBasisUSD = totalInvUSD + cashBasisUSD;
     const costBasisGBP = totalInvGBP + cashBasisGBP;
-    // portfolioTotalGBP uses snapshot-native totalGBP (not totalValUSD * fxRate) to match
-    // portfolio.js — avoids FX distortion when GBP has moved since purchase dates.
-    const portfolioTotalUSD = totalValUSD + cashValueUSD;
-    const portfolioTotalGBP = totalGBP    + cashValueGBP;  // totalGBP = latestSnap.total_gbp (native)
 
-    const totalPnlUSD    = portfolioTotalUSD - costBasisUSD;
-    const totalPnlGBP    = portfolioTotalGBP - costBasisGBP;
+    // portfolio total comes from snapshot — already includes cash, native FX per snapshot
+    // P&L = snapshot total - cost basis (both sides include cash, so it nets out)
+    const totalPnlUSD    = totalUSD - costBasisUSD;
+    const totalPnlGBP    = totalGBP - costBasisGBP;
     const totalPnlPctUSD = costBasisUSD > 0 ? (totalPnlUSD / costBasisUSD * 100) : 0;
     const totalPnlPctGBP = costBasisGBP > 0 ? (totalPnlGBP / costBasisGBP * 100) : 0;
 
@@ -1054,10 +1050,9 @@ router.get('/briefing-context', async (req, res) => {
     });
 
     // totalUSD/totalGBP from snapshot already includes cash (worker saves full portfolio total)
-    // portfolioTotalUSD/GBP (equity+cash computed bottom-up) used only for P&L cross-check
     const portfolioSummary =
       `PORTFOLIO\n` +
-      `total: ${fU(totalUSD)} / ${fG(totalGBP)} (equity + cash, from snapshot)\n` +
+      `total: ${fU(totalUSD)} / ${fG(totalGBP)} (equity + cash)\n` +
       `equity_only: ${fU(totalValUSD)} / ${fG(totalValUSD * fxRate)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
       (dayChangeUSD != null ? `day_change_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)})\n` : '') +
