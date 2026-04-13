@@ -1288,11 +1288,21 @@ async function aiSendMsg() {
     const _name         = _cfg.aiProfileName       || 'Julián';
     const _monthlyExp   = _cfg.aiMonthlyExpenses   || '£4000';
     const _savingsRange = _cfg.aiSavingsRange      || '£900-1000/mo';
-    const _bonusRange   = _cfg.aiBonusRange        || '£9000-10000/yr';
-    const _rsuRange     = _cfg.aiRsuRange          || 'META quarterly ~£2100 net/vest';
+    const _bonusRange   = _cfg.aiBonusRange        || '£7500-8500/yr';
+    // RSU range: calcula dinámicamente desde vestSchedule si está disponible
+    const _rsuCalc      = (typeof calcRsuDefault === 'function') ? calcRsuDefault() : null;
+    const _rsuRangeDyn  = _rsuCalc ? `META quarterly ~£${_rsuCalc.toLocaleString()} net/vest` : null;
+    const _rsuRange     = _cfg.aiRsuRange          || _rsuRangeDyn || 'META quarterly RSU net/vest';
     const _emergencyMin = _cfg.aiEmergencyFund     || '2500';
     const _goals        = _cfg.aiGoals             || '£30k (end 2026) | £100k (end 2028) | £200k (end 2030)';
-    const _annualInvest = _cfg.aiAnnualInvestable  || '~£20k-22k salary+bonus + ~£8k-9k RSUs = £28k-31k/yr';
+    // Annual investable: cota inferior (900 salary + 7500 bonus + rsuAnual*0.95) y superior (1000 + 8500 + rsuAnual*1.05)
+    const _rsuAnnual    = _rsuCalc ? _rsuCalc * 4 : null;
+    const _aiLow        = _rsuAnnual ? Math.round((900 * 12) + 7500 + (_rsuAnnual * 0.95)) : null;
+    const _aiHigh       = _rsuAnnual ? Math.round((1000 * 12) + 8500 + (_rsuAnnual * 1.05)) : null;
+    const _annualInvest = _cfg.aiAnnualInvestable  ||
+      (_aiLow && _aiHigh
+        ? `~£${Math.round(_aiLow/1000)}k-${Math.round(_aiHigh/1000)}k/yr (salary+bonus+RSUs)`
+        : '~£28k-31k/yr salary+bonus+RSUs');
 
     // ── Live values from Supabase positions ──
     let _gbpLiquidQty = '?', _emergencyQty = '?';

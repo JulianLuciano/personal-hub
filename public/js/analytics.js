@@ -729,7 +729,7 @@ function mcRun() {
     const cashRet  = _n('mc-p-cash-return', 3);
     const cashVol  = _n('mc-p-cash-vol',    1);
     const monthly  = _n('mc-p-monthly',950);
-    const bonus    = _n('mc-p-bonus',  9500);
+    const bonus    = _n('mc-p-bonus',  8000);
     const rsu      = _n('mc-p-rsu',    calcRsuDefault());
     const years    = parseInt(document.getElementById('mc-p-years').value) || 5;
     const n        = Math.min(parseInt(document.getElementById('mc-p-sims').value) || 10000, 50000);
@@ -847,21 +847,29 @@ function mcRun() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
-  // Pre-fill Monte Carlo inputs from Railway env vars via /api/config
+  // Pre-fill Monte Carlo inputs: Railway env vars when available, dynamic calc otherwise
   if (typeof getAppConfig === 'function') {
     getAppConfig().then(cfg => {
-      const MC_MAP = {
-        'mc-p-monthly': cfg.mcMonthlySaving,
-        'mc-p-bonus':   cfg.mcAnnualBonus,
-        'mc-p-rsu':     cfg.mcRsuPerVest,
-      };
-      Object.entries(MC_MAP).forEach(([id, val]) => {
-        if (val) {
-          const el = document.getElementById(id);
-          if (el) el.value = val;
-        }
-      });
-    }).catch(() => {}); // silently ignore if config unavailable
+      const setField = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+      if (cfg.mcMonthlySaving) setField('mc-p-monthly', cfg.mcMonthlySaving);
+      // Bonus: Railway var o fallback 8000
+      setField('mc-p-bonus', cfg.mcAnnualBonus || 8000);
+      // RSU: Railway var o cálculo dinámico (requiere vestSchedule + precio cargados)
+      if (cfg.mcRsuPerVest) {
+        setField('mc-p-rsu', cfg.mcRsuPerVest);
+      } else {
+        // vestSchedule puede no estar listo aún — esperar a que loadRSUVests termine
+        const setRsuWhenReady = () => {
+          const v = calcRsuDefault();
+          if (v !== 2100 || (typeof vestSchedule !== 'undefined' && vestSchedule.length > 0)) {
+            setField('mc-p-rsu', v);
+          } else {
+            setTimeout(setRsuWhenReady, 500);
+          }
+        };
+        setTimeout(setRsuWhenReady, 300);
+      }
+    }).catch(() => {});
   }
   // Scenario buttons
   document.querySelectorAll('.mc-scen-btn').forEach(btn => {

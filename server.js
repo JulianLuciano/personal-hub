@@ -1119,7 +1119,7 @@ async function executeRunMontecarlo(input) {
 
   // RSU: valor neto por vest — calculado dinámicamente desde rsu_vests (próximos 8 quarters)
   // Si el agente pasa rsu_per_vest_override, se usa ese valor directamente.
-  let RSU_PER_VEST = 2100; // fallback
+  let RSU_PER_VEST = 2100; // valor inicial — se sobreescribe dinámicamente abajo (o con override del agente)
   if (rsu_per_vest_override !== null && typeof rsu_per_vest_override === 'number') {
     RSU_PER_VEST = rsu_per_vest_override;
   } else {
@@ -1153,7 +1153,7 @@ async function executeRunMontecarlo(input) {
         }
       }
     } catch (e) {
-      console.warn('[montecarlo] error calculando RSU_PER_VEST dinámico, usando fallback £2100:', e.message);
+      console.warn('[montecarlo] error calculando RSU_PER_VEST dinámico, usando valor inicial £2100:', e.message);
     }
   }
 
