@@ -220,7 +220,6 @@ router.get('/watchlist-data', async (req, res) => {
 
 module.exports = {
   router,
-  // Exportados para que routes/ai.js pueda leer el cache en briefing-context
   getPortfolioCache: () => ({ data: portfolioCache, tickers: portfolioTickers, cachedAt: portfolioCachedAt }),
   setPortfolioCache: (data, tickers) => {
     portfolioCache    = data;
@@ -228,6 +227,9 @@ module.exports = {
     portfolioCachedAt = Date.now();
   },
   getMacroCache:     () => macroCache,
+  setMacroCache:     (data) => { macroCache = data; macroCachedAt = Date.now(); },
   fetchFundamentals,
+  fetchMacro,
+  MACRO_TICKERS,
   CACHE_TTL_MS,
 };
