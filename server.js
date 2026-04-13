@@ -1350,6 +1350,7 @@ function callAnthropic(anthropicKey, body) {
         'Content-Length':    Buffer.byteLength(bodyStr),
         'x-api-key':         anthropicKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta':    'prompt-caching-2024-07-31',
       },
     }, (res) => {
       let data = '';
@@ -1422,7 +1423,7 @@ app.post('/api/ai-chat', async (req, res) => {
       const anthropicBody = {
         model,
         max_tokens,
-        system,
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: loopMessages,
         tools: AI_TOOLS,
       };
@@ -1522,7 +1523,9 @@ app.post('/api/ai-chat', async (req, res) => {
     // ── Log de respuesta final ────────────────────────────────────────────────
     const finalText = finalResponse?.content?.find(b => b.type === 'text')?.text;
     const usage     = finalResponse?.usage;
-    console.log(`[ai-chat] → response | stop: ${finalResponse?.stop_reason} | iterations: ${iterations} | tokens in: ${usage?.input_tokens} out: ${usage?.output_tokens}`);
+    const cacheHit  = usage?.cache_read_input_tokens ?? 0;
+    const cacheStr  = cacheHit > 0 ? ` | cache_read: ${cacheHit}` : '';
+    console.log(`[ai-chat] → response | stop: ${finalResponse?.stop_reason} | iterations: ${iterations} | tokens in: ${usage?.input_tokens} out: ${usage?.output_tokens}${cacheStr}`);
     console.log(`[ai-chat] → reply_preview: ${finalText?.slice(0, 300)}`);
 
     if (toolCallsLog.length > 0) {
