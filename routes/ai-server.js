@@ -866,14 +866,19 @@ router.get('/briefing-context', async (req, res) => {
     const price7dMap     = dedup(price7d);
     const price30dMap    = dedup(price30d);
 
-    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
-    const dayChangeGBP = snap24h ? totalGBP - (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
+    // portfolio_snapshots total_usd/total_gbp already include cash (worker saves full portfolio).
+    // day/7d/30d changes use snapshot-native values on both sides — clean, no FX conversion needed.
+    // % is computed against the prior snapshot total (which also includes cash) for consistency.
     const snap24hGBP   = snap24h ? (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
-    const dayPctUSD    = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
-    const dayPctGBP    = snap24h && snap24hGBP > 0 ? (dayChangeGBP / snap24hGBP * 100) : null;
     const snap7dGBP    = snap7d  ? (snap7d.total_gbp  || snap7d.total_usd  * fxRate) : null;
     const snap30dGBP   = snap30d ? (snap30d.total_gbp || snap30d.total_usd * fxRate) : null;
-    const chg7dUSD     = snap7d  && snap7d.total_usd  > 0 ? ((totalUSD - snap7d.total_usd)  / snap7d.total_usd  * 100) : null;
+
+    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
+    const dayChangeGBP = snap24h ? totalGBP - snap24hGBP : null;
+    const dayPctUSD    = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
+    const dayPctGBP    = snap24hGBP > 0 ? (dayChangeGBP / snap24hGBP * 100) : null;
+
+    const chg7dUSD     = snap7d  && snap7d.total_usd > 0 ? ((totalUSD - snap7d.total_usd)  / snap7d.total_usd  * 100) : null;
     const chg30dUSD    = snap30d && snap30d.total_usd > 0 ? ((totalUSD - snap30d.total_usd) / snap30d.total_usd * 100) : null;
     const chg7dGBP     = snap7dGBP  > 0 ? ((totalGBP - snap7dGBP)  / snap7dGBP  * 100) : null;
     const chg30dGBP    = snap30dGBP > 0 ? ((totalGBP - snap30dGBP) / snap30dGBP * 100) : null;
@@ -1010,8 +1015,10 @@ router.get('/briefing-context', async (req, res) => {
 
     const costBasisUSD = totalInvUSD + cashBasisUSD;
     const costBasisGBP = totalInvGBP + cashBasisGBP;
+    // portfolioTotalGBP uses snapshot-native totalGBP (not totalValUSD * fxRate) to match
+    // portfolio.js — avoids FX distortion when GBP has moved since purchase dates.
     const portfolioTotalUSD = totalValUSD + cashValueUSD;
-    const portfolioTotalGBP = totalValUSD * fxRate + cashValueGBP;
+    const portfolioTotalGBP = totalGBP    + cashValueGBP;  // totalGBP = latestSnap.total_gbp (native)
 
     const totalPnlUSD    = portfolioTotalUSD - costBasisUSD;
     const totalPnlGBP    = portfolioTotalGBP - costBasisGBP;
@@ -1046,9 +1053,11 @@ router.get('/briefing-context', async (req, res) => {
       timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
+    // totalUSD/totalGBP from snapshot already includes cash (worker saves full portfolio total)
+    // portfolioTotalUSD/GBP (equity+cash computed bottom-up) used only for P&L cross-check
     const portfolioSummary =
       `PORTFOLIO\n` +
-      `total: ${fU(portfolioTotalUSD)} / ${fG(portfolioTotalGBP)} (equity + cash)\n` +
+      `total: ${fU(totalUSD)} / ${fG(totalGBP)} (equity + cash, from snapshot)\n` +
       `equity_only: ${fU(totalValUSD)} / ${fG(totalValUSD * fxRate)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
       (dayChangeUSD != null ? `day_change_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)})\n` : '') +
