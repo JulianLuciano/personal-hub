@@ -841,10 +841,10 @@ router.get('/briefing-context', async (req, res) => {
     const totalGBP   = latestSnap.total_gbp || (totalUSD * fxRate);
 
     // Per-ticker day% from price_snapshots: latest + anchor 20h ago, one query each
-    // Build ticker list from invested positions (RSU_META → META)
+    // Build ticker list using original tickers (price_snapshots stores RSU_META, not META)
     const investedTickers = positions
       .filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0)
-      .map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker);
+      .map(p => p.ticker);
     const tickerIn = investedTickers.map(t => encodeURIComponent(t)).join(',');
 
     const [priceLatest, price24h] = tickerIn.length > 0 ? await Promise.all([
@@ -927,8 +927,8 @@ router.get('/briefing-context', async (req, res) => {
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
 
       // day% from price_snapshots (latest vs 24h anchor), fallback to Yahoo for USD
-      const psNow  = priceLatestMap[yticker];
-      const ps24h  = price24hMap[yticker];
+      const psNow  = priceLatestMap[p.ticker];
+      const ps24h  = price24hMap[p.ticker];
       let dayPctPosUSD = null;
       let dayPctPosGBP = null;
       if (psNow && ps24h) {
