@@ -948,7 +948,13 @@ si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen
           type: 'integer',
           minimum: 1,
           maximum: 40,
-          description: 'Horizonte de la simulación en años.',
+          description: 'Horizonte de la simulación en años enteros. Usar solo si el horizonte es exactamente N años. Si el horizonte es en meses, usar el parámetro months en su lugar.',
+        },
+        months: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 480,
+          description: 'Horizonte de la simulación en meses. Tiene precedencia sobre years. Usar cuando el usuario menciona una fecha o un número de meses concreto (ej: "hasta diciembre de 2026" = 8 meses desde abril 2026).',
         },
         monthly_contribution_gbp: {
           type: 'number',
@@ -1085,6 +1091,7 @@ async function executeQueryDb(input) {
 async function executeRunMontecarlo(input) {
   const {
     years,
+    months,
     monthly_contribution_gbp = 950,
     annual_bonus_gbp         = 9500,
     include_rsu              = true,
@@ -1101,6 +1108,9 @@ async function executeRunMontecarlo(input) {
     bull:    { ret: 16, vol: 22 },
   };
   const scen = SCENARIOS[scenario] ?? SCENARIOS.neutral;
+
+  // Horizonte: months tiene precedencia sobre years
+  const totalMonths = (months != null) ? months : ((years ?? 5) * 12);
 
   // Tasas de cash (igual que defaults del frontend)
   const CASH_RET = 3;
@@ -1223,7 +1233,7 @@ async function executeRunMontecarlo(input) {
   const mv = scen.vol / 100 / Math.sqrt(12);
   const cr = CASH_RET / 100 / 12;
   const cv = CASH_VOL / 100 / Math.sqrt(12);
-  const M  = years * 12;
+  const M  = totalMonths;
 
   // Box-Muller (alineado con mcRandn() del frontend)
   function randn() {
@@ -1300,7 +1310,8 @@ async function executeRunMontecarlo(input) {
 
   return {
     scenario,
-    years,
+    horizon_months: M,
+    horizon_label: M % 12 === 0 ? `${M / 12} año${M / 12 !== 1 ? 's' : ''}` : `${M} meses`,
     params: {
       start_invested_gbp:             fmt(startInvested),
       start_cash_gbp:                 fmt(startCash),
