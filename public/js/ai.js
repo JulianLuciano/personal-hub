@@ -63,10 +63,10 @@ function buildMacroContext() {
   const f2  = v => v != null ? Number(v).toFixed(2) : '—';
   const sgn = v => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
 
-  let tsv = 'MACRO\nticker|label|value|unit|7d|30d|trend\n';
+  let tsv = 'MACRO\nticker|value|unit|7d|30d|trend\n';
   Object.entries(md).forEach(([ticker, d]) => {
     if (!d || d.current == null) return;
-    tsv += `${ticker}|${d.label}|${f2(d.current)}|${d.unit}|${sgn(d.chg7d)}|${sgn(d.chg30d)}|${d.trend}\n`;
+    tsv += `${ticker}|${f2(d.current)}|${d.unit}|${sgn(d.chg7d)}|${sgn(d.chg30d)}|${d.trend}\n`;
   });
   return tsv.trim();
 }
@@ -245,16 +245,16 @@ function buildHealthContext() {
   const sectors = Object.entries(d.sectorMap).sort((a, b) => b[1] - a[1]).map(([s, w]) => `${s} ${(w*100).toFixed(0)}%`).join(', ');
 
   let ctx = 'HEALTH_SCORE\n';
-  ctx += `total: ${d.healthScore}/100 (weights: diversification 20%, risk_alignment 20%, valuation 15%, currency 15%, concentration 15%, income 15%)\n`;
-  ctx += `note: excludes RENT_DEPOSIT + EMERGENCY_FUND from all scores except currency_exposure + income_momentum\n\n`;
+  ctx += `total: ${d.healthScore}/100 (div 20% risk 20% val 15% fx 15% conc 15% income 15%)\n`;
+  ctx += `excl: RENT_DEPOSIT+EMERGENCY_FUND (except fx+income scores)\n\n`;
 
   ctx += 'HEALTH_METRICS\n';
-  ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_positions ${d.effectiveN.toFixed(1)} | computed_over: investments_only (no cash/fiat)\n`;
-  ctx += `risk_alignment: score ${d.subscores[1].score} | portfolio_beta ${d.portfolioBeta.toFixed(2)} | vol_est ${d.portfolioVol.toFixed(1)}% | correction_est -${d.ddCorrection.toFixed(0)}% | bear_est -${d.ddBearMarket.toFixed(0)}% | beta_includes_cash_at_0\n`;
-  ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE data') + ` | investments_only\n`;
-  ctx += `currency: score ${d.subscores[3].score} | GBP ${(d.gbpPct*100).toFixed(0)}% USD ${(d.usdPct*100).toFixed(0)}% | GBP=fiat_gbp+pricing_currency_GBP | USD=stocks+RSU+crypto\n`;
-  ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}% | broad_ETFs (SPY,VWRP) exempt from penalty\n`;
-  ctx += `income: score ${d.subscores[5].score} | annual_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}% | denominator_includes_emergency_fund\n`;
+  ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_n ${d.effectiveN.toFixed(1)}\n`;
+  ctx += `risk_alignment: score ${d.subscores[1].score} | beta ${d.portfolioBeta.toFixed(2)} | vol ${d.portfolioVol.toFixed(1)}% | dd_correction -${d.ddCorrection.toFixed(0)}% | dd_bear -${d.ddBearMarket.toFixed(0)}%\n`;
+  ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE') + `\n`;
+  ctx += `currency: score ${d.subscores[3].score} | GBP ${(d.gbpPct*100).toFixed(0)}% USD ${(d.usdPct*100).toFixed(0)}%\n`;
+  ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}%\n`;
+  ctx += `income: score ${d.subscores[5].score} | rsu_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}%\n`;
   ctx += `sectors: ${sectors}\n`;
 
   return ctx;
@@ -291,6 +291,8 @@ function buildMarketContext() {
   tickers.forEach(t => {
     const live = mm[t] || {};
     const fb   = FALLBACK[t] || {};
+    // Skip if no live data at all (pure fallback with no price = useless row)
+    if (!live.regularMarketPrice && !fb.trailingPE && !fb.beta) return;
     const price = live.regularMarketPrice ?? null;
     const lo52  = live.fiftyTwoWeekLow ?? null;
     const hi52  = live.fiftyTwoWeekHigh ?? null;
@@ -571,11 +573,19 @@ function buildPortfolioContext() {
     }
 
     if (upcoming.length > 0) {
+      const show = upcoming.slice(0, 4);
+      const rest = upcoming.slice(4);
       ctx += '\nVEST_SCHEDULE_PENDING\ndate|days|units|gross|net\n';
-      upcoming.forEach(v => {
+      show.forEach(v => {
         const vU = v.units * rsuP;
         ctx += `${v.date}|${v.days}d|${v.units}|${fU(vU)}|${fU(vU * NET_RATE)}\n`;
       });
+      if (rest.length > 0) {
+        const restUnits = rest.reduce((s, v) => s + v.units, 0);
+        const restGross = restUnits * rsuP;
+        const lastVest  = rest[rest.length - 1];
+        ctx += `...+${rest.length} vests (${restUnits}u gross ${fU(restGross)} net ${fU(restGross * NET_RATE)} through ${lastVest.date})\n`;
+      }
     }
     if (vested.length > 0) {
       ctx += '\nVEST_HISTORY\n';
@@ -1282,8 +1292,8 @@ async function aiSendMsg() {
       usdExposurePct = (usdTotal / liveData.totalUSD * 100).toFixed(0);
     }
     const fxLine = usdExposurePct !== null
-      ? `FX risk: gana y gasta en GBP, pero ~${usdExposurePct}% del portfolio cotiza en USD — movimientos GBP/USD impactan directamente su patrimonio en libras`
-      : `FX risk: gana y gasta en GBP, portfolio mixto USD/GBP — movimientos GBP/USD impactan su patrimonio en libras`;
+      ? `earns+spends GBP, ~${usdExposurePct}% portfolio in USD — GBP/USD moves directly impact GBP wealth`
+      : `earns+spends GBP, mixed USD/GBP portfolio — GBP/USD moves impact GBP wealth`;
 
     // ── Profile from Railway env vars with hardcoded fallbacks ──
     const _cfg          = await getAppConfig();
@@ -1335,35 +1345,29 @@ async function aiSendMsg() {
     const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
     const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
 
-    const systemPrompt = `Sos el asesor financiero personal de ${_name}. Respondé en español, directo y conciso. No uses markdown excesivo.
+    const systemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown.
 
-TODAY: ${_todayStr} (${_todayISO})
-NEXT_BONUS: ${_nextBonus} (en ${_daysToBonus} días) — 50% del bono anual neto
+TODAY: ${_todayISO} | NEXT_BONUS: ${_nextBonus} (${_daysToBonus}d) — 50% annual net bonus
 
 PROFILE
-location: London, UK | currency: GBP | monthly_expenses: ${_monthlyExp}
-savings: ${_savingsRange} | bonus_net: ${_bonusRange} en DOS TRAMOS: 50% último día hábil de marzo + 50% último día hábil de septiembre
-rsu: ${_rsuRange} | vest trimestral (ene/abr/jul/oct)
-emergency_fund: actual £${_emergencyQty} (EMERGENCY_FUND position) | min_threshold: £${_emergencyMin} — INTOCABLE, prioridad máxima
-cash_available: GBP_LIQUID = £${_gbpLiquidQty} (excedente para invertir)
-horizon: 5+ years | max_drawdown: 20% | no immediate liquidity needs beyond emergency fund
+location: London UK | currency: GBP | expenses: ${_monthlyExp}/mo
+savings: ${_savingsRange} | bonus: ${_bonusRange} in 2 tranches: last biz day Mar + last biz day Sep
+rsu: ${_rsuRange} | quarterly vest Jan/Apr/Jul/Oct
+emergency_fund: £${_emergencyQty} actual | min: £${_emergencyMin} — untouchable
+cash: GBP_LIQUID=£${_gbpLiquidQty} | horizon: 5+yr | max_drawdown: 20%
 goals: ${_goals}
 
-CASHFLOW_ANALYSIS
-annual_investable: ${_annualInvest}
-promotion_possible_2-3yr: bonus +10%, savings +20%, RSUs +15% (no guarantee)
-key_dates: último día hábil de mar (50% bonus) | último día hábil de sep (50% bonus) | trim ene/abr/jul/oct (RSU vest)
+CASHFLOW
+annual_investable: ${_annualInvest} | promotion_possible_2-3yr: bonus+10% savings+20% RSU+15%
 
 RULES
 - ${fxLine}
-- day_change en GBP incluye efecto de movimiento del tipo de cambio USD/GBP intradía (no solo precios)
-- META concentration risk: RSUs + held shares = largest single exposure — warn if high relative to total portfolio
-- VIX >30=panic, >20=elevated, <15=calm
-- US10Y rising = pressure on growth + long bonds
+- day_change_gbp includes intraday USD/GBP FX move
+- META: RSUs+shares = largest single exposure, warn if overweight
+- VIX >30=panic >20=elevated <15=calm | US10Y rising = pressure on growth+bonds
 - GBP/USD up = USD portfolio worth less in GBP
-- Si emergency_fund < £${_emergencyMin}, prioridad absoluta reponerlo antes de invertir
-- Promotion delta should go to investing, not expenses
-- Use all provided data (fundamentals, macro, watchlist) for analysis
+- If emergency_fund<£${_emergencyMin}: replenish before investing
+- Use all provided data for analysis
 
 ${buildPortfolioContext()}
 
