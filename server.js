@@ -948,13 +948,13 @@ si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen
           type: 'integer',
           minimum: 1,
           maximum: 40,
-          description: 'Horizonte de la simulación en años enteros. Usar solo si el horizonte es exactamente N años. Si el horizonte es en meses, usar el parámetro months en su lugar.',
+          description: 'Horizonte en años enteros. Usar SOLO cuando el horizonte es exactamente N años y no se pasa months. Si se pasa months, NO incluir este parámetro.',
         },
         months: {
           type: 'integer',
           minimum: 1,
           maximum: 480,
-          description: 'Horizonte de la simulación en meses. Tiene precedencia sobre years. Usar cuando el usuario menciona una fecha o un número de meses concreto (ej: "hasta diciembre de 2026" = 8 meses desde abril 2026).',
+          description: 'Horizonte en meses. Tiene precedencia sobre years. Usar cuando el usuario menciona una fecha concreta o un número de meses (ej: "hasta diciembre de 2026" = 8 meses desde abril 2026). Si se usa este parámetro, omitir years.',
         },
         monthly_contribution_gbp: {
           type: 'number',
