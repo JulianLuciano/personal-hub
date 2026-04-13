@@ -4,7 +4,7 @@ const aiHistory = [];
 // ── Chat history logging ──────────────────────────────────────────────────
 // How many messages to send as context on each turn.
 // Change this one constant to adjust the sliding window everywhere.
-const AI_CONTEXT_WINDOW = 8;
+const AI_CONTEXT_WINDOW = 10;
 
 let aiConversationId = null; // UUID — created on first message, reset on page load
 let aiMessageSeq     = 0;    // global sequence counter within a conversation
@@ -223,6 +223,12 @@ function needsExtendedWatchlist(userMsg) {
     'fundamentals','fwd pe','forward pe','compro','screener',
     'qué comprarías','que comprarias','dónde metería','donde meteria',
     'alternativa','diversificar','rotar','rotación','rotacion',
+    // rioplatense / coloquial
+    'meto','entro','me meto','me tiro','me sumo','pongo plata',
+    'qué hay','que hay','qué ves','que ves','qué mirás','que miras',
+    'vale la pena','conviene','qué conviene','que conviene',
+    'fuera del portfolio','afuera del portfolio','por fuera',
+    'algo interesante','algo lindo','algo bueno',
     // themes
     'latam','argentina','brasil','china','emergentes','bonos','bond',
     'commodities','defensivo','defensivas','dividendo','dividendos',
@@ -655,6 +661,13 @@ const AI_MODELS = {
   sonnet: 'claude-sonnet-4-6',
   opus:   'claude-opus-4-6'
 };
+
+// ── System prompt cache ───────────────────────────────────────────────────────
+// El system prompt incluye datos de mercado y portfolio que solo cambian cuando
+// liveData se refresca (al cargar la página). Se cachea usando el timestamp del
+// último snapshot como clave; si no cambió, se reutiliza el string ya construido.
+let _cachedSystemPrompt   = null;
+let _cachedSystemPromptKey = null; // snapshot timestamp del último liveData usado
 
 function setAiModel(m) {
   aiModel = m;
@@ -1268,10 +1281,16 @@ async function aiSendMsg() {
   aiLogMessage({ role: 'user', content: msg, context_start_seq: contextStartSeq });
 
   try {
-    const wlBase     = buildWatchlistBase();
-    const wlExtended = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
+    // Correlation context — server-side endpoint (siempre disponible, no depende del tab Analytics)
+    let corrSection = null;
+    try {
+      const corrRes = await fetch('/api/ai-correlation-context');
+      if (corrRes.ok) { const d = await corrRes.json(); corrSection = d.tsv || null; }
+    } catch (_) {}
+
+    const wlBase       = buildWatchlistBase();
+    const wlExtended   = needsExtendedWatchlist(msg) ? buildWatchlistExtended() : null;
     const macroSection = buildMacroContext();
-    const corrSection  = buildCorrelationContext();
 
     // Recent transactions context (fire in parallel, graceful fallback)
     let txSection = null;
@@ -1280,6 +1299,15 @@ async function aiSendMsg() {
       if (txRes.ok) { const d = await txRes.json(); txSection = d.tsv || null; }
     } catch (_) {}
 
+    // ── System prompt (cached per liveData snapshot) ──────────────────────────
+    // La clave de cache es el timestamp del snapshot más reciente en liveData.
+    // Si liveData no cambió desde el último mensaje, reutilizamos el string.
+    // txSection, corrSection, wlExtended varían por mensaje → siempre se recalculan
+    // y se concatenan FUERA del bloque cacheado.
+    const _snapKey = liveData?.snapshots?.[0]?.captured_at ?? null;
+    const _needsRebuild = _snapKey !== _cachedSystemPromptKey || _cachedSystemPrompt === null;
+
+    if (_needsRebuild) {
     // Calculate USD vs GBP exposure dynamically from live portfolio
     let usdExposurePct = null;
     if (liveData && liveData.totalUSD > 0) {
@@ -1345,7 +1373,7 @@ async function aiSendMsg() {
     const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
     const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
 
-    const systemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown.
+    _cachedSystemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown. All tool call reasoning, intermediate steps, and error messages must also be in Spanish.
 
 TODAY: ${_todayISO} | NEXT_BONUS: ${_nextBonus} (${_daysToBonus}d) — 50% annual net bonus
 
@@ -1372,12 +1400,17 @@ RULES
 ${buildPortfolioContext()}
 
 ${buildHealthContext()}
-${buildMarketContext()}
-${txSection      ? '\n' + txSection      : ''}
-${corrSection    ? '\n' + corrSection    : ''}
-${macroSection   ? '\n' + macroSection   : ''}
-${wlBase         ? '\n' + wlBase         : ''}
-${wlExtended     ? '\n' + wlExtended     : ''}`;
+${buildMarketContext()}`;
+    _cachedSystemPromptKey = _snapKey;
+    } // end if (_needsRebuild)
+
+    // Secciones dinámicas (varían por mensaje o son externas): siempre concatenadas fresh
+    const systemPrompt = _cachedSystemPrompt
+      + (txSection    ? '\n' + txSection    : '')
+      + (corrSection  ? '\n' + corrSection  : '')
+      + (macroSection ? '\n' + macroSection : '')
+      + (wlBase       ? '\n' + wlBase       : '')
+      + (wlExtended   ? '\n' + wlExtended   : '');
 
     const res = await fetch('/api/ai-chat', {
       method: 'POST',

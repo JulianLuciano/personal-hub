@@ -664,6 +664,115 @@ app.get('/api/ai-transactions-context', async (req, res) => {
   }
 });
 
+// ── AI Correlation Context ────────────────────────────────────────────────────
+// Devuelve correlaciones del portfolio (90d) en TSV compacto para el system prompt.
+// Idéntica lógica a buildCorrelationContext() del frontend pero server-side,
+// así el agente siempre tiene el dato aunque el usuario nunca haya abierto Analytics.
+app.get('/api/ai-correlation-context', async (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return res.status(500).json({ error: 'Supabase not configured' });
+  const sbHeaders = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+    'Accept': 'application/json',
+  };
+
+  try {
+    const [corrRes, posRes, snapRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/correlation_matrix?period_days=eq.90&select=ticker_a,ticker_b,correlation&limit=500`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/positions?select=ticker,qty,category,pricing_currency&order=ticker.asc`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/price_snapshots?select=ticker,price_usd&order=captured_at.desc&limit=50`, { headers: sbHeaders }),
+    ]);
+
+    const corrRows  = await corrRes.json();
+    const positions = await posRes.json();
+    const priceRows = await snapRes.json();
+
+    if (!Array.isArray(corrRows) || !Array.isArray(positions)) {
+      return res.json({ tsv: null });
+    }
+
+    // Build price map (latest price per ticker)
+    const priceMap = {};
+    if (Array.isArray(priceRows)) {
+      priceRows.forEach(r => { if (!priceMap[r.ticker]) priceMap[r.ticker] = parseFloat(r.price_usd) || 0; });
+    }
+
+    const EXCLUDED = new Set(['RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID']);
+    const portfolioAssets = positions.filter(p =>
+      p.category !== 'fiat' &&
+      !EXCLUDED.has(p.ticker) &&
+      (priceMap[p.ticker] || 0) * (parseFloat(p.qty) || 0) > 0.5
+    );
+
+    if (portfolioAssets.length < 2) return res.json({ tsv: null });
+
+    const values  = portfolioAssets.map(p => (priceMap[p.ticker] || 0) * (parseFloat(p.qty) || 0));
+    const totalUSD = values.reduce((s, v) => s + v, 0);
+    if (totalUSD === 0) return res.json({ tsv: null });
+
+    const weights = {};
+    portfolioAssets.forEach((p, i) => { weights[p.ticker] = values[i] / totalUSD; });
+
+    const dispT = t => t.replace('RSU_META', 'META').replace('.L', '');
+
+    // Lookup helper (symmetric)
+    const corrMap = {};
+    corrRows.forEach(r => { corrMap[`${r.ticker_a}|${r.ticker_b}`] = r.correlation; });
+    const getCorr = (a, b) => corrMap[`${a}|${b}`] ?? corrMap[`${b}|${a}`] ?? null;
+
+    const tickers = portfolioAssets.map(p => p.ticker);
+
+    // 1. Correlations vs SPY
+    const corrVsSpy = [];
+    tickers.forEach(t => {
+      const c = getCorr(t, 'SPY');
+      if (c !== null) corrVsSpy.push(`${dispT(t)}: ${c.toFixed(2)}`);
+    });
+
+    // 2. Corr vs portfolio (weighted pairwise approx: corr(i,P) ≈ Σ_j w_j × corr(i,j))
+    const corrVsPort = [];
+    tickers.forEach(ti => {
+      let weightedSum = 0, weightSum = 0;
+      tickers.forEach(tj => {
+        const c = ti === tj ? 1.0 : getCorr(ti, tj);
+        if (c !== null) { weightedSum += weights[tj] * c; weightSum += weights[tj]; }
+      });
+      if (weightSum > 0.5) corrVsPort.push(`${dispT(ti)}: ${(weightedSum / weightSum).toFixed(2)}`);
+    });
+
+    // 3. High-correlation pairs (|r| >= 0.7)
+    const highPairs = [];
+    for (let i = 0; i < tickers.length; i++) {
+      for (let j = i + 1; j < tickers.length; j++) {
+        const c = getCorr(tickers[i], tickers[j]);
+        if (c !== null && Math.abs(c) >= 0.7) {
+          highPairs.push(`${dispT(tickers[i])}-${dispT(tickers[j])}: ${c.toFixed(2)}`);
+        }
+      }
+    }
+
+    // 4. Full pairwise matrix
+    const matrixLines = [];
+    for (let i = 0; i < tickers.length; i++) {
+      for (let j = i + 1; j < tickers.length; j++) {
+        const c = getCorr(tickers[i], tickers[j]);
+        if (c !== null) matrixLines.push(`${dispT(tickers[i])}|${dispT(tickers[j])}|${c.toFixed(2)}`);
+      }
+    }
+
+    let tsv = 'CORRELATION_90D\n';
+    if (corrVsSpy.length)    tsv += `vs_SPY: ${corrVsSpy.join(', ')}\n`;
+    if (corrVsPort.length)   tsv += `vs_portfolio: ${corrVsPort.join(', ')}\n`;
+    if (highPairs.length)    tsv += `high_corr_pairs (>=0.7): ${highPairs.join(', ')}\n`;
+    if (matrixLines.length)  tsv += `pairs\nticker_a|ticker_b|corr\n${matrixLines.join('\n')}\n`;
+
+    res.json({ tsv: tsv.trim() });
+  } catch (e) {
+    console.error('[ai-correlation-context]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── Briefing context — prompt completo para el notification worker ────────────
 // Arma el system prompt del briefing diario con todos los datos relevantes:
 // portfolio actual, P&L, day change, histórico 7d/30d, macro, fundamentals
@@ -1338,7 +1447,9 @@ async function executeRunMontecarlo(input) {
 }
 
 // ── Helper: llamada a Anthropic API ─────────────────────────────────────────
-function callAnthropic(anthropicKey, body) {
+// Reintentos automáticos para 429 (rate limit) y 529 (overloaded).
+// Estrategia: hasta 2 reintentos con backoff exponencial (2s → 4s).
+function _callAnthropicOnce(anthropicKey, body) {
   return new Promise((resolve, reject) => {
     const bodyStr = JSON.stringify(body);
     const req = https.request({
@@ -1362,6 +1473,20 @@ function callAnthropic(anthropicKey, body) {
     req.write(bodyStr);
     req.end();
   });
+}
+
+async function callAnthropic(anthropicKey, body) {
+  const RETRYABLE = new Set([429, 529]);
+  const MAX_RETRIES = 2;
+  let attempt = 0;
+  while (true) {
+    const result = await _callAnthropicOnce(anthropicKey, body);
+    if (!RETRYABLE.has(result.status) || attempt >= MAX_RETRIES) return result;
+    attempt++;
+    const delayMs = 2000 * attempt; // 2s, 4s
+    console.warn(`[ai-chat] status ${result.status} — reintento ${attempt}/${MAX_RETRIES} en ${delayMs}ms`);
+    await new Promise(r => setTimeout(r, delayMs));
+  }
 }
 
 // ── DIAGNÓSTICO DE TOKENS — BORRAR DESPUÉS ────────────────────────────────────
