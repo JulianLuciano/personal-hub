@@ -891,16 +891,13 @@ app.get('/api/briefing-context', async (req, res) => {
 
 const https = require('https');
 
-// ── Definición de tools (lo que ve el modelo) ────────────────────────────────
+// ── Tool definitions ──────────────────────────────────────────────────────────
 const AI_TOOLS = [
   {
     name: 'query_db',
-    description: `Consulta datos históricos o detallados del portfolio de Julián directamente desde la base de datos.
-Usá esta tool cuando el usuario pregunte por información que NO está en el contexto actual:
-historial completo de transacciones, precio de compra de un activo específico, evolución del portfolio
-en un período pasado, schedule de vesting de RSUs, retornos diarios históricos, o cualquier dato
-que requiera más detalle o rango histórico del que ya tenés.
-NO la uses si la respuesta ya está en el contexto del sistema.`,
+    description: `Query Julian's portfolio database for historical or detailed data not already in the system context.
+Use when asked about: full transaction history, specific asset purchase price, past portfolio performance, RSU vest schedule, historical prices, or daily returns.
+Do NOT use if the answer is already in the system context.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -916,17 +913,17 @@ NO la uses si la respuesta ya está en el contexto del sistema.`,
             'positions_snapshot',
             'daily_returns',
           ],
-          description: 'Qué tipo de consulta hacer. Elegí el más específico posible.',
+          description: 'Query type. Pick the most specific one.',
         },
         filters: {
           type: 'object',
-          description: 'Filtros opcionales según el query_type.',
+          description: 'Optional filters depending on query_type.',
           properties: {
-            ticker:      { type: 'string',  description: "Ej: 'SPY', 'RSU_META', 'VWRP.L', 'BTC', 'MELI'" },
-            from_date:   { type: 'string',  description: "ISO date YYYY-MM-DD, ej: '2025-01-01'" },
-            to_date:     { type: 'string',  description: "ISO date YYYY-MM-DD, ej: '2026-04-12'" },
-            limit:       { type: 'integer', description: 'Máximo de filas a devolver. Default 20, máx 200.' },
-            vested_only: { type: 'boolean', description: 'Solo para rsu_vests: true = ya vestados, false = solo pendientes' },
+            ticker:      { type: 'string',  description: "e.g. 'SPY', 'RSU_META', 'VWRP.L', 'BTC'" },
+            from_date:   { type: 'string',  description: 'ISO date YYYY-MM-DD' },
+            to_date:     { type: 'string',  description: 'ISO date YYYY-MM-DD' },
+            limit:       { type: 'integer', description: 'Max rows. Default 20, max 200.' },
+            vested_only: { type: 'boolean', description: 'rsu_vests only: true=vested, false=pending' },
           },
         },
       },
@@ -935,25 +932,12 @@ NO la uses si la respuesta ya está en el contexto del sistema.`,
   },
   {
     name: 'run_montecarlo',
-    description: `Corre una simulación de Monte Carlo sobre el portfolio actual de Julián.
-Usá esta tool cuando el usuario quiera explorar proyecciones futuras del portfolio,
-probabilidad de alcanzar un objetivo de capital, o escenarios con parámetros distintos
-a los ya calculados (distinto horizonte, distinto ahorro mensual, con o sin RSUs, etc.).
-El resultado incluye mediana, percentiles 10/25/75/90, probabilidad de alcanzar el target
-si se especifica, y probabilidades para los goals de £30k/£100k/£200k si caen en el horizonte.
+    description: `Run a Monte Carlo simulation on Julian's portfolio.
+Use when the user wants future projections, probability of reaching a capital goal, or scenarios with custom parameters (different horizon, savings, RSU inclusion, etc.).
+Returns median, p10/p25/p75/p90, goal probabilities for £30k/£100k/£200k, and optional target probability.
 
-CÁLCULO DE HORIZONTE: cuando el usuario mencione una fecha o mes concreto, calcular los meses
-desde TODAY (exclusive) hasta el mes target (inclusive) y usar el parámetro months.
-Ejemplo: TODAY=2026-04-13, target=diciembre 2027 → contar may/jun/jul/ago/sep/oct/nov/dic 2026 (8 meses)
-+ ene/feb/mar/abr/may/jun/jul/ago/sep/oct/nov/dic 2027 (12 meses) = 20 meses → months:20.
-Cuando se usa months, NO incluir el parámetro years.
-
-ESCENARIOS CON CAMBIO DE PARÁMETROS EN EL FUTURO: si el usuario pide comparar un escenario donde
-los parámetros cambian en una fecha futura (ej: ascenso en marzo 2027), modelarlo en DOS llamadas
-encadenadas: (1) simular desde hoy hasta la fecha del cambio con los parámetros actuales, tomar
-la mediana del resultado como initial_capital_gbp; (2) simular desde esa fecha hasta el horizonte
-final con los nuevos parámetros. Reportar el resultado de la segunda llamada como el escenario
-final. Esto da una aproximación más precisa que aplicar los nuevos parámetros desde el inicio.`,
+HORIZON: use months for specific dates (count months from TODAY exclusive to target inclusive). When using months, omit years.
+FUTURE PARAM CHANGE (e.g. promotion in 6 months): chain two calls — first simulate to change date, use median as initial_capital_gbp for second call with new params.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -961,42 +945,42 @@ final. Esto da una aproximación más precisa que aplicar los nuevos parámetros
           type: 'integer',
           minimum: 1,
           maximum: 40,
-          description: 'Horizonte en años enteros. Usar SOLO cuando el horizonte es exactamente N años y no se pasa months. Si se pasa months, NO incluir este parámetro.',
+          description: 'Horizon in whole years. Omit if using months.',
         },
         months: {
           type: 'integer',
           minimum: 1,
           maximum: 480,
-          description: 'Horizonte en meses. Tiene precedencia sobre years. Usar cuando el usuario menciona una fecha concreta o un número de meses (ej: "hasta diciembre de 2026" = 8 meses desde abril 2026). Si se usa este parámetro, omitir years.',
+          description: 'Horizon in months. Takes precedence over years. Use for specific target dates. Omit years when using this.',
         },
         monthly_contribution_gbp: {
           type: 'number',
-          description: 'Aporte mensual en GBP. Si no se especifica, usa el default del perfil (£950).',
+          description: 'Monthly contribution in GBP. Default: £950.',
         },
         annual_bonus_gbp: {
           type: 'number',
-          description: 'Bono anual en GBP. Si no se especifica, usa el default del perfil (£8000).',
+          description: 'Annual bonus in GBP. Default: £8000.',
         },
         include_rsu: {
           type: 'boolean',
-          description: 'Si incluir los RSU vests futuros como aportes (valor calculado dinámicamente desde rsu_vests, trimestral). Default true.',
+          description: 'Include future RSU vests as contributions. Default true.',
         },
         rsu_per_vest_override: {
           type: 'number',
-          description: 'Override manual del valor neto por vest RSU en GBP. Si se pasa, reemplaza el cálculo dinámico. Útil si el usuario quiere simular con un valor distinto.',
+          description: 'Override net RSU value per vest in GBP. Replaces dynamic calculation.',
         },
         target_gbp: {
           type: 'number',
-          description: 'Objetivo de capital en GBP. Si se pasa, calcula la probabilidad de alcanzarlo al final del horizonte.',
+          description: 'Capital target in GBP. If set, returns probability of reaching it.',
         },
         scenario: {
           type: 'string',
           enum: ['neutral', 'bull', 'bear'],
-          description: 'neutral = mercado histórico (9% ret, 18% vol) | bull = optimista (16% ret, 22% vol) | bear = conservador (3% ret, 25% vol). Default: neutral.',
+          description: 'neutral=historical (9% ret, 18% vol) | bull=optimistic (16%, 22%) | bear=conservative (3%, 25%). Default: neutral.',
         },
         initial_capital_gbp: {
           type: 'number',
-          description: 'Capital inicial en GBP para la simulación. Si se especifica, sobreescribe el portfolio actual (útil para simular desde 0, desde un monto hipotético, o "qué pasaría si empezara de cero"). Si no se especifica, usa el portfolio real de Julián.',
+          description: 'Starting capital in GBP. Overrides current portfolio value. Use for hypothetical scenarios.',
         },
       },
       required: ['years'],
