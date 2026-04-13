@@ -932,6 +932,27 @@ router.get('/briefing-context', async (req, res) => {
     } catch (e) {
       console.warn('[briefing-context] macro fetch error:', e.message);
     }
+    // Fetch Yahoo fallback for tickers missing 7d or 30d price_snapshot history.
+    // Uses fetchMacro (yf.chart, 35d window) which returns ago7d, ago30d, chg7d, chg30d.
+    // FX for GBP conversion: use the fx_rate from the 7d/30d snapshot anchor (same day).
+    const tickersNeedingYahoo = investedPositions
+      .map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker)
+      .filter(yt => !price7dMap[yt === 'META' ? 'RSU_META' : yt] || !price30dMap[yt === 'META' ? 'RSU_META' : yt]);
+    const yahooHistMap = {};
+    if (tickersNeedingYahoo.length > 0) {
+      await Promise.allSettled(tickersNeedingYahoo.map(async yt => {
+        try { yahooHistMap[yt] = await fetchMacro(yt); }
+        catch (e) { console.warn('[briefing-context] yahoo hist failed for', yt, e.message); }
+      }));
+      console.log('[briefing-context] yahoo hist fallback for:', tickersNeedingYahoo);
+    }
+
+    const pricePct = (now, prev, field) => {
+      if (!now || !prev) return null;
+      const pNow = parseFloat(now[field]), pPrev = parseFloat(prev[field]);
+      return pPrev > 0 ? (pNow - pPrev) / pPrev * 100 : null;
+    };
+
     let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp|7d%_usd|7d%_gbp|30d%_usd|30d%_gbp\n';
     let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
 
@@ -952,35 +973,56 @@ router.get('/briefing-context', async (req, res) => {
       const ps24h  = price24hMap[p.ticker];
       const ps7d   = price7dMap[p.ticker];
       const ps30d  = price30dMap[p.ticker];
+      const yh     = yahooHistMap[yticker]; // Yahoo fallback data (chg7d, chg30d in USD)
 
-      const pricePct = (now, prev, field) => {
-        if (!now || !prev) return null;
-        const pNow = parseFloat(now[field]), pPrev = parseFloat(prev[field]);
-        return pPrev > 0 ? (pNow - pPrev) / pPrev * 100 : null;
-      };
-
+      // day%: price_snapshots primary, Yahoo regularMarketChangePercent fallback
       let dayPctPosUSD = pricePct(psNow, ps24h, 'price_usd');
       let dayPctPosGBP = pricePct(psNow, ps24h, 'price_gbp');
       if (dayPctPosUSD === null && md.regularMarketChangePercent != null)
         dayPctPosUSD = md.regularMarketChangePercent * 100;
 
-      const chg7dPosUSD  = pricePct(psNow, ps7d,  'price_usd');
-      const chg7dPosGBP  = pricePct(psNow, ps7d,  'price_gbp');
-      const chg30dPosUSD = pricePct(psNow, ps30d, 'price_usd');
-      const chg30dPosGBP = pricePct(psNow, ps30d, 'price_gbp');
+      // 7d%: price_snapshots primary. Fallback: Yahoo chg7d (USD only).
+      // GBP: price_gbp from snapshot already embeds that day's FX. Yahoo fallback:
+      // apply today's FX to ago7d price and compare vs today's price_gbp.
+      let chg7dPosUSD  = pricePct(psNow, ps7d, 'price_usd');
+      let chg7dPosGBP  = pricePct(psNow, ps7d, 'price_gbp');
+      if (chg7dPosUSD === null && yh?.chg7d != null) {
+        chg7dPosUSD = yh.chg7d;
+        // GBP: (currentPrice*fxNow - ago7dPrice*fx7d) / (ago7dPrice*fx7d)
+        // fx7d from snap7d anchor; if not available, use today's rate (less accurate but better than null)
+        if (yh.current > 0 && yh.ago7d > 0) {
+          const fx7d  = snap7d ? (snap7d.fx_rate || fxRate) : fxRate;
+          const pNowGBP  = yh.current * fxRate;
+          const p7dGBP   = yh.ago7d   * fx7d;
+          if (p7dGBP > 0) chg7dPosGBP = (pNowGBP - p7dGBP) / p7dGBP * 100;
+        }
+      }
+
+      // 30d%: same logic
+      let chg30dPosUSD = pricePct(psNow, ps30d, 'price_usd');
+      let chg30dPosGBP = pricePct(psNow, ps30d, 'price_gbp');
+      if (chg30dPosUSD === null && yh?.chg30d != null) {
+        chg30dPosUSD = yh.chg30d;
+        if (yh.current > 0 && yh.ago30d > 0) {
+          const fx30d = snap30d ? (snap30d.fx_rate || fxRate) : fxRate;
+          const pNowGBP   = yh.current * fxRate;
+          const p30dGBP   = yh.ago30d  * fx30d;
+          if (p30dGBP > 0) chg30dPosGBP = (pNowGBP - p30dGBP) / p30dGBP * 100;
+        }
+      }
 
       totalValUSD += valueUSD;
       totalInvUSD += invUSD;
       totalInvGBP += invGBP;
       posSection += [p.ticker, p.category, fU(valueUSD), fG(valueGBP), '', fU(invUSD), fG(invGBP),
-        pnlUSD    != null ? sgn(pnlUSD)    : '',
-        pnlGBP    != null ? sgn(pnlGBP)    : '',
-        dayPctPosUSD  != null ? sgn(dayPctPosUSD)  : '',
-        dayPctPosGBP  != null ? sgn(dayPctPosGBP)  : '',
-        chg7dPosUSD   != null ? sgn(chg7dPosUSD)   : '',
-        chg7dPosGBP   != null ? sgn(chg7dPosGBP)   : '',
-        chg30dPosUSD  != null ? sgn(chg30dPosUSD)  : '',
-        chg30dPosGBP  != null ? sgn(chg30dPosGBP)  : '',
+        pnlUSD       != null ? sgn(pnlUSD)       : '',
+        pnlGBP       != null ? sgn(pnlGBP)       : '',
+        dayPctPosUSD != null ? sgn(dayPctPosUSD) : '',
+        dayPctPosGBP != null ? sgn(dayPctPosGBP) : '',
+        chg7dPosUSD  != null ? sgn(chg7dPosUSD)  : '',
+        chg7dPosGBP  != null ? sgn(chg7dPosGBP)  : '',
+        chg30dPosUSD != null ? sgn(chg30dPosUSD) : '',
+        chg30dPosGBP != null ? sgn(chg30dPosGBP) : '',
       ].join('|') + '\n';
     });
 
