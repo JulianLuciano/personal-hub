@@ -810,25 +810,56 @@ router.get('/briefing-context', async (req, res) => {
   const sgn = (v, decimals = 2) => (v >= 0 ? '+' : '') + Number(v).toFixed(decimals) + '%';
 
   try {
-    const [positions, snapshots, txRows] = await Promise.all([
+    // Targeted snapshot queries: one anchor per period fetched directly
+    // 360 snaps/day → limit=300 only covers ~20h. Fetch per-period anchors instead.
+    const now0 = new Date();
+    const iso  = d => d.toISOString();
+    const t24h = iso(new Date(now0 - 20 * 3600000));
+    const t7d  = iso(new Date(now0 - 6  * 86400000));
+    const t30d = iso(new Date(now0 - 29 * 86400000));
+
+    const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows] = await Promise.all([
       sb('positions?select=ticker,qty,avg_cost_usd,initial_investment_usd,initial_investment_gbp,category,pricing_currency,currency&order=ticker.asc'),
-      sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.desc&limit=300'),
+      sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1'),
+      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t24h}&order=captured_at.desc&limit=1`),
+      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t7d}&order=captured_at.desc&limit=1`),
+      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t30d}&order=captured_at.desc&limit=1`),
       sb('transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5'),
     ]);
 
-    if (!Array.isArray(positions) || !Array.isArray(snapshots)) {
+    if (!Array.isArray(positions) || !Array.isArray(latestSnaps)) {
       return res.status(502).json({ error: 'Failed to fetch portfolio data' });
     }
 
-    const latestSnap = snapshots[0] || {};
+    const latestSnap = latestSnaps[0] || {};
+    const snap24h    = Array.isArray(snaps24h) && snaps24h[0] ? snaps24h[0] : null;
+    const snap7d     = Array.isArray(snaps7d)  && snaps7d[0]  ? snaps7d[0]  : null;
+    const snap30d    = Array.isArray(snaps30d) && snaps30d[0] ? snaps30d[0] : null;
+
     const fxRate     = latestSnap.fx_rate || 0.79;
     const totalUSD   = latestSnap.total_usd || 0;
     const totalGBP   = latestSnap.total_gbp || (totalUSD * fxRate);
-    const msDay = 86400000;
-    const latestTs = latestSnap.captured_at ? new Date(latestSnap.captured_at).getTime() : Date.now();
-    const snap24h  = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 20 * 3600000);
-    const snap7d   = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 6  * msDay);
-    const snap30d  = snapshots.find(s => (latestTs - new Date(s.captured_at).getTime()) >= 29 * msDay);
+
+    // Per-ticker day% from price_snapshots: latest + anchor 20h ago, one query each
+    // Build ticker list from invested positions (RSU_META → META)
+    const investedTickers = positions
+      .filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0)
+      .map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker);
+    const tickerIn = investedTickers.map(t => encodeURIComponent(t)).join(',');
+
+    const [priceLatest, price24h] = tickerIn.length > 0 ? await Promise.all([
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&order=captured_at.desc&limit=${investedTickers.length * 2}`),
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t24h}&order=captured_at.desc&limit=${investedTickers.length * 2}`),
+    ]) : [[], []];
+
+    // Deduplicate: keep only the most recent row per ticker
+    const dedup = rows => {
+      const seen = {};
+      (Array.isArray(rows) ? rows : []).forEach(r => { if (!seen[r.ticker]) seen[r.ticker] = r; });
+      return seen;
+    };
+    const priceLatestMap = dedup(priceLatest);
+    const price24hMap    = dedup(price24h);
 
     const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
     const dayChangeGBP = snap24h ? totalGBP - (snap24h.total_gbp || snap24h.total_usd * fxRate) : null;
@@ -843,7 +874,7 @@ router.get('/briefing-context', async (req, res) => {
     const chg30dGBP    = snap30dGBP > 0 ? ((totalGBP - snap30dGBP) / snap30dGBP * 100) : null;
 
     const investedPositions = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
-    const tickers = investedPositions.map(p => p.ticker === 'RSU_META' ? 'META' : p.ticker).filter(Boolean);
+    const tickers = investedTickers.filter(Boolean);
 
     let marketData = {};
     if (tickers.length > 0 && fetchFundamentals) {
@@ -882,10 +913,6 @@ router.get('/briefing-context', async (req, res) => {
     let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp\n';
     let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
 
-    // Build per-ticker day% from snapshot breakdown (24h ago vs latest)
-    const latestBreakdown = latestSnap.breakdown || {};
-    const prev24hBreakdown = snap24h ? (snap24h.breakdown || {}) : {};
-
     investedPositions.forEach(p => {
       const yticker   = p.ticker === 'RSU_META' ? 'META' : p.ticker;
       const md        = marketData[yticker] || {};
@@ -899,19 +926,21 @@ router.get('/briefing-context', async (req, res) => {
       const pnlUSD    = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
 
-      // day% USD: prefer Yahoo live data, fallback to snapshot diff
-      let dayPctPosUSD = md.regularMarketChangePercent != null ? md.regularMarketChangePercent * 100 : null;
-      if (dayPctPosUSD === null) {
-        const curVal  = latestBreakdown[p.ticker]?.value_usd;
-        const prevVal = prev24hBreakdown[p.ticker]?.value_usd;
-        if (curVal != null && prevVal != null && prevVal > 0) dayPctPosUSD = (curVal - prevVal) / prevVal * 100;
-      }
-
-      // day% GBP: from snapshot breakdown (value_gbp)
+      // day% from price_snapshots (latest vs 24h anchor), fallback to Yahoo for USD
+      const psNow  = priceLatestMap[yticker];
+      const ps24h  = price24hMap[yticker];
+      let dayPctPosUSD = null;
       let dayPctPosGBP = null;
-      const curGBP  = latestBreakdown[p.ticker]?.value_gbp;
-      const prevGBP = prev24hBreakdown[p.ticker]?.value_gbp;
-      if (curGBP != null && prevGBP != null && prevGBP > 0) dayPctPosGBP = (curGBP - prevGBP) / prevGBP * 100;
+      if (psNow && ps24h) {
+        const pNowUSD = parseFloat(psNow.price_usd);
+        const p24hUSD = parseFloat(ps24h.price_usd);
+        const pNowGBP = parseFloat(psNow.price_gbp);
+        const p24hGBP = parseFloat(ps24h.price_gbp);
+        if (p24hUSD > 0) dayPctPosUSD = (pNowUSD - p24hUSD) / p24hUSD * 100;
+        if (p24hGBP > 0) dayPctPosGBP = (pNowGBP - p24hGBP) / p24hGBP * 100;
+      } else if (md.regularMarketChangePercent != null) {
+        dayPctPosUSD = md.regularMarketChangePercent * 100;
+      }
 
       totalValUSD += valueUSD;
       totalInvUSD += invUSD;
