@@ -78,6 +78,9 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
 | Feature nueva que toca varias tabs | `core.js` + módulos relevantes |
+| Cambiar/recortar el system prompt del agente | `ai.js` → `aiSendMsg()` (funciones `build*Context`) |
+| Cambiar descripciones/parámetros de tools del agente | `server.js` → `AI_TOOLS` |
+| El prompt caching no funciona / cache_read siempre 0 | `server.js` → `callAnthropic()` (header `anthropic-beta` + formato `system` como array) |
 
 ---
 
@@ -943,14 +946,14 @@ El system prompt le instruye al modelo cuándo usar cada tool:
 
 Cada request al agente genera:
 ```
-[ai-chat] ← request | model: claude-sonnet-4-6 | system: 8432 chars | messages: 6
+[ai-chat] ← request | model: claude-sonnet-4-6 | system: 8880 chars | messages: 6
 [ai-chat] ← user_msg: cuánto invertí en MELI en total?
-[ai-chat] ← system_preview: Sos el asesor financiero...
+[ai-chat] ← system_preview: You are Julián's personal financial advisor...
 [ai-chat] iteración 1 — mensajes: 6
 [ai-chat] ejecutando tool: query_db {"query_type":"transactions_by_ticker",...}
 [ai-chat] tool query_db OK (243ms) | rows: 4 | preview: {...}
 [ai-chat] iteración 2 — mensajes: 8
-[ai-chat] → response | stop: end_turn | iterations: 2 | tokens in: 9841 out: 187
+[ai-chat] → response | stop: end_turn | iterations: 2 | tokens in: 9841 out: 187 | cache_read: 5877
 [ai-chat] → reply_preview: Invertiste un total de...
 [ai-chat] tools usadas: query_db | iteraciones: 2
 ```
@@ -961,6 +964,39 @@ Cada request al agente genera:
 - Con tools: 1 llamada adicional por cada iteración del loop. Típicamente 2 llamadas (1 tool call) o 3 (2 tool calls encadenados).
 - Las llamadas intermedias usan el mismo `max_tokens` configurado — se puede bajar para tool calls intermedias si el costo es un problema.
 - Techo duro: `MAX_TOOL_ITERATIONS = 5`.
+
+### Optimización de tokens (abril 2026)
+
+**Baseline original:** ~7.460 tokens por request.  
+**Estado actual:** ~6.200 tokens primer mensaje, ~390 tokens mensajes 2+ (con cache).
+
+**Cambios realizados:**
+
+1. **AI_TOOLS reescritas en inglés + descriptions recortadas** (`server.js`) — de 2.125 a 1.415 tokens (-710). Las descriptions verbosas en español tokenizaban muy mal (~1.94 chars/token vs ~3.5 en inglés plano).
+
+2. **System prompt en inglés** (`ai.js`, función `aiSendMsg`) — header, PROFILE, CASHFLOW, RULES y fxLine traducidos al inglés. El idioma de respuesta se mantiene español via instrucción explícita `Reply in Spanish`.
+
+3. **VEST_SCHEDULE_PENDING recortado** (`ai.js`, `buildPortfolioContext`) — de todos los vests (16 filas) a próximos 4 + resumen (`...+N vests (Xu gross $Y net $Z through date)`).
+
+4. **buildHealthContext trimado** — notas verbosas eliminadas, labels compactados.
+
+5. **buildMacroContext** — columna `label` (nombres en español) eliminada del TSV.
+
+6. **buildMarketContext** — filas vacías (tickers fallback sin datos live) filtradas.
+
+7. **Prompt caching activado** (`server.js`, `callAnthropic`) — header `anthropic-beta: prompt-caching-2024-07-31` + system prompt como array con `cache_control: { type: 'ephemeral' }`. El cache dura 5 min y se resetea con cada hit. Mensajes 2+ en una sesión activa pagan ~10% del costo del system prompt.
+
+**Cómo medir el costo real:**
+- La consola de Anthropic muestra `input_tokens` brutos (no refleja el descuento del cache).
+- El log de Railway muestra `cache_read: N` cuando hay cache hit — esos N tokens cuestan 10x menos.
+- `GET /api/token-diag` — endpoint de diagnóstico temporal (mide costo con/sin tools con system="x").
+
+**Overhead fijo medido:**
+- Sin nada (system="x", message="x"): 10 tokens
+- AI_TOOLS solos: 1.415 tokens
+- System prompt (~8.880 chars): ~4.780 tokens
+- Total sin cache: ~6.200 tokens
+- Total con cache (turn 2+): ~390 tokens input efectivo
 
 ---
 
