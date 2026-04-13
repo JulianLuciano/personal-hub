@@ -219,20 +219,15 @@ function needsExtendedWatchlist(userMsg) {
   const keywords = [
     // intent
     'watchlist','comprar','agregar','comparar','busco','oportunidad',
-    'qué está barato','que esta barato','análisis','analisis',
+    'qué está barato','que esta barato',
     'fundamentals','fwd pe','forward pe','compro','screener',
     'qué comprarías','que comprarias','dónde metería','donde meteria',
     'alternativa','diversificar','rotar','rotación','rotacion',
     // rioplatense / coloquial
-    'meto','entro','me meto','me tiro','me sumo','pongo plata',
-    'qué hay','que hay','qué ves','que ves','qué mirás','que miras',
+    'pongo plata',
     'vale la pena','conviene','qué conviene','que conviene',
     'fuera del portfolio','afuera del portfolio','por fuera',
     'algo interesante','algo lindo','algo bueno',
-    // themes
-    'latam','argentina','brasil','china','emergentes','bonos','bond',
-    'commodities','defensivo','defensivas','dividendo','dividendos',
-    'uk','cripto','crypto','india',
     // extended tickers (any mention pulls the full extended block)
     'aapl','amzn','tsm','ko','mcd','jnj','xom','vnq','xlk','xlf','xle',
     'soxx','icln','vig','schd','inda','ewz','argt','ilf','fxi','kweb',
