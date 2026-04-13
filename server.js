@@ -1379,6 +1379,38 @@ function callAnthropic(anthropicKey, body) {
   });
 }
 
+// ── DIAGNÓSTICO DE TOKENS — BORRAR DESPUÉS ────────────────────────────────────
+// GET /api/token-diag  →  mide el costo real de tools vs sin tools
+app.get('/api/token-diag', async (req, res) => {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(500).json({ error: 'no key' });
+
+  const SYSTEM = 'x';
+  const MESSAGES = [{ role: 'user', content: 'x' }];
+
+  async function probe(withTools) {
+    const body = {
+      model: 'claude-sonnet-4-6',
+      max_tokens: 10,
+      system: SYSTEM,
+      messages: MESSAGES,
+      ...(withTools ? { tools: AI_TOOLS } : {}),
+    };
+    const r = await callAnthropic(anthropicKey, body);
+    return JSON.parse(r.body).usage?.input_tokens ?? null;
+  }
+
+  const [withTools, withoutTools] = await Promise.all([probe(true), probe(false)]);
+
+  res.json({
+    with_tools:    withTools,
+    without_tools: withoutTools,
+    tools_cost:    withTools - withoutTools,
+    note: 'system="x" + message="x" en ambos casos',
+  });
+});
+// ── FIN DIAGNÓSTICO ───────────────────────────────────────────────────────────
+
 // ── Endpoint principal ───────────────────────────────────────────────────────
 app.post('/api/ai-chat', async (req, res) => {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
