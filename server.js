@@ -968,7 +968,7 @@ Cuando se usa months, NO incluir el parámetro years.`,
         },
         annual_bonus_gbp: {
           type: 'number',
-          description: 'Bono anual en GBP. Si no se especifica, usa el default del perfil (£9500).',
+          description: 'Bono anual en GBP. Si no se especifica, usa el default del perfil (£8000).',
         },
         include_rsu: {
           type: 'boolean',
@@ -1099,7 +1099,7 @@ async function executeRunMontecarlo(input) {
     years,
     months,
     monthly_contribution_gbp = 950,
-    annual_bonus_gbp         = 9500,
+    annual_bonus_gbp         = 8000,
     include_rsu              = true,
     rsu_per_vest_override    = null, // null = calcular dinámicamente; número = override manual del agente
     target_gbp               = null,
