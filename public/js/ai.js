@@ -750,9 +750,9 @@ function aiComputeSignals() {
 }
 
 // ── Alert banner ──────────────────────────────────────────────────────────────
-// Injected dynamically above #aiQuickPrompts (or #aiInputArea if that's absent).
-// Dismissed per session via ×.
+// Header colapsable estilo tool-log. Expandido por defecto, cerrable por sesión.
 let _alertsDismissed = false;
+let _alertsExpanded  = true;
 
 function aiRenderAlerts() {
   const container = document.getElementById('aiAlertBanner');
@@ -781,12 +781,59 @@ function aiRenderAlerts() {
 
   if (alerts.length === 0) { container.style.display = 'none'; return; }
 
-  container.style.display = 'flex';
+  container.style.cssText = 'display:block;flex-shrink:0;border-top:1px solid var(--border);margin:0 0 2px';
   container.innerHTML = '';
 
-  // Pills
+  // ── Header row (siempre visible) ─────────────────────────────────────────
+  const header = document.createElement('div');
+  header.style.cssText = [
+    'display:flex;align-items:center;justify-content:space-between',
+    'padding:5px 12px 5px 12px;cursor:pointer;user-select:none',
+  ].join(';');
+
+  const left = document.createElement('div');
+  left.style.cssText = 'display:flex;align-items:center;gap:5px;flex:1;min-width:0';
+
+  const chevron = document.createElement('span');
+  chevron.style.cssText = 'font-size:10px;color:var(--muted);transition:transform 0.18s;display:inline-block';
+  chevron.textContent = '›';
+  chevron.style.transform = _alertsExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+
+  const label = document.createElement('span');
+  label.style.cssText = 'font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.3px;text-transform:uppercase';
+  label.textContent = 'Alertas';
+
+  const badge = document.createElement('span');
+  badge.style.cssText = [
+    'font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px',
+    'background:var(--surface2);color:var(--muted);border:1px solid var(--border)',
+  ].join(';');
+  badge.textContent = alerts.length;
+
+  left.appendChild(chevron);
+  left.appendChild(label);
+  left.appendChild(badge);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = 'background:none;border:none;color:var(--muted);font-size:16px;line-height:1;padding:0 0 0 8px;cursor:pointer;flex-shrink:0';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Cerrar alertas';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    _alertsDismissed = true;
+    container.style.display = 'none';
+  });
+
+  header.appendChild(left);
+  header.appendChild(closeBtn);
+
+  // ── Pills container (colapsable) ─────────────────────────────────────────
   const pillsWrap = document.createElement('div');
-  pillsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0';
+  pillsWrap.style.cssText = [
+    'display:' + (_alertsExpanded ? 'flex' : 'none'),
+    'flex-wrap:wrap;gap:6px;padding:2px 12px 8px',
+  ].join(';');
+
   alerts.forEach(a => {
     const pill = document.createElement('div');
     pill.style.cssText = [
@@ -800,15 +847,15 @@ function aiRenderAlerts() {
     pillsWrap.appendChild(pill);
   });
 
-  // Dismiss button
-  const closeBtn = document.createElement('button');
-  closeBtn.style.cssText = 'flex-shrink:0;background:none;border:none;color:var(--muted);font-size:18px;line-height:1;padding:0 2px 0 6px;cursor:pointer;align-self:center';
-  closeBtn.textContent = '×';
-  closeBtn.title = 'Cerrar alertas';
-  closeBtn.addEventListener('click', () => { _alertsDismissed = true; container.style.display = 'none'; });
+  // Toggle collapse on header click
+  header.addEventListener('click', () => {
+    _alertsExpanded = !_alertsExpanded;
+    pillsWrap.style.display = _alertsExpanded ? 'flex' : 'none';
+    chevron.style.transform  = _alertsExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+  });
 
+  container.appendChild(header);
   container.appendChild(pillsWrap);
-  container.appendChild(closeBtn);
 }
 
 // Maps a rendered alert to a pre-filled prompt for the input
