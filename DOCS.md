@@ -69,6 +69,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
 | Bug en Monte Carlo del agente (valores, parámetros) | `server.js` (`executeRunMontecarlo`) |
 | Simulación Monte Carlo ignora capital especificado por el usuario | `server.js` (`executeRunMontecarlo` → parámetro `initial_capital_gbp`) |
 | Bug en Monte Carlo del frontend (UI, parámetros, gráfico) | `analytics.js` |
+| `annualFlow` del Health Score incorrecto (flujo anual RSU) | `analytics.js` → `computeHealthData()` + `calcRsuDefault()` |
 | FABs (AI bubble / + transacción) aparecen en tab equivocada | `core.js` → `switchNav` |
 | Bug en servidor (endpoints, proxy Supabase) | `server.js` |
 | Bug en precios / worker no actualiza | `worker.js` |
