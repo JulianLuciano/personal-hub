@@ -729,7 +729,7 @@ function aiComputeSignals() {
     // Individual big movers (abs >= 5%)
     equityAssets.forEach(a => {
       const d = a.dayPct ?? a.dayPctGBP ?? null;
-      if (d != null && Math.abs(d) >= 2) {
+      if (d != null && Math.abs(d) >= 3) {
         const ticker = a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker;
         s.bigMovers.push({ ticker, dayPct: d });
       }
@@ -738,7 +738,7 @@ function aiComputeSignals() {
 
     // Deep red (pnlUSD% <= -10%)
     equityAssets.forEach(a => {
-      if (a.pctUSD != null && a.pctUSD <= -3) {
+      if (a.pctUSD != null && a.pctUSD <= -6) {
         const ticker = a.pos.ticker === 'RSU_META' ? 'META' : a.pos.ticker;
         s.deepRed.push({ ticker, pnlPct: a.pctUSD });
       }
