@@ -225,9 +225,12 @@
   #aiSend:active { transform: scale(0.9); }
   #aiSend svg { width: 16px; height: 16px; }
   .ai-quick-btns {
-    display: flex; flex-wrap: wrap; gap: 6px;
+    display: flex; flex-wrap: nowrap; gap: 6px;
     padding: 0 14px 10px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .ai-quick-btns::-webkit-scrollbar { display: none; }
   .ai-quick-btn {
     font-size: 11px; padding: 5px 10px; border-radius: 100px;
     background: var(--surface2); border: 1px solid var(--border);
