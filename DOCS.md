@@ -71,6 +71,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en swipe-to-delete del historial / confirm popup | `ai.js` + `styles.css` |
 | Bug en mensajes favoritos (star, starred view) | `ai.js` + `server.js` + `styles.css` |
 | Bug en briefing diario (push, contenido, modal) | `notification-worker.js` + `server.js` + `ai.js` |
+| Briefing se abre detrás del chat / z-index incorrecto | `styles.css` → `#briefingModal { z-index: 300 }` + `ai.js` → `openBriefingModal()` cierra `#aiModal` antes de abrir |
 | Bug en modal de briefing (UI, historial, render) | `ai.js` + `index.html` + `styles.css` |
 | Bug en tool calls del agente (query_db, run_montecarlo) | `routes/ai-server.js` (ejecutores de tools) |
 | Bug en loop agentic / iteraciones / tool_use | `routes/ai-server.js` (endpoint `/api/ai-chat`) |
@@ -409,7 +410,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - Las 4 pills copian el texto al input en vez de enviarlo directamente, para que el usuario pueda editar antes de mandar.
 - `aiCopyToInput(msg)` — copia al textarea, ajusta altura, hace focus y mueve el cursor al final.
 - `aiQuick(msg)` — envía directamente (mantenido para uso programático).
-- Pills actuales: Composición · Riesgo · P&L · 💰 Invertir (template con monto editable). Diversificación eliminada.
+- Pills actuales: 📊 Briefing · Composición · Riesgo · P&L · 💰 Invertir (template con monto editable). Diversificación eliminada. La fila scrollea horizontalmente (overflow-x: auto, nowrap) — sin wrap, scrollbar oculta.
 
 **Chat UI:**
 - `openAIChat()` / `closeAIChat()` — abre y cierra el modal (close siempre vuelve a la vista de chat). Al abrir llama `aiRenderAlerts()` para refrescar el banner de alertas.
@@ -464,7 +465,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - El div `#aiAlertBanner` está declarado en `index.html` entre `.ai-quick-btns` y `#aiInputRow`.
 
 **Modal de briefing diario:**
-- `openBriefingModal(content?)` — navega a la tab portfolio y abre el modal `#briefingModal`. Si no se pasa `content`, llama `briefingLoadLatest()`.
+- `openBriefingModal(content?)` — cierra el modal del chat (`#aiModal`) si está abierto, luego abre `#briefingModal` encima (z-index 300 > 200 del chat). Al cerrar el briefing se vuelve a la pantalla que había detrás del chat. Si no se pasa `content`, llama `briefingLoadLatest()`. Accesible desde la pill 📊 Briefing en el chat o desde la notificación push (`?briefing=1`).
 - `briefingLoadLatest()` — fetcha el último registro de `daily_briefings` via `/api/db/daily_briefings?order=date.desc&limit=1`, renderiza con `_briefingRender()`.
 - `briefingToggleHistory()` — alterna entre la vista del último briefing y la lista histórica.
 - `briefingLoadHistory()` — fetcha los últimos 30 briefings; cada card muestra fecha + preview y al tocar carga ese contenido.
