@@ -93,6 +93,11 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Cambiar descripciones/parámetros de tools del agente | `routes/ai-server.js` → `AI_TOOLS` |
 | El prompt caching no funciona / cache_read siempre 0 | `routes/ai-server.js` → `callAnthropic()` (header `anthropic-beta` + formato `system` como array) |
 | Chat falla con 429 o 529 y no reintenta | `routes/ai-server.js` → `callAnthropic()` / `_callAnthropicOnce()` (retry automático) |
+| Bug en briefing-context (datos incorrectos, secciones vacías) | `routes/ai-server.js` → `router.get('/briefing-context', ...)` |
+| NEXT_RSU_VEST muestra $0 | `routes/ai-server.js` → verificar que `tickers` mapea RSU_META→META antes del fetch a Yahoo |
+| day% del briefing incorrecto (muestra 0% o valor de ayer) | `routes/ai-server.js` → `tDayAnchor` (medianoche London). Verificar con: `SELECT ticker, price_usd, captured_at FROM price_snapshots WHERE ticker='RSU_META' AND captured_at <= NOW() - INTERVAL '20 hours' ORDER BY captured_at DESC LIMIT 3` |
+| Macro no aparece en el prompt del briefing | `routes/ai-server.js` → `fetchMacro()` directo (no usa cache HTTP). Verificar en Railway logs: `[briefing-context] macro loaded, tickers: 7` |
+| Briefing truncado (texto cortado a mitad de frase) | `notification-worker.js` → `max_tokens` (debe ser 1500+) |
 
 ---
 
@@ -112,8 +117,8 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `ai.js` | Chat con Claude: builders de contexto, SSE streaming de respuestas, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete y búsqueda fulltext, mensajes favoritos (★), modal de briefing diario, banner de alertas proactivas colapsable. |
 | `server.js` | Express: bootstrap, proxy genérico Supabase, chart downsampling, positions, habits, push notifications, water, jacket proxy. ~270 líneas. |
 | `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
-| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache` para que `ai-server.js` reutilice el mismo estado. |
-| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~620 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
+| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
+| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -482,13 +487,13 @@ Yahoo Finance y caches de market data. Puntos clave:
 - `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC y BRK.B.
 - `fetchMacro(yahooTicker)` — 35 días de historial diario, calcula chg7d/chg30d/trend.
 - Tres caches independientes en memoria: `portfolioCache`, `watchlistCache`, `macroCache` — TTL 1 hora.
-- Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/fetchFundamentals/CACHE_TTL_MS` para que `ai-server.js` reutilice el mismo estado sin duplicar cache.
+- Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchFundamentals/fetchMacro/MACRO_TICKERS/CACHE_TTL_MS` para que `ai-server.js` llame directamente a Yahoo sin HTTP round-trip.
 - Pre-warm de watchlist + macro a los 30s del arranque.
 
 ---
 
 ### `routes/ai-server.js`
-Todo lo de AI server-side (~620 líneas). Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). Contiene:
+Todo lo de AI server-side (~1550 líneas). Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). Contiene:
 
 **Helpers internos compartidos:**
 - `fetchRsuPerVest()` — calcula dinámicamente el valor neto promedio por vest RSU desde `rsu_vests` + precio META + FX. Antes duplicado en los dos Monte Carlo.
@@ -600,7 +605,36 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
 **Endpoints de contexto para el agente AI:**
 - `GET /api/ai-transactions-context` — últimas 5 transacciones + total invertido en mes corriente y anterior en USD y GBP. Devuelve `{ tsv }`. Usado en el system prompt del chat en cada turn.
 - `GET /api/ai-correlation-context` — correlaciones del portfolio a 90d en TSV compacto. Devuelve `{ tsv }` con: `vs_SPY` (correlación de cada posición vs SPY), `vs_portfolio` (aproximación ponderada corr(i, P) ≈ Σ_j w_j × corr(i,j)), `high_corr_pairs` (pares con |r| ≥ 0.7), matriz completa de pares. Replica la lógica de `buildCorrelationContext()` del frontend pero server-side — disponible siempre, independientemente de si el usuario abrió el tab Analytics.
-- `GET /api/briefing-context` — arma el system prompt completo para el briefing diario. Fetcha posiciones, snapshots (day change, 7d, 30d), market fundamentals de las posiciones actuales via `fetchFundamentals()` directamente (no depende del cache del frontend), macro cache, y transacciones recientes. Devuelve `{ systemPrompt }`. Usado exclusivamente por `notification-worker.js`.
+- `GET /api/briefing-context` — arma el system prompt completo para el briefing diario. Autosuficiente: no depende de ningún cache en memoria (funciona aunque la app no haya sido abierta en todo el día). Fetcha en paralelo:
+  - Posiciones, snapshots per-período (latest, ayer-por-fecha-London, 7d, 30d) via Supabase
+  - `price_snapshots` por ticker para day%/7d%/30d% por posición (ancla de día usa medianoche London, no offset fijo de 20h)
+  - `fetchFundamentals()` directamente para cada ticker (mapeando RSU_META→META)
+  - `fetchMacro()` directamente para todos los tickers macro (sin depender del cache HTTP)
+  - `rsu_vests` para el próximo vest pendiente
+  - `daily_briefings` para el briefing del día anterior (instrucción anti-repetición de observación)
+  - Transacciones recientes + totales de mes corriente y anterior
+  - Earnings próximos 30 días desde `nextEarningsDate` de `marketData`
+  
+  **Secciones del system prompt generado:**
+  - `PORTFOLIO` — total (equity+cash desde snapshot), equity_only, fx, day_change USD+GBP (nominal+%), cost_basis (invested+cash), total_pnl USD+GBP (nominal+%), note_pnl
+  - `HISTORICAL_PERFORMANCE` — 7d y 30d en USD y GBP (nominal + %)
+  - `POSITIONS` — tabla con 15 columnas: ticker, category, value, weight%, invested, pnl_usd%, pnl_gbp%, day%_usd, day%_gbp, 7d%_usd, 7d%_gbp, 30d%_usd, 30d%_gbp. 7d/30d usan precio unitario (no valor de posición). Fallback a Yahoo (`fetchMacro`) para tickers sin historial en `price_snapshots`.
+  - `CASH` — posiciones fiat con value_gbp
+  - `PNL_ATTRIBUTION` — por categoría (cripto/acciones/rsu): invested, current, pnl USD+GBP+%
+  - `UPCOMING_EARNINGS` — tickers del portfolio con earnings en los próximos 30 días. RSU_META aparece como `META (RSU)`.
+  - `NEXT_RSU_VEST` — próximo vest: fecha, días_hasta, unidades, gross_usd, net_usd (×53%), net_gbp
+  - `ALLOCATION` — pesos sobre equity + cash líquido (excl. RENT_DEPOSIT y GBP_RECEIVABLE). `deployable_cash` (GBP_LIQUID + USD_CASH) y `emergency_fund` como líneas separadas; emergency incluido en el denominador pero etiquetado como `(not investable)`.
+  - `RECENT_TRANSACTIONS` — últimas 5 + MONTH_INVESTED mes corriente y anterior
+  - `MACRO` — VIX, 10Y/3M UST, GBP/USD, EUR/USD, Nasdaq, FTSE
+  - Briefing de ayer (completo) con instrucción explícita de no repetir la observación concreta
+  
+  **Decisiones de diseño del cálculo:**
+  - Cost basis = invested (non-fiat, FX locked-in) + cash actual (face value). Cash en denominador → P&L neto cero en fiat.
+  - totalGBP del portfolio viene del snapshot nativo (no totalUSD × fxRate de hoy) para evitar distorsión FX.
+  - day% anchor = medianoche London (fin del día anterior), no offset fijo de 20h.
+  - RSU_META mapea a META para Yahoo pero se busca en price_snapshots con ticker original RSU_META.
+  
+  Devuelve `{ systemPrompt }`. Usado exclusivamente por `notification-worker.js`.
 
 **Endpoints de push (VAPID):**
 - `GET /api/push/vapid-public-key` — devuelve la clave pública VAPID al frontend para la suscripción.
@@ -720,7 +754,8 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 
 **Briefing diario (lunes a viernes, 5 min después del cierre NYSE):**
 - `getNYSECloseUTC()` — calcula dinámicamente a qué minuto UTC corresponde las 16:00 ET usando `Intl.DateTimeFormat`. Maneja DST de EEUU y UK automáticamente sin offsets hardcodeados.
-- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-4-6` directamente desde el worker con `max_tokens: 600`. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
+- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-4-6` directamente desde el worker con `max_tokens: 1500`. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
+- Test endpoint: `POST http://notifications-worker-production.up.railway.app/test-briefing` — dispara el briefing inmediatamente sin esperar el cierre NYSE.
 - Variables de entorno adicionales requeridas: `ANTHROPIC_API_KEY`, `SERVER_INTERNAL_URL` (URL del service principal, ej: `https://personal-hub-julian.up.railway.app`).
 
 ---
