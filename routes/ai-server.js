@@ -1091,10 +1091,12 @@ router.get('/briefing-context', async (req, res) => {
     const currStart = `${y}-${String(mo).padStart(2, '0')}-01`;
     const prevMo = mo === 1 ? 12 : mo - 1, prevY = mo === 1 ? y - 1 : y;
     const prevStart = `${prevY}-${String(prevMo).padStart(2, '0')}-01`;
-    const [cmRows, pmRows, yesterdayBriefingRows] = await Promise.all([
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const [cmRows, pmRows, yesterdayBriefingRows, nextVestRows] = await Promise.all([
       sb(`transactions?select=amount_usd,amount_local&date=gte.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`),
       sb(`transactions?select=amount_usd,amount_local&date=gte.${prevStart}&date=lt.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`),
-      sb(`daily_briefings?select=content&order=date.desc&limit=1&date=lt.${new Date().toISOString().slice(0,10)}`),
+      sb(`daily_briefings?select=content&order=date.desc&limit=1&date=lt.${todayISO}`),
+      sb(`rsu_vests?select=vest_date,units&vested=eq.false&vest_date=gte.${todayISO}&order=vest_date.asc&limit=1`),
     ]);
     const sumF = (rows, field) => Array.isArray(rows) ? rows.reduce((s, r) => s + (parseFloat(r[field]) || 0), 0) : 0;
     txSection += `\nMONTH_INVESTED\n`;
@@ -1128,6 +1130,61 @@ router.get('/briefing-context', async (req, res) => {
       earningsList.sort((a, b) => a.date.localeCompare(b.date));
       earningsSection = 'UPCOMING_EARNINGS (next 30 days)\nticker|date\n';
       earningsList.forEach(e => { earningsSection += e.ticker + '|' + e.date + '\n'; });
+    }
+
+    // Next RSU vest section
+    let nextVestSection = '';
+    const nextVest = Array.isArray(nextVestRows) && nextVestRows[0] ? nextVestRows[0] : null;
+    if (nextVest) {
+      const metaMD  = marketData['META'] || {};
+      const metaPrice = metaMD.regularMarketPrice || 0;
+      const units   = parseFloat(nextVest.units) || 0;
+      const grossUSD = units * metaPrice;
+      const netUSD   = grossUSD * 0.53;
+      const netGBP   = netUSD * fxRate;
+      const vestDate = nextVest.vest_date;
+      const daysTo   = Math.ceil((new Date(vestDate) - new Date()) / 86400000);
+      nextVestSection =
+        'NEXT_RSU_VEST\ndate|days_away|units|gross_usd|net_usd|net_gbp\n' +
+        `${vestDate}|${daysTo}d|${units}|${fU(grossUSD)}|${fU(netUSD)}|${fG(netGBP)}\n`;
+    }
+
+    // ALLOCATION incl. liquid cash (excl. RENT_DEPOSIT and GBP_RECEIVABLE)
+    // Allocation: equity + all non-locked cash (GBP_LIQUID + USD_CASH + EMERGENCY_FUND).
+    // Emergency fund shown as its own line so model knows it's not deployable capital.
+    // RENT_DEPOSIT and GBP_RECEIVABLE excluded (locked).
+    const ALLOC_CASH_TICKERS = new Set(['EMERGENCY_FUND', 'GBP_LIQUID', 'USD_CASH']);
+    let deployCashGBP = 0, deployCashUSD = 0;
+    let emergencyGBP  = 0, emergencyUSD  = 0;
+    positions.filter(p => p.category === 'fiat' && ALLOC_CASH_TICKERS.has(p.ticker)).forEach(p => {
+      const qty = parseFloat(p.qty) || 0;
+      const inGBP = p.currency === 'GBP';
+      const usd = inGBP ? qty / fxRate : qty;
+      const gbp = inGBP ? qty : qty * fxRate;
+      if (p.ticker === 'EMERGENCY_FUND') { emergencyUSD += usd; emergencyGBP += gbp; }
+      else                               { deployCashUSD += usd; deployCashGBP += gbp; }
+    });
+    const totalAllocUSD = totalValUSD + deployCashUSD + emergencyUSD; // all non-locked cash in denominator
+    const totalAllocGBP = totalValUSD * fxRate + deployCashGBP + emergencyGBP;
+    let allocationSection = '';
+    if (totalAllocUSD > 0) {
+      allocationSection = 'ALLOCATION (equity + liquid cash, excl. locked cash)\n';
+      allocationSection += `note: weights over $${Math.round(totalAllocUSD).toLocaleString('en-US')} / £${Math.round(totalAllocGBP).toLocaleString('en-US')}\n`;
+      allocationSection += `deployable_cash|${fU(deployCashUSD)}|${fG(deployCashGBP)}|${(deployCashUSD / totalAllocUSD * 100).toFixed(1)}%\n`;
+      allocationSection += `emergency_fund|${fU(emergencyUSD)}|${fG(emergencyGBP)}|${(emergencyUSD / totalAllocUSD * 100).toFixed(1)}% (not investable)\n`;
+      // equity positions sorted by weight descending
+      const posWeights = investedPositions.map(p => {
+        const yticker = p.ticker === 'RSU_META' ? 'META' : p.ticker;
+        const md = marketData[yticker] || {};
+        const price = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+        const qty = parseFloat(p.qty) || 0;
+        const isGBP = p.pricing_currency === 'GBP';
+        const valueUSD = isGBP ? price * qty / fxRate : price * qty;
+        return { ticker: p.ticker, valueUSD };
+      }).sort((a, b) => b.valueUSD - a.valueUSD);
+      posWeights.forEach(({ ticker, valueUSD }) => {
+        allocationSection += ticker + '|' + fU(valueUSD) + '|' + fG(valueUSD * fxRate) + '|' + (valueUSD / totalAllocUSD * 100).toFixed(1) + '%\n';
+      });
     }
 
     // totalUSD/totalGBP from snapshot already includes cash (worker saves full portfolio total)
@@ -1201,6 +1258,8 @@ router.get('/briefing-context', async (req, res) => {
       posSection + '\n' + cashSection + '\n' +
       (pnlAttrSection   ? pnlAttrSection   + '\n' : '') +
       (earningsSection  ? earningsSection  + '\n' : '') +
+      (nextVestSection  ? nextVestSection  + '\n' : '') +
+      (allocationSection ? allocationSection + '\n' : '') +
       txSection + '\n\n' +
       (macroSection ? macroSection : '');
 
