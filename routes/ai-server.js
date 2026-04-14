@@ -1123,7 +1123,8 @@ router.get('/briefing-context', async (req, res) => {
       if (md.nextEarningsDate) {
         const ed = new Date(md.nextEarningsDate);
         if (ed >= now30 && ed <= in30d) {
-          earningsList.push({ ticker: p.ticker, date: md.nextEarningsDate });
+          const displayTicker = p.ticker === 'RSU_META' ? 'META (RSU)' : p.ticker;
+          earningsList.push({ ticker: displayTicker, date: md.nextEarningsDate });
         }
       }
     });
