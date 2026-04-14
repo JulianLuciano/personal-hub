@@ -897,7 +897,8 @@ router.get('/briefing-context', async (req, res) => {
     const chg30dGBP    = snap30dGBP > 0 ? ((totalGBP - snap30dGBP) / snap30dGBP * 100) : null;
 
     const investedPositions = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
-    const tickers = investedTickers.filter(Boolean);
+    // Map RSU_META → META for Yahoo fetches; marketData keys use the Yahoo ticker
+    const tickers = [...new Set(investedTickers.filter(Boolean).map(t => t === 'RSU_META' ? 'META' : t))];
 
     let marketData = {};
     if (tickers.length > 0 && fetchFundamentals) {
