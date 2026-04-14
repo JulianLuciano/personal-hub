@@ -1091,9 +1091,10 @@ router.get('/briefing-context', async (req, res) => {
     const currStart = `${y}-${String(mo).padStart(2, '0')}-01`;
     const prevMo = mo === 1 ? 12 : mo - 1, prevY = mo === 1 ? y - 1 : y;
     const prevStart = `${prevY}-${String(prevMo).padStart(2, '0')}-01`;
-    const [cmRows, pmRows] = await Promise.all([
+    const [cmRows, pmRows, yesterdayBriefingRows] = await Promise.all([
       sb(`transactions?select=amount_usd,amount_local&date=gte.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`),
       sb(`transactions?select=amount_usd,amount_local&date=gte.${prevStart}&date=lt.${currStart}&type=in.(BUY,RSU_VEST)&limit=500`),
+      sb(`daily_briefings?select=content&order=date.desc&limit=1&date=lt.${new Date().toISOString().slice(0,10)}`),
     ]);
     const sumF = (rows, field) => Array.isArray(rows) ? rows.reduce((s, r) => s + (parseFloat(r[field]) || 0), 0) : 0;
     txSection += `\nMONTH_INVESTED\n`;
@@ -1103,6 +1104,31 @@ router.get('/briefing-context', async (req, res) => {
     const today = new Date().toLocaleDateString('es-AR', {
       timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
+
+    // Yesterday's briefing content
+    const yesterdayBriefing = Array.isArray(yesterdayBriefingRows) && yesterdayBriefingRows[0]
+      ? yesterdayBriefingRows[0].content : null;
+
+    // Upcoming earnings within 30 days for portfolio tickers
+    const now30 = new Date();
+    const in30d = new Date(now30.getTime() + 30 * 86400000);
+    let earningsSection = '';
+    const earningsList = [];
+    investedPositions.forEach(p => {
+      const yticker = p.ticker === 'RSU_META' ? 'META' : p.ticker;
+      const md = marketData[yticker] || {};
+      if (md.nextEarningsDate) {
+        const ed = new Date(md.nextEarningsDate);
+        if (ed >= now30 && ed <= in30d) {
+          earningsList.push({ ticker: p.ticker, date: md.nextEarningsDate });
+        }
+      }
+    });
+    if (earningsList.length > 0) {
+      earningsList.sort((a, b) => a.date.localeCompare(b.date));
+      earningsSection = 'UPCOMING_EARNINGS (next 30 days)\nticker|date\n';
+      earningsList.forEach(e => { earningsSection += e.ticker + '|' + e.date + '\n'; });
+    }
 
     // totalUSD/totalGBP from snapshot already includes cash (worker saves full portfolio total)
     const portfolioSummary =
@@ -1161,17 +1187,20 @@ router.get('/briefing-context', async (req, res) => {
     }
 
     const systemPrompt =
-      `Sos el asesor financiero personal de Julián. Hoy es ${today}. La bolsa de Nueva York acaba de cerrar.\n\n` +
+      `Sos el asesor financiero personal de Julián. Vive en Londres. Hoy es ${today}. La bolsa de Nueva York acaba de cerrar.\n\n` +
       `Generá un briefing financiero diario conciso en español. Máximo 600 palabras. Usá markdown (negrita, bullets).\n` +
       `Estructura:\n` +
       `1. **Cierre de mercado** — macro: VIX, índices, tasas, GBP/USD\n` +
       `2. **Tu portfolio hoy** — valor total, variación del día en USD (nominal + %) y GBP (nominal + %), P&L acumulado en USD (nominal + %) y GBP (nominal + %), posiciones más impactadas con day%_usd y day%_gbp\n` +
       `3. **Una observación concreta** — algo accionable o a monitorear\n\n` +
-      `Sé directo. No repitas datos que ya están en los números.\n\n` +
+      `Sé directo. No repitas datos que ya están en los números.\n` +
+      (yesterdayBriefing ? `La observación concreta de ayer fue:\n${yesterdayBriefing}\nNo repitas esa observación hoy — buscá un ángulo distinto.\n` : '') +
+      `\n` +
       portfolioSummary + '\n' +
-      (histSection   ? histSection   + '\n' : '') +
+      (histSection      ? histSection      + '\n' : '') +
       posSection + '\n' + cashSection + '\n' +
-      (pnlAttrSection ? pnlAttrSection + '\n' : '') +
+      (pnlAttrSection   ? pnlAttrSection   + '\n' : '') +
+      (earningsSection  ? earningsSection  + '\n' : '') +
       txSection + '\n\n' +
       (macroSection ? macroSection : '');
 
