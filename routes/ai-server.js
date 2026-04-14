@@ -810,18 +810,31 @@ router.get('/briefing-context', async (req, res) => {
   const sgn = (v, decimals = 2) => (v >= 0 ? '+' : '') + Number(v).toFixed(decimals) + '%';
 
   try {
-    // Targeted snapshot queries: one anchor per period fetched directly
-    // 360 snaps/day → limit=300 only covers ~20h. Fetch per-period anchors instead.
+    // Targeted snapshot queries: one anchor per period fetched directly.
+    // Day anchor: last snapshot of YESTERDAY (London date), not a fixed 20h offset.
+    // Fixes the bug where "now - 20h" lands on today's early-morning snapshot
+    // (post-open price) instead of yesterday's close.
     const now0 = new Date();
     const iso  = d => d.toISOString();
-    const t24h = iso(new Date(now0 - 20 * 3600000));
+
+    // Compute London offset dynamically (GMT=0, BST=+1)
+    const londonOffset = (() => {
+      const s = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', timeZoneName: 'shortOffset' })
+        .formatToParts(now0).find(p => p.type === 'timeZoneName').value;
+      return s === 'GMT+1' ? 60 : 0;
+    })();
+    const londonNow   = new Date(now0.getTime() + londonOffset * 60000);
+    const londonToday = londonNow.toISOString().slice(0, 10);
+    // Anchor = midnight London today = end of yesterday
+    const tDayAnchor  = new Date(londonToday + 'T00:00:00.000Z').toISOString();
+
     const t7d  = iso(new Date(now0 - 6  * 86400000));
     const t30d = iso(new Date(now0 - 29 * 86400000));
 
     const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows] = await Promise.all([
       sb('positions?select=ticker,qty,avg_cost_usd,initial_investment_usd,initial_investment_gbp,category,pricing_currency,currency&order=ticker.asc'),
       sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1'),
-      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t24h}&order=captured_at.desc&limit=1`),
+      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t7d}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t30d}&order=captured_at.desc&limit=1`),
       sb('transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5'),
@@ -850,7 +863,7 @@ router.get('/briefing-context', async (req, res) => {
     const limit = investedTickers.length * 2;
     const [priceLatest, price24h, price7d, price30d] = tickerIn.length > 0 ? await Promise.all([
       sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&order=captured_at.desc&limit=${limit}`),
-      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t24h}&order=captured_at.desc&limit=${limit}`),
+      sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=${limit}`),
       sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t7d}&order=captured_at.desc&limit=${limit}`),
       sb(`price_snapshots?select=ticker,price_usd,price_gbp,fx_rate&ticker=in.(${tickerIn})&captured_at=lte.${t30d}&order=captured_at.desc&limit=${limit}`),
     ]) : [[], [], [], []];
