@@ -1847,10 +1847,10 @@ let briefingHistoryLoaded = false;
 let briefingHistoryVisible = false;
 
 function openBriefingModal(content = null) {
-  // Navegar a portfolio si no estamos ahí
-  const portfolioNav = document.querySelector('.nav-item[onclick*="portfolio"]');
-  if (portfolioNav && !portfolioNav.classList.contains('active')) {
-    switchNav(portfolioNav, 'portfolio');
+  // Close AI chat if open so briefing appears on top without blocking
+  const aiModal = document.getElementById('aiModal');
+  if (aiModal && aiModal.classList.contains('open')) {
+    aiModal.classList.remove('open');
   }
 
   document.getElementById('briefingModal').classList.add('open');
