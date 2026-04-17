@@ -642,13 +642,9 @@ function renderSaldos() {
               style="font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap;flex-shrink:0">⚡</button>
             ` : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-            <input type="checkbox" id="saldo-reinvest-${pos.ticker}"
-              style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-            <label for="saldo-reinvest-${pos.ticker}"
-              style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none">
-              Reinversión (no suma al cost basis)
-            </label>
+          <div class="reinvest-row" style="margin-top:2px">
+            <input type="checkbox" id="saldo-reinvest-${pos.ticker}">
+            <label for="saldo-reinvest-${pos.ticker}">Reinversión — no suma al cost basis</label>
           </div>
           <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
         </div>

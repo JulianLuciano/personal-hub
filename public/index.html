@@ -1396,13 +1396,9 @@
           <input id="txNotes" type="text" placeholder="Opcional">
         </div>
 
-        <div id="txReinvestRow" style="display:none;align-items:center;gap:8px;padding:2px 0 6px">
-          <input type="checkbox" id="txIsReinvestment"
-            style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-          <label for="txIsReinvestment"
-            style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none">
-            Reinversión — no suma al cost basis del portfolio
-          </label>
+        <div id="txReinvestRow" class="reinvest-row" style="display:none">
+          <input type="checkbox" id="txIsReinvestment">
+          <label for="txIsReinvestment">Reinversión — no suma al cost basis del portfolio</label>
         </div>
 
         <div class="tx-status" id="txStatus"></div>

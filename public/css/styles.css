@@ -1662,6 +1662,29 @@
   cursor: pointer;
 }
 
+/* Reinvestment toggle — shared by saldo cards and tx form */
+.reinvest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.reinvest-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+.reinvest-row label {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.3;
+}
+
 /* ═══════════════════════════════════════════════════════════
    HABITS MODULE — agregar al final de styles.css
    Todos los selectores tienen prefijo h- para no colisionar
