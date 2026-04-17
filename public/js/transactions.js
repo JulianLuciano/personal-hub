@@ -38,6 +38,7 @@ function openTxPanel() {
   _txPricingCurrency = 'USD';
   setPricingCurrency('USD');
   setDbPricingCurrency('USD');
+  onTxTypeChange(); // sync reinvest row visibility with current type
   document.getElementById('txOverlay').classList.add('open');
   document.getElementById('txPanel').classList.add('open');
 }
@@ -642,14 +643,27 @@ function renderSaldos() {
               style="font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap;flex-shrink:0">⚡</button>
             ` : ''}
           </div>
-          <div class="reinvest-row" style="margin-top:2px">
-            <input type="checkbox" id="saldo-reinvest-${pos.ticker}">
-            <label for="saldo-reinvest-${pos.ticker}">Reinversión — no suma al cost basis</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button
+              id="saldo-reinvest-btn-${pos.ticker}"
+              onclick="toggleSaldoReinvest('${pos.ticker}');event.stopPropagation()"
+              class="saldo-reinvest-pill">
+              Reinversión
+            </button>
+            <input type="checkbox" id="saldo-reinvest-${pos.ticker}" style="display:none">
           </div>
           <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
         </div>
       </div>`;
   }).join('');
+}
+
+function toggleSaldoReinvest(ticker) {
+  const chk = document.getElementById('saldo-reinvest-' + ticker);
+  const btn = document.getElementById('saldo-reinvest-btn-' + ticker);
+  if (!chk || !btn) return;
+  chk.checked = !chk.checked;
+  btn.classList.toggle('active', chk.checked);
 }
 
 async function fetchSaldoFx(ticker) {
