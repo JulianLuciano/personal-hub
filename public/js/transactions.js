@@ -565,7 +565,7 @@ function switchTxTab(tab) {
     title.textContent = 'Saldos';
     loadSaldos();
   } else {
-    txForm.style.display        = 'block';
+    txForm.style.display        = 'flex';
     if (txHistSection) txHistSection.style.display = 'block';
     saldosPane.style.display    = 'none';
     tabTx.classList.add('active');
