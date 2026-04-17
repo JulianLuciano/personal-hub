@@ -190,6 +190,8 @@ app.post('/api/positions/manual', async (req, res) => {
       local_currency:   pos.currency,
       pricing_currency: pos.currency,
       fee_local:        0,
+      exchange:         null,
+      broker:           '',
       notes:            notes || null,
     };
 
