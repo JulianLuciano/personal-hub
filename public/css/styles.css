@@ -1496,9 +1496,9 @@
 .tx-status {
   font-size: 13px;
   text-align: center;
-  min-height: 18px;
   color: var(--muted);
 }
+.tx-status:empty { display: none; }
 .tx-status.ok  { color: var(--accent3); }
 .tx-status.err { color: var(--accent2); }
 
