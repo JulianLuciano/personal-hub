@@ -577,11 +577,12 @@ function renderSaldos() {
     return;
   }
 
-  const rate = FX_RATE || 0.79;
+  const rate = FX_RATE || 0.79;  // GBP-per-USD, used for display conversion
 
   listEl.innerHTML = _saldosData.map(pos => {
     const meta        = TICKER_META[pos.ticker] || { name: pos.name || pos.ticker, logo: '💰' };
     const isGBP       = pos.currency === 'GBP';
+    const isUSD       = pos.currency === 'USD';
     const qty         = Number(pos.qty) || 0;
     const valueUSD    = isGBP ? qty / rate : qty;
     const valueGBP    = isGBP ? qty : qty * rate;
@@ -589,11 +590,21 @@ function renderSaldos() {
     const secSymbol   = isGBP ? '$' : '£';
     const secVal      = isGBP ? valueUSD : valueGBP;
 
+    // FX display: always "USD per GBP" (~1.27), i.e. 1/FX_RATE
+    // pos.fx_gbp_usd_avg is stored as USD-per-GBP in the DB (same convention as transactions)
+    const fxDisplay = pos.fx_gbp_usd_avg
+      ? Number(pos.fx_gbp_usd_avg).toFixed(5)
+      : (1 / rate).toFixed(5);
+
     const logoHtml = TICKER_META[pos.ticker]?.logoUrl
       ? `<img src="${TICKER_META[pos.ticker].logoUrl}" style="width:28px;height:28px;border-radius:50%;object-fit:cover"
            onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
          <span style="display:none;font-size:22px">${meta.logo || '💰'}</span>`
       : `<span style="font-size:22px">${meta.logo || '💰'}</span>`;
+
+    // Show FX row for both GBP and USD positions
+    const showFxRow = isGBP || isUSD;
+    const fxLabel   = isGBP ? 'FX £→$' : 'FX $→£';
 
     return `
       <div class="saldo-card" id="saldo-${pos.ticker}" onclick="toggleSaldoEdit('${pos.ticker}')">
@@ -612,17 +623,37 @@ function renderSaldos() {
           <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
             value="${qty}" step="${isGBP ? 100 : 1}" placeholder="${currSymbol}0"
             onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')">
-          ${isGBP ? `<div class="saldo-fx-row">
-            <span style="font-size:11px;color:var(--muted)">FX £→$</span>
+          ${showFxRow ? `<div class="saldo-fx-row" style="display:flex;align-items:center;gap:6px;margin-top:6px">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">${fxLabel}</span>
             <input class="saldo-fx-input" id="saldo-fx-${pos.ticker}" type="number"
-              value="${Number(pos.fx_gbp_usd_avg || FX_RATE).toFixed(5)}" step="0.001" placeholder="1.34"
-              style="width:72px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-align:right">
+              value="${fxDisplay}" step="0.0001" placeholder="1.3400"
+              style="width:80px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-align:right">
+            <button onclick="fetchSaldoFx('${pos.ticker}');event.stopPropagation()"
+              id="saldo-fx-btn-${pos.ticker}"
+              style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap">⚡ Live</button>
           </div>` : ''}
           <button class="saldo-cancel-btn" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
           <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
         </div>
       </div>`;
   }).join('');
+}
+
+async function fetchSaldoFx(ticker) {
+  const btn   = document.getElementById('saldo-fx-btn-' + ticker);
+  const input = document.getElementById('saldo-fx-' + ticker);
+  if (!input) return;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res  = await fetch('/api/market-data?tickers=GBPUSD%3DX');
+    const json = await res.json();
+    const fx   = json.data?.['GBPUSD=X']?.regularMarketPrice;
+    if (fx) input.value = fx.toFixed(5);
+  } catch(e) {
+    // silently fail — user can type manually
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Live'; }
+  }
 }
 
 function toggleSaldoEdit(ticker) {
@@ -633,6 +664,8 @@ function toggleSaldoEdit(ticker) {
   document.querySelectorAll('.saldo-card.editing').forEach(c => c.classList.remove('editing'));
   if (!isEditing) {
     card.classList.add('editing');
+    // Auto-fetch live FX when opening the card
+    fetchSaldoFx(ticker);
   }
 }
 
@@ -648,9 +681,9 @@ async function saveSaldo(ticker) {
     return;
   }
 
-  // Read FX input if present (GBP positions only)
+  // Read FX input if present (GBP and USD positions)
   const fxInp  = document.getElementById('saldo-fx-' + ticker);
-  const fxRate = fxInp ? (parseFloat(fxInp.value) || FX_RATE) : undefined;
+  const fxRate = fxInp ? (parseFloat(fxInp.value) || (1 / (FX_RATE || 0.79))) : undefined;
 
   statusEl.style.color = 'var(--muted)';
   statusEl.textContent = 'Guardando...';

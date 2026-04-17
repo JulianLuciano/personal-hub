@@ -157,15 +157,24 @@ app.post('/api/positions/manual', async (req, res) => {
       return res.json({ ok: true, data: [], message: 'Sin cambios' });
     }
 
-    // FX rate: use provided value, fallback to position's fx_gbp_usd_avg, then 1 for USD
-    const fxToUsd = isGBPFiat
+    // FX rate (USD-per-GBP convention, ~1.27):
+    // - GBP position: provided fx_rate, fallback to stored fx_gbp_usd_avg
+    // - USD position: same FX to compute GBP equivalent (amount_local = delta / fxToUsd)
+    const fxToUsd = isGBPFiat || isUSDFiat
       ? (parseFloat(fx_rate) || parseFloat(pos.fx_gbp_usd_avg) || 1.34)
       : 1;
 
-    const absDelta   = Math.abs(delta);
-    const txType     = delta > 0 ? 'DEPOSIT' : 'WITHDRAWAL';
-    const amountLocal = absDelta;                              // GBP or USD amount
-    const amountUsd   = Math.round(absDelta * fxToUsd * 100) / 100;
+    const absDelta = Math.abs(delta);
+    const txType   = delta > 0 ? 'DEPOSIT' : 'WITHDRAWAL';
+
+    // GBP position: amount_local = GBP, amount_usd = GBP * fxToUsd
+    // USD position: amount_local = GBP equivalent = USD / fxToUsd, amount_usd = USD delta
+    const amountLocal = isUSDFiat
+      ? Math.round(absDelta / fxToUsd * 100) / 100   // USD → GBP
+      : absDelta;                                      // GBP as-is
+    const amountUsd = isUSDFiat
+      ? absDelta                                       // USD as-is
+      : Math.round(absDelta * fxToUsd * 100) / 100;   // GBP → USD
 
     // Insert transaction to track the movement
     const txPayload = {
