@@ -89,6 +89,9 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en tracker de agua (UI, botones, barra) | `habits.js` |
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
+| Bug en saldo fiat (FX promedio incorrecto, investment desincronizado) | `server.js` → `/api/positions/manual` + `recalculator.js` + `transactions.js` → `saveSaldo()` |
+| Saldo actualizado no refleja en header total | `portfolio.js` → `totalGBP` (bottom-up desde `totalUSD * FX_RATE`, no del snapshot) |
+| Línea "Libras" inflada en PnL attribution | `portfolio.js` → `renderPnlAttribution()` (excluir RENT_DEPOSIT y GBP_RECEIVABLE) |
 | Feature nueva que toca varias tabs | `core.js` + módulos relevantes |
 | Cambiar/recortar el system prompt del agente | `ai.js` → `aiSendMsg()` (funciones `build*Context`, `_cachedSystemPrompt`) |
 | Cambiar descripciones/parámetros de tools del agente | `routes/ai-server.js` → `AI_TOOLS` |
@@ -121,7 +124,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
 | `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
-| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. |
+| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
 | `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30, agua cada ~90 min con lógica adaptativa, y briefing financiero 5 min después del cierre NYSE (lun-vie). |
 
@@ -1210,3 +1213,70 @@ Claude Code es un agente que corre en tu terminal, puede leer/escribir archivos 
 - **Agente de DB** — manejo de migraciones de schema en Supabase
 
 Para discutir esto en detalle, una vez que el código refactorizado esté en producción y funcionando bien.
+---
+
+## Arquitectura de saldos fiat (abril 2026)
+
+### Contexto
+
+Antes de este cambio, las posiciones fiat (GBP_LIQUID, EMERGENCY_FUND, RENT_DEPOSIT, USD_CASH) eran `managed_by = 'manual'` y se actualizaban con un PATCH directo a `qty` en `positions`. Esto causaba que `initial_investment` se desincronizara del saldo real, inflando el PnL attribution (especialmente la línea "Libras" en modo histórico USD).
+
+### Nueva arquitectura
+
+Las posiciones fiat ahora son `managed_by = 'transactions'`, igual que los activos de renta variable. Cada cambio de saldo genera una transaction de tipo `DEPOSIT` o `WITHDRAWAL`, y el recalculator reconstruye la posición desde cero — incluyendo `fx_gbp_usd_avg` ponderado por monto.
+
+**Invariante:** `initial_investment_gbp = qty acumulado` y `fx_gbp_usd_avg = promedio ponderado del FX al momento de cada movimiento`. Nunca se desincroniza.
+
+### Tipos de transaction nuevos
+
+| type | Cuándo |
+|---|---|
+| `DEPOSIT` | El saldo sube (delta > 0) |
+| `WITHDRAWAL` | El saldo baja (delta < 0) |
+
+El recalculator maneja DEPOSIT igual que BUY y WITHDRAWAL igual que SELL (descuenta costo proporcional al qty retirado).
+
+### Flujo al guardar un saldo
+
+1. Usuario edita el importe en el panel Saldos y toca Guardar
+2. `saveSaldo()` en `transactions.js` manda `POST /api/positions/manual` con `{ ticker, qty, fx_rate }`
+3. `server.js` lee el qty actual, calcula `delta = newQty - currentQty`
+4. Inserta una transaction de DEPOSIT o WITHDRAWAL con `amount_local = |delta|`, `amount_usd = |delta| * fxToUsd`, `exchange = null`, `broker = ''`
+5. Cambia `managed_by = 'transactions'` en la posición (solo la primera vez)
+6. Llama a `recalculatePositions()` — reconstruye qty, avg_cost, fx_gbp_usd_avg, initial_investment desde todas las transactions
+
+### FX rate
+
+- Se autocompleta al abrir el card con un fetch live a `/api/market-data?tickers=GBPUSD%3DX`
+- El usuario puede editarlo manualmente antes de guardar
+- Botón ⚡ para refrescar
+- Para USD_CASH: `amount_local (GBP) = delta / fxToUsd`, `amount_usd = delta`
+- Para GBP fiat: `amount_local (GBP) = delta`, `amount_usd = delta * fxToUsd`
+
+### totalGBP en el header
+
+`totalGBP` se calcula bottom-up desde `totalUSD * FX_RATE` en `portfolio.js` — no desde el snapshot. Esto hace que cambios de saldo se reflejen inmediatamente al recargar sin esperar el siguiente ciclo del worker (15 min).
+
+### Migración DB (única vez, abril 2026)
+
+```sql
+-- Transactions iniciales para posiciones con saldo existente
+INSERT INTO transactions (...) VALUES
+  ('2025-09-30', 'RENT_DEPOSIT', 'DEPOSIT', 2368, 3192.06, 1.34800, ...),
+  ('2024-12-01', 'EMERGENCY_FUND', 'DEPOSIT', 2500, 3350.00, 1.34000, ...),
+  ('2026-04-13', 'EMERGENCY_FUND', 'DEPOSIT', 500, 671.71, 1.34342999, ...);
+
+-- Migrar managed_by
+UPDATE positions SET managed_by = 'transactions'
+WHERE ticker IN ('RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID', 'USD_CASH');
+```
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| Línea "Libras" inflada en PnL attribution USD | `portfolio.js` → `renderPnlAttribution()` | RENT_DEPOSIT y GBP_RECEIVABLE excluidos del cómputo de FX P&L |
+| Saldo actualizado no aparece en total del header | `portfolio.js` | `totalGBP` ahora es bottom-up, no del snapshot |
+| FX input del saldo card muestra ~0.79 en vez de ~1.27 | `transactions.js` → `renderSaldos()` | Usar `pos.fx_gbp_usd_avg` o `1/FX_RATE` como fallback |
+| transaction fiat falla con NOT NULL en broker | `server.js` → `txPayload` | `broker: ''` siempre, `exchange: null` |
+| Recalculate no toca posiciones fiat | `recalculator.js` | Agregar casos DEPOSIT y WITHDRAWAL al loop |
