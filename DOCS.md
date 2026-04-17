@@ -89,6 +89,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en tracker de agua (UI, botones, barra) | `habits.js` |
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
+| Cost basis del portfolio inflado tras reinversión | `recalculator.js` + `transactions.js` → marcar `is_reinvestment = true` en BUY/DEPOSIT/WITHDRAWAL de la operación |
 | Bug en saldo fiat (FX promedio incorrecto, investment desincronizado) | `server.js` → `/api/positions/manual` + `recalculator.js` + `transactions.js` → `saveSaldo()` |
 | Saldo actualizado no refleja en header total | `portfolio.js` → `totalGBP` (bottom-up desde `totalUSD * FX_RATE`, no del snapshot) |
 | Línea "Libras" inflada en PnL attribution | `portfolio.js` → `renderPnlAttribution()` (excluir RENT_DEPOSIT y GBP_RECEIVABLE) |
@@ -124,7 +125,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
 | `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
-| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. |
+| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo ignorando transacciones con `is_reinvestment = true`. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
 | `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30, agua cada ~90 min con lógica adaptativa, y briefing financiero 5 min después del cierre NYSE (lun-vie). |
 
@@ -882,8 +883,8 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 
 | Tabla | Qué guarda |
 |---|---|
-| `positions` | Una fila por activo. Qty, avg_cost, initial_investment, managed_by. |
-| `transactions` | Historial completo de compras/ventas/vests. |
+| `positions` | Una fila por activo. Qty, avg_cost, initial_investment, net_invested, managed_by. |
+| `transactions` | Historial completo de compras/ventas/vests. Incluye `is_reinvestment` para distinguir capital fresco de ganancias reubicadas. |
 | `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). |
 | `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). |
 | `rsu_vests` | Schedule de vesting de RSUs META. |
@@ -1144,6 +1145,105 @@ Cada request al agente genera:
 - Total con cache (turn 2+): ~390 tokens input efectivo
 
 ---
+
+---
+
+## Arquitectura de reinversión y cost basis (abril 2026)
+
+### Problema
+
+Cuando se vende un activo con ganancias y se reinvierte en otro, el capital nuevo que entra al portfolio es cero — solo se reubicaron ganancias ya existentes. Sin embargo, si el BUY de destino se registra con el precio de mercado pagado, el cost basis total del portfolio se infla artificialmente. Ej: compraste A por £100, sube a £150, vendés y comprás B con esos £150 → el cost basis debería seguir siendo £100, no £150.
+
+### Solución: campo `is_reinvestment`
+
+Se agregó `is_reinvestment BOOLEAN DEFAULT false` a la tabla `transactions`. Cuando está en `true`, el recalculator acumula la transacción en `initial_investment` (para el P&L de la posición individual) pero **no** en `net_invested` (el cost basis real del portfolio).
+
+### Dos acumuladores en el recalculator
+
+| Acumulador | Qué incluye | Usado para |
+|---|---|---|
+| `initial_investment_gbp/usd` | Todas las transacciones | `avg_cost` y P&L de la posición individual |
+| `net_invested_gbp/usd` | Solo `is_reinvestment = false` | Cost basis total del portfolio en `portfolio.js` |
+
+`RSU_VEST` siempre suma a `net_invested` independientemente del flag — los RSUs son siempre capital real.  
+`SELL` y `WITHDRAWAL` descuentan de ambos acumuladores proporcionalmente.
+
+### Cost basis en portfolio.js
+
+El bloque de cost basis usa `net_invested_gbp/usd` para **todas** las posiciones (fiat y non-fiat). Fallback a `qty` (fiat) o `initial_investment` (non-fiat) para rows legacy sin el campo.
+
+### Cómo registrar una reinversión
+
+**Caso simple — SELL directo a BUY:**
+
+| # | Tipo | Ticker | is_reinvestment |
+|---|---|---|---|
+| 1 | `SELL` | Activo C | `false` |
+| 2 | `BUY` | Activo A | `true` |
+
+**Caso con paso por cash (días entre venta y compra):**
+
+| # | Tipo | Ticker | is_reinvestment |
+|---|---|---|---|
+| 1 | `SELL` | Activo C | `false` |
+| 2 | `DEPOSIT` | GBP_LIQUID | `true` |
+| 3 | `WITHDRAWAL` | GBP_LIQUID | `true` |
+| 4 | `BUY` | Activo A | `true` |
+
+El flag viaja con el capital durante todo su recorrido. El WITHDRAWAL también necesita el flag porque sino descuenta de un `net_invested` que nunca subió, dejándolo negativo.
+
+**Reinversión parcial — el resto se queda en cash:**
+
+Si vendés £150 y solo reinvertís £100 en A, dejando £50 en GBP_LIQUID:
+
+| # | Tipo | Ticker | is_reinvestment | Monto |
+|---|---|---|---|---|
+| 1 | `SELL` | Activo C | `false` | £150 |
+| 2 | `BUY` | Activo A | `true` | £100 |
+| 3 | `DEPOSIT` | GBP_LIQUID | `true` | £50 |
+
+Los £50 en cash también van con flag — son parte de las ganancias reinvertidas, no capital fresco.
+
+**Si no reinvertís (retirás el cash al banco):**
+
+| # | Tipo | Ticker | is_reinvestment |
+|---|---|---|---|
+| 1 | `SELL` | Activo C | `false` |
+| 2 | `DEPOSIT` | GBP_LIQUID | `false` ← capital real |
+| 3 | `WITHDRAWAL` | GBP_LIQUID | `false` ← salida real |
+
+En este caso el DEPOSIT sin flag sube el cost basis (el cash es capital real), y el WITHDRAWAL sin flag lo baja de vuelta. Net cero, correcto.
+
+### Migración DB (única vez, abril 2026)
+
+```sql
+ALTER TABLE transactions ADD COLUMN is_reinvestment BOOLEAN DEFAULT false;
+ALTER TABLE positions ADD COLUMN net_invested_usd NUMERIC;
+ALTER TABLE positions ADD COLUMN net_invested_gbp NUMERIC;
+
+-- Popular net_invested con los valores históricos (todos son capital fresco)
+UPDATE positions
+SET
+  net_invested_usd = initial_investment_usd,
+  net_invested_gbp = initial_investment_gbp
+WHERE managed_by = 'transactions'
+  AND initial_investment_gbp IS NOT NULL;
+```
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `recalculator.js` | Acumulador paralelo `net_invested`. BUY/DEPOSIT con flag lo saltean. RSU_VEST siempre suma. SELL/WITHDRAWAL descuentan de ambos. `stateToRow` escribe los dos campos nuevos. |
+| `portfolio.js` | Bloque cost basis usa `net_invested` para fiat y non-fiat. |
+| `transactions.js` | Checkbox reinversión en formulario BUY y en saldo cards. |
+| `server.js` | `/api/positions/manual` acepta y propaga `is_reinvestment`. |
+| `index.html` | `#txReinvestRow` con clase `.reinvest-row`. |
+| `styles.css` | Clase `.reinvest-row` compartida por form y saldo cards. |
+
+### Ganancias realizadas (futuro)
+
+La arquitectura actual permite calcular ganancias realizadas por SELL: `ganancia = amount_local - (avg_cost_gbp_al_momento × qty_vendida)`. El recalculator ya tiene el avg_cost en memoria al procesar cada SELL. Para persistirlo faltaría una tabla `realized_gains` que el recalculator escriba al mismo tiempo. No implementado aún.
 
 ## Desarrollo local
 
