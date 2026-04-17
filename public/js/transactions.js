@@ -619,21 +619,24 @@ function renderSaldos() {
             <div class="saldo-amount-secondary">${secSymbol}${Math.round(secVal).toLocaleString('es-AR')}</div>
           </div>
         </div>
-        <div class="saldo-edit-row" onclick="event.stopPropagation()">
+        <div class="saldo-edit-row" onclick="event.stopPropagation()" style="display:flex;flex-direction:column;gap:7px;padding-top:10px">
           <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
             value="${qty}" step="${isGBP ? 100 : 1}" placeholder="${currSymbol}0"
+            style="width:100%;box-sizing:border-box"
             onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')">
-          ${showFxRow ? `<div class="saldo-fx-row" style="display:flex;align-items:center;gap:6px;margin-top:6px">
-            <span style="font-size:11px;color:var(--muted);white-space:nowrap">${fxLabel}</span>
-            <input class="saldo-fx-input" id="saldo-fx-${pos.ticker}" type="number"
+          ${showFxRow ? `<div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0">${fxLabel}</span>
+            <input id="saldo-fx-${pos.ticker}" type="number"
               value="${fxDisplay}" step="0.0001" placeholder="1.3400"
-              style="width:80px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-align:right">
+              style="width:90px;flex-shrink:0;font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-align:right">
             <button onclick="fetchSaldoFx('${pos.ticker}');event.stopPropagation()"
               id="saldo-fx-btn-${pos.ticker}"
-              style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap">⚡ Live</button>
+              style="font-size:11px;padding:3px 7px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap;flex-shrink:0">⚡ Live</button>
           </div>` : ''}
-          <button class="saldo-cancel-btn" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
-          <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
+          <div style="display:flex;gap:6px">
+            <button class="saldo-cancel-btn" style="flex:1" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
+            <button class="saldo-save-btn" style="flex:3" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
+          </div>
         </div>
       </div>`;
   }).join('');
