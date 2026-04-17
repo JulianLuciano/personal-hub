@@ -132,6 +132,12 @@ function onTxTypeChange() {
     document.getElementById('txBroker').value   = 'Trading212';
     document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
   }
+  // Reinvestment toggle: visible only for BUY (RSU_VEST is always fresh capital)
+  const reinvestRow = document.getElementById('txReinvestRow');
+  if (reinvestRow) {
+    reinvestRow.style.display = (type === 'BUY') ? 'flex' : 'none';
+    if (type !== 'BUY') document.getElementById('txIsReinvestment').checked = false;
+  }
 }
 
 function onTxBrokerChange() {
@@ -238,6 +244,7 @@ async function submitTransaction() {
   const priceLocal  = getPriceLocal() || null;
   const meta        = TX_TICKER_META[ticker];
   const pricingCurrency = _txDbPricingCurrency;
+  const isReinvestment  = document.getElementById('txIsReinvestment')?.checked === true;
 
   if (!ticker)             { setTxStatus('Ticker requerido', 'err'); return; }
   if (!date)               { setTxStatus('Fecha requerida', 'err'); return; }
@@ -264,6 +271,7 @@ async function submitTransaction() {
     exchange,
     broker,
     notes,
+    is_reinvestment: isReinvestment,
   };
 
   try {
@@ -634,6 +642,14 @@ function renderSaldos() {
               style="font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--accent);cursor:pointer;white-space:nowrap;flex-shrink:0">⚡</button>
             ` : ''}
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <input type="checkbox" id="saldo-reinvest-${pos.ticker}"
+              style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+            <label for="saldo-reinvest-${pos.ticker}"
+              style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none">
+              Reinversión (no suma al cost basis)
+            </label>
+          </div>
           <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
         </div>
       </div>`;
@@ -692,6 +708,8 @@ async function saveSaldo(ticker) {
   try {
     const body = { ticker, qty: newQty };
     if (fxRate !== undefined) body.fx_rate = fxRate;
+    const reinvestChk = document.getElementById('saldo-reinvest-' + ticker);
+    if (reinvestChk) body.is_reinvestment = reinvestChk.checked === true;
 
     const res  = await fetch('/api/positions/manual', {
       method:  'POST',

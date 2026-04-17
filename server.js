@@ -121,7 +121,7 @@ app.post('/api/recalculate-positions', async (req, res) => {
 app.post('/api/positions/manual', async (req, res) => {
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const { ticker, qty, fx_rate, notes } = req.body || {};
+  const { ticker, qty, fx_rate, notes, is_reinvestment } = req.body || {};
   if (!ticker) return res.status(400).json({ error: 'ticker requerido' });
 
   try {
@@ -193,6 +193,7 @@ app.post('/api/positions/manual', async (req, res) => {
       exchange:         null,
       broker:           '',
       notes:            notes || null,
+      is_reinvestment:  is_reinvestment === true,
     };
 
     const txUrl = `${SUPABASE_URL}/rest/v1/transactions`;

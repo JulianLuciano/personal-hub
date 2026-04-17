@@ -233,39 +233,54 @@ async function loadPortfolio() {
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct, dayPctGBP });
     }
 
-    // ── Cost basis: total capital ever deployed (investments + current cash) ──
-    // Fiat: always use current qty (face value) — it IS the current value, no P&L possible.
-    //   This means moving cash → investment doesn't change total cost basis:
-    //   fiat drops by X, investment initial_investment rises by X → net zero.
-    // Non-fiat: use initial_investment (what you actually paid), fallback to avg_cost × qty.
+    // ── Cost basis: real capital deployed (excluding reinvested gains) ──────────
+    // All positions use net_invested_gbp/usd — the recalculator populates this
+    // field ignoring transactions with is_reinvestment = true.
+    // Fiat fallback: if net_invested_gbp is missing (legacy rows), use qty live.
+    // Non-fiat fallback: if net_invested_usd is missing, use initial_investment.
     let costBasisUSD = 0;
     let costBasisGBP = 0;
     for (const pos of posData) {
       if (pos.category === 'fiat') {
-        // Always use live qty — fiat has no P&L, its "cost" = its current balance
-        const qty = Number(pos.qty) || 0;
-        if (pos.currency === 'GBP') {
-          costBasisGBP += qty;
-          costBasisUSD += qty / FX_RATE;
+        const netGBP = Number(pos.net_invested_gbp);
+        const netUSD = Number(pos.net_invested_usd);
+        if (netGBP || netUSD) {
+          // Use net_invested — correctly excludes reinvested cash in transit
+          if (pos.currency === 'GBP') {
+            costBasisGBP += netGBP;
+            costBasisUSD += netGBP / FX_RATE;
+          } else {
+            costBasisUSD += netUSD;
+            costBasisGBP += netUSD * FX_RATE;
+          }
         } else {
-          costBasisUSD += qty;
-          costBasisGBP += qty * FX_RATE;
+          // Fallback for legacy manual positions without net_invested
+          const qty = Number(pos.qty) || 0;
+          if (pos.currency === 'GBP') {
+            costBasisGBP += qty;
+            costBasisUSD += qty / FX_RATE;
+          } else {
+            costBasisUSD += qty;
+            costBasisGBP += qty * FX_RATE;
+          }
         }
       } else {
-        // Non-fiat: use initial_investment in native currency, fallback to avg_cost × qty
-        const invUSD = Number(pos.initial_investment_usd);
-        const invGBP = Number(pos.initial_investment_gbp);
-        if (invUSD) {
-          costBasisUSD += invUSD;
+        // Non-fiat: use net_invested, fallback to initial_investment, fallback to avg_cost × qty
+        const netUSD = Number(pos.net_invested_usd);
+        const netGBP = Number(pos.net_invested_gbp);
+        if (netUSD) {
+          costBasisUSD += netUSD;
         } else {
-          const avg = Number(pos.avg_cost_usd);
-          if (avg) costBasisUSD += avg * Number(pos.qty);
+          const inv = Number(pos.initial_investment_usd);
+          if (inv) costBasisUSD += inv;
+          else { const avg = Number(pos.avg_cost_usd); if (avg) costBasisUSD += avg * Number(pos.qty); }
         }
-        if (invGBP) {
-          costBasisGBP += invGBP;
+        if (netGBP) {
+          costBasisGBP += netGBP;
         } else {
-          const avg = Number(pos.avg_cost_gbp);
-          if (avg) costBasisGBP += avg * Number(pos.qty);
+          const inv = Number(pos.initial_investment_gbp);
+          if (inv) costBasisGBP += inv;
+          else { const avg = Number(pos.avg_cost_gbp); if (avg) costBasisGBP += avg * Number(pos.qty); }
         }
       }
     }

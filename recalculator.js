@@ -1,7 +1,7 @@
 /**
  * recalculator.js
  * ---------------
- * Recalcula positions_dev desde transactions usando weighted average cronológico.
+ * Recalcula positions desde transactions usando weighted average cronológico.
  * - managed_by = 'transactions' → se recalcula desde cero
  * - managed_by = 'manual'       → no se toca
  *
@@ -10,9 +10,15 @@
  *   SELL           → reduce qty, descuenta costo proporcional
  *   qty == 0       → reset total (próxima compra arranca limpio)
  *
+ * Acumulador paralelo net_invested:
+ *   Igual que total_invested pero ignora transacciones con is_reinvestment = true.
+ *   RSU_VEST siempre suma a net_invested (nunca es reinversión).
+ *   SELL / WITHDRAWAL descuentan de ambos acumuladores proporcionalmente.
+ *   Se usa en portfolio.js para el cost basis total del portfolio.
+ *
  * Regla de ticker para RSU_META:
- *   transactions.ticker = 'META' AND type = 'RSU_VEST' → positions_dev.ticker = 'RSU_META'
- *   transactions.ticker = 'META' AND type = 'BUY'      → positions_dev.ticker = 'META'
+ *   transactions.ticker = 'META' AND type = 'RSU_VEST' → positions.ticker = 'RSU_META'
+ *   transactions.ticker = 'META' AND type = 'BUY'      → positions.ticker = 'META'
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -25,7 +31,7 @@ function getSupabase() {
 }
 
 /**
- * Determina el ticker de positions_dev dado un row de transactions.
+ * Determina el ticker de positions dado un row de transactions.
  */
 function resolvePositionTicker(t) {
   if (t.ticker === 'META' && t.type === 'RSU_VEST') return 'RSU_META';
@@ -68,6 +74,9 @@ function calculateFromTransactions(transactions) {
         total_invested_usd:     0,
         total_invested_local:   0,
         total_fees_local:       0,
+        // Acumulador paralelo: solo capital fresco (is_reinvestment = false)
+        net_invested_usd:       0,
+        net_invested_local:     0,
         // Metadata (tomada del primer registro, no cambia)
         name:                   t.name          || null,
         category:               resolveCategory(t.asset_class),
@@ -78,26 +87,45 @@ function calculateFromTransactions(transactions) {
       };
     }
 
-    const s = state[posTicker];
-    const qty    = Number(t.qty)          || 0;
-    const amtUsd = Number(t.amount_usd)   || 0;
-    const amtLoc = Number(t.amount_local) || 0;
-    const fee    = Number(t.fee_local)    || 0;
+    const s           = state[posTicker];
+    const qty         = Number(t.qty)            || 0;
+    const amtUsd      = Number(t.amount_usd)     || 0;
+    const amtLoc      = Number(t.amount_local)   || 0;
+    const fee         = Number(t.fee_local)      || 0;
+    const isReinvest  = t.is_reinvestment === true;
 
-    if (t.type === 'BUY' || t.type === 'RSU_VEST') {
+    if (t.type === 'BUY') {
       s.qty                  += qty;
       s.total_invested_usd   += amtUsd;
       s.total_invested_local += amtLoc;
       s.total_fees_local     += fee;
+      // Solo suma a net_invested si es capital fresco
+      if (!isReinvest) {
+        s.net_invested_usd   += amtUsd;
+        s.net_invested_local += amtLoc;
+      }
+
+    } else if (t.type === 'RSU_VEST') {
+      // RSU siempre es capital real, nunca reinversión
+      s.qty                  += qty;
+      s.total_invested_usd   += amtUsd;
+      s.total_invested_local += amtLoc;
+      s.total_fees_local     += fee;
+      s.net_invested_usd     += amtUsd;
+      s.net_invested_local   += amtLoc;
 
     } else if (t.type === 'SELL') {
-      // Descuenta costo proporcional al qty vendido
-      const avgCostUsd = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
-      const avgCostLoc = s.qty > 0 ? s.total_invested_local / s.qty : 0;
+      // Descuenta costo proporcional al qty vendido en ambos acumuladores
+      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
+      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local / s.qty : 0;
+      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd     / s.qty : 0;
+      const avgNetLoc    = s.qty > 0 ? s.net_invested_local   / s.qty : 0;
 
       s.qty                  -= qty;
-      s.total_invested_usd   -= qty * avgCostUsd;
-      s.total_invested_local -= qty * avgCostLoc;
+      s.total_invested_usd   -= qty * avgTotalUsd;
+      s.total_invested_local -= qty * avgTotalLoc;
+      s.net_invested_usd     -= qty * avgNetUsd;
+      s.net_invested_local   -= qty * avgNetLoc;
       s.total_fees_local     += fee;
 
       // Reset si quedó en cero (o negativo por floating point)
@@ -105,6 +133,8 @@ function calculateFromTransactions(transactions) {
         s.qty                  = 0;
         s.total_invested_usd   = 0;
         s.total_invested_local = 0;
+        s.net_invested_usd     = 0;
+        s.net_invested_local   = 0;
         // total_fees_local se acumula histórico, no se resetea
       }
 
@@ -112,18 +142,31 @@ function calculateFromTransactions(transactions) {
       s.qty                  += qty;
       s.total_invested_usd   += amtUsd;
       s.total_invested_local += amtLoc;
+      // Solo suma a net_invested si es capital fresco
+      if (!isReinvest) {
+        s.net_invested_usd   += amtUsd;
+        s.net_invested_local += amtLoc;
+      }
 
     } else if (t.type === 'WITHDRAWAL') {
-      // Descuenta costo proporcional al qty retirado (igual que SELL)
-      const avgCostUsd = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
-      const avgCostLoc = s.qty > 0 ? s.total_invested_local / s.qty : 0;
+      // Descuenta costo proporcional al qty retirado en ambos acumuladores
+      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
+      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local / s.qty : 0;
+      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd     / s.qty : 0;
+      const avgNetLoc    = s.qty > 0 ? s.net_invested_local   / s.qty : 0;
+
       s.qty                  -= qty;
-      s.total_invested_usd   -= qty * avgCostUsd;
-      s.total_invested_local -= qty * avgCostLoc;
+      s.total_invested_usd   -= qty * avgTotalUsd;
+      s.total_invested_local -= qty * avgTotalLoc;
+      s.net_invested_usd     -= qty * avgNetUsd;
+      s.net_invested_local   -= qty * avgNetLoc;
+
       if (s.qty <= 0.0000001) {
         s.qty                  = 0;
         s.total_invested_usd   = 0;
         s.total_invested_local = 0;
+        s.net_invested_usd     = 0;
+        s.net_invested_local   = 0;
       }
 
     } else if (t.type === 'FX_CONVERSION') {
@@ -136,12 +179,14 @@ function calculateFromTransactions(transactions) {
 }
 
 /**
- * Convierte el estado calculado a un row listo para UPSERT en positions_dev.
+ * Convierte el estado calculado a un row listo para UPSERT en positions.
  */
 function stateToRow(posTicker, s) {
   const qty    = Math.max(0, s.qty);
   const invUsd = s.total_invested_usd;
   const invLoc = s.total_invested_local;
+  const netUsd = Math.max(0, s.net_invested_usd);
+  const netLoc = Math.max(0, s.net_invested_local);
 
   const avgCostUsd = qty > 0 ? invUsd / qty : null;
   const avgCostGbp = qty > 0 ? invLoc / qty : null;
@@ -158,6 +203,8 @@ function stateToRow(posTicker, s) {
     fx_gbp_usd_avg:           fxAvg,
     initial_investment_usd:   Math.round(invUsd * 100) / 100,
     initial_investment_gbp:   Math.round(invLoc * 100) / 100,
+    net_invested_usd:         Math.round(netUsd * 100) / 100,
+    net_invested_gbp:         Math.round(netLoc * 100) / 100,
     total_fees_local:         Math.round(s.total_fees_local * 100) / 100,
     pricing_currency:         s.pricing_currency,
     exchange:                 s.exchange,
@@ -167,7 +214,7 @@ function stateToRow(posTicker, s) {
 }
 
 /**
- * Función principal. Lee transactions, calcula, hace UPSERT en positions_dev.
+ * Función principal. Lee transactions, calcula, hace UPSERT en positions.
  * Solo actualiza updated_at cuando los valores cambian.
  *
  * @returns {{ updated: string[], inserted: string[], errors: string[] }}
@@ -176,7 +223,7 @@ async function recalculatePositions() {
   const supabase = getSupabase();
   const result   = { updated: [], inserted: [], errors: [] };
 
-  console.log('[recalculator] Iniciando recálculo de positions_dev...');
+  console.log('[recalculator] Iniciando recálculo de positions...');
 
   // 1. Leer todas las transactions
   const { data: transactions, error: txError } = await supabase
@@ -210,7 +257,7 @@ async function recalculatePositions() {
     .eq('managed_by', 'transactions');
 
   if (posError) {
-    const msg = `Error leyendo positions_dev: ${posError.message}`;
+    const msg = `Error leyendo positions: ${posError.message}`;
     console.error('[recalculator]', msg);
     result.errors.push(msg);
     return result;
@@ -221,7 +268,9 @@ async function recalculatePositions() {
   // 4. UPSERT solo si los valores cambiaron
   const FIELDS_TO_COMPARE = [
     'qty', 'avg_cost_usd', 'avg_cost_gbp', 'fx_gbp_usd_avg',
-    'initial_investment_usd', 'initial_investment_gbp', 'total_fees_local'
+    'initial_investment_usd', 'initial_investment_gbp',
+    'net_invested_usd', 'net_invested_gbp',
+    'total_fees_local'
   ];
   const TEXT_FIELDS_TO_COMPARE = ['category'];
 
