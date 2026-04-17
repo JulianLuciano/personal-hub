@@ -1255,8 +1255,6 @@
       <!-- FORM -->
       <div class="tx-form" id="txForm">
 
-        <div class="tx-section-label">Activo</div>
-
         <div class="tx-field-row">
           <div class="tx-field">
             <label>Ticker</label>
@@ -1361,10 +1359,9 @@
           <span style="font-size:10px;color:var(--muted)">moneda en que cotiza → va a DB</span>
         </div>
 
-        <div class="tx-section-label">Broker</div>
-
         <div class="tx-field-row">
           <div class="tx-field">
+            <label>Broker</label>
             <select id="txBroker" onchange="onTxBrokerChange()">
               <option value="Trading212">Trading212</option>
               <option value="Schwab">Schwab</option>
@@ -1393,7 +1390,7 @@
           <input id="txNotes" type="text" placeholder="Opcional">
         </div>
 
-        <div id="txReinvestRow" style="display:none">
+        <div id="txReinvestRow" style="display:none;margin-top:4px">
           <button
             id="txReinvestBtn"
             onclick="toggleTxReinvest()"
