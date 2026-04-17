@@ -305,10 +305,9 @@ async function loadPortfolio() {
       }
     }
 
-    // totalGBP from the latest snapshot — native value, not converted from totalUSD
-    const totalGBP = todaySnap
-      ? (Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE)))
-      : totalUSD * FX_RATE;
+    // totalGBP calculated bottom-up from live totalUSD — same source as totalUSD.
+    // Not taken from snapshot so manual updates reflect immediately.
+    const totalGBP = totalUSD * FX_RATE;
     liveData = { totalUSD, totalGBP, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
