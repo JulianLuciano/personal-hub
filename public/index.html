@@ -1328,8 +1328,6 @@
           </div>
         </div>
 
-        <div class="tx-section-label">Cantidad</div>
-
         <div class="tx-field-row">
           <div class="tx-field">
             <label>Qty</label>
@@ -1367,7 +1365,6 @@
 
         <div class="tx-field-row">
           <div class="tx-field">
-            <label>Broker</label>
             <select id="txBroker" onchange="onTxBrokerChange()">
               <option value="Trading212">Trading212</option>
               <option value="Schwab">Schwab</option>
@@ -1396,9 +1393,14 @@
           <input id="txNotes" type="text" placeholder="Opcional">
         </div>
 
-        <div id="txReinvestRow" class="reinvest-row" style="display:none">
-          <input type="checkbox" id="txIsReinvestment">
-          <label for="txIsReinvestment">Reinversión — no suma al cost basis del portfolio</label>
+        <div id="txReinvestRow" style="display:none">
+          <button
+            id="txReinvestBtn"
+            onclick="toggleTxReinvest()"
+            class="saldo-reinvest-pill">
+            Reinversión
+          </button>
+          <input type="checkbox" id="txIsReinvestment" style="display:none">
         </div>
 
         <div class="tx-status" id="txStatus"></div>

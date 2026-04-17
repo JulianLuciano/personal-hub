@@ -133,12 +133,24 @@ function onTxTypeChange() {
     document.getElementById('txBroker').value   = 'Trading212';
     document.getElementById('txFeeLocal').value = TX_DEFAULTS.feeLocal;
   }
-  // Reinvestment toggle: visible only for BUY (RSU_VEST is always fresh capital)
+  // Reinvestment pill: visible only for BUY
   const reinvestRow = document.getElementById('txReinvestRow');
   if (reinvestRow) {
-    reinvestRow.style.display = (type === 'BUY') ? 'flex' : 'none';
-    if (type !== 'BUY') document.getElementById('txIsReinvestment').checked = false;
+    reinvestRow.style.display = (type === 'BUY') ? 'block' : 'none';
+    if (type !== 'BUY') {
+      document.getElementById('txIsReinvestment').checked = false;
+      const btn = document.getElementById('txReinvestBtn');
+      if (btn) btn.classList.remove('active');
+    }
   }
+}
+
+function toggleTxReinvest() {
+  const chk = document.getElementById('txIsReinvestment');
+  const btn = document.getElementById('txReinvestBtn');
+  if (!chk || !btn) return;
+  chk.checked = !chk.checked;
+  btn.classList.toggle('active', chk.checked);
 }
 
 function onTxBrokerChange() {
