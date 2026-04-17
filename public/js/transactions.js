@@ -558,8 +558,12 @@ async function loadSaldos() {
   const listEl = document.getElementById('saldosList');
   listEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
   try {
-    const positions = await sbFetch('/rest/v1/positions?select=*&managed_by=eq.manual');
-    _saldosData = positions;
+    // Include fiat positions managed by transactions (after first save they migrate)
+    const [manual, fiatTx] = await Promise.all([
+      sbFetch('/rest/v1/positions?select=*&managed_by=eq.manual'),
+      sbFetch('/rest/v1/positions?select=*&managed_by=eq.transactions&category=eq.fiat'),
+    ]);
+    _saldosData = [...manual, ...fiatTx];
     renderSaldos();
   } catch (e) {
     listEl.innerHTML = `<div style="color:var(--accent2);font-size:13px;text-align:center;padding:16px">${e.message}</div>`;
@@ -608,6 +612,12 @@ function renderSaldos() {
           <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
             value="${qty}" step="${isGBP ? 100 : 1}" placeholder="${currSymbol}0"
             onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')">
+          ${isGBP ? `<div class="saldo-fx-row">
+            <span style="font-size:11px;color:var(--muted)">FX £→$</span>
+            <input class="saldo-fx-input" id="saldo-fx-${pos.ticker}" type="number"
+              value="${Number(pos.fx_gbp_usd_avg || FX_RATE).toFixed(5)}" step="0.001" placeholder="1.34"
+              style="width:72px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);text-align:right">
+          </div>` : ''}
           <button class="saldo-cancel-btn" onclick="toggleSaldoEdit('${pos.ticker}')">✕</button>
           <button class="saldo-save-btn" onclick="saveSaldo('${pos.ticker}')">Guardar</button>
         </div>
@@ -638,14 +648,21 @@ async function saveSaldo(ticker) {
     return;
   }
 
+  // Read FX input if present (GBP positions only)
+  const fxInp  = document.getElementById('saldo-fx-' + ticker);
+  const fxRate = fxInp ? (parseFloat(fxInp.value) || FX_RATE) : undefined;
+
   statusEl.style.color = 'var(--muted)';
   statusEl.textContent = 'Guardando...';
 
   try {
+    const body = { ticker, qty: newQty };
+    if (fxRate !== undefined) body.fx_rate = fxRate;
+
     const res  = await fetch('/api/positions/manual', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ ticker, qty: newQty }),
+      body:    JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Error del servidor');
@@ -656,7 +673,7 @@ async function saveSaldo(ticker) {
     renderSaldos();
 
     statusEl.style.color = 'var(--accent3)';
-    statusEl.textContent = `✓ ${ticker} actualizado`;
+    statusEl.textContent = data.message === 'Sin cambios' ? '— Sin cambios' : `✓ ${ticker} actualizado`;
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
 
     // Recargar portfolio en background

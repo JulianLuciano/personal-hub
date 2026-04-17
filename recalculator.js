@@ -108,6 +108,24 @@ function calculateFromTransactions(transactions) {
         // total_fees_local se acumula histórico, no se resetea
       }
 
+    } else if (t.type === 'DEPOSIT') {
+      s.qty                  += qty;
+      s.total_invested_usd   += amtUsd;
+      s.total_invested_local += amtLoc;
+
+    } else if (t.type === 'WITHDRAWAL') {
+      // Descuenta costo proporcional al qty retirado (igual que SELL)
+      const avgCostUsd = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
+      const avgCostLoc = s.qty > 0 ? s.total_invested_local / s.qty : 0;
+      s.qty                  -= qty;
+      s.total_invested_usd   -= qty * avgCostUsd;
+      s.total_invested_local -= qty * avgCostLoc;
+      if (s.qty <= 0.0000001) {
+        s.qty                  = 0;
+        s.total_invested_usd   = 0;
+        s.total_invested_local = 0;
+      }
+
     } else if (t.type === 'FX_CONVERSION') {
       // Por ahora no afecta positions — se puede extender
       console.log(`[recalculator] FX_CONVERSION ignorada para ${posTicker}`);

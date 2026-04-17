@@ -121,31 +121,92 @@ app.post('/api/recalculate-positions', async (req, res) => {
 app.post('/api/positions/manual', async (req, res) => {
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const { ticker, qty, avg_cost_usd, notes } = req.body || {};
+  const { ticker, qty, fx_rate, notes } = req.body || {};
   if (!ticker) return res.status(400).json({ error: 'ticker requerido' });
 
-  const updates = { updated_at: new Date().toISOString() };
-  if (qty          !== undefined) updates.qty          = qty;
-  if (avg_cost_usd !== undefined) {
-    updates.avg_cost_usd   = avg_cost_usd;
-    updates.fx_gbp_usd_avg = avg_cost_usd;
-  }
-  if (notes !== undefined) updates.notes = notes;
-  if (updates.qty !== undefined && updates.avg_cost_usd !== undefined) {
-    updates.initial_investment_usd = Math.round(updates.qty * updates.avg_cost_usd * 100) / 100;
-    updates.initial_investment_gbp = updates.qty;
-  }
-
   try {
-    const supaUrl = `${SUPABASE_URL}/rest/v1/positions?ticker=eq.${encodeURIComponent(ticker)}&managed_by=eq.manual`;
-    const sbRes = await fetch(supaUrl, {
-      method: 'PATCH',
-      headers: headers({ 'Content-Type': 'application/json', 'Prefer': 'return=representation' }),
-      body: JSON.stringify(updates),
+    // Read current position
+    const current = await sb(`positions?ticker=eq.${encodeURIComponent(ticker)}&limit=1`);
+    if (!current?.length) return res.status(404).json({ error: 'Posición no encontrada' });
+    const pos = current[0];
+
+    const isGBPFiat = pos.category === 'fiat' && pos.currency === 'GBP';
+    const isUSDFiat = pos.category === 'fiat' && pos.currency === 'USD';
+    const isFiat    = isGBPFiat || isUSDFiat;
+
+    // Non-fiat or no qty change: legacy PATCH (notes update, etc.)
+    if (!isFiat || qty === undefined) {
+      const updates = { updated_at: new Date().toISOString() };
+      if (qty   !== undefined) updates.qty   = qty;
+      if (notes !== undefined) updates.notes = notes;
+      const supaUrl = `${SUPABASE_URL}/rest/v1/positions?ticker=eq.${encodeURIComponent(ticker)}&managed_by=eq.manual`;
+      const sbRes = await fetch(supaUrl, {
+        method: 'PATCH',
+        headers: headers({ 'Content-Type': 'application/json', 'Prefer': 'return=representation' }),
+        body: JSON.stringify(updates),
+      });
+      if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+      return res.json({ ok: true, data: await sbRes.json() });
+    }
+
+    const newQty     = parseFloat(qty);
+    const currentQty = parseFloat(pos.qty) || 0;
+    const delta      = Math.round((newQty - currentQty) * 1e8) / 1e8;
+
+    if (Math.abs(delta) < 0.001) {
+      return res.json({ ok: true, data: [], message: 'Sin cambios' });
+    }
+
+    // FX rate: use provided value, fallback to position's fx_gbp_usd_avg, then 1 for USD
+    const fxToUsd = isGBPFiat
+      ? (parseFloat(fx_rate) || parseFloat(pos.fx_gbp_usd_avg) || 1.34)
+      : 1;
+
+    const absDelta   = Math.abs(delta);
+    const txType     = delta > 0 ? 'DEPOSIT' : 'WITHDRAWAL';
+    const amountLocal = absDelta;                              // GBP or USD amount
+    const amountUsd   = Math.round(absDelta * fxToUsd * 100) / 100;
+
+    // Insert transaction to track the movement
+    const txPayload = {
+      date:             new Date().toISOString().slice(0, 10),
+      ticker,
+      name:             pos.name,
+      type:             txType,
+      asset_class:      'fiat',
+      qty:              absDelta.toString(),
+      amount_local:     amountLocal,
+      amount_usd:       amountUsd,
+      fx_rate_to_usd:   fxToUsd,
+      local_currency:   pos.currency,
+      pricing_currency: pos.currency,
+      fee_local:        0,
+      notes:            notes || null,
+    };
+
+    const txUrl = `${SUPABASE_URL}/rest/v1/transactions`;
+    const txRes = await fetch(txUrl, {
+      method:  'POST',
+      headers: headers({ 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }),
+      body:    JSON.stringify(txPayload),
     });
-    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
-    res.json({ ok: true, data: await sbRes.json() });
+    if (!txRes.ok) return res.status(txRes.status).json({ error: 'Error insertando transaction: ' + await txRes.text() });
+
+    // Change managed_by to 'transactions' so recalculator takes over
+    const supaUrl = `${SUPABASE_URL}/rest/v1/positions?ticker=eq.${encodeURIComponent(ticker)}`;
+    await fetch(supaUrl, {
+      method:  'PATCH',
+      headers: headers({ 'Content-Type': 'application/json' }),
+      body:    JSON.stringify({ managed_by: 'transactions', updated_at: new Date().toISOString() }),
+    });
+
+    // Recalculate positions from transactions
+    const recalc = await recalculatePositions();
+    console.log(`[positions/manual] ${ticker} ${txType} ${absDelta} @ fx ${fxToUsd} | recalc: updated=[${recalc.updated}] inserted=[${recalc.inserted}]`);
+
+    res.json({ ok: true, delta, txType, fxToUsd, recalc });
   } catch (e) {
+    console.error('[positions/manual]', e.message);
     res.status(502).json({ error: e.message });
   }
 });
