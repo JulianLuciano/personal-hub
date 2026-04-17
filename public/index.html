@@ -1289,7 +1289,7 @@
           </div>
           <div class="tx-field">
             <label>Fecha</label>
-            <input id="txDate" type="date" style="width:100%">
+            <input id="txDate" type="date" style="-webkit-appearance:none;appearance:none;width:100%;box-sizing:border-box">
           </div>
         </div>
 
@@ -1390,7 +1390,9 @@
           <input id="txNotes" type="text" placeholder="Opcional">
         </div>
 
-        <div id="txReinvestRow" style="display:none;margin-top:4px">
+        <div class="tx-status" id="txStatus"></div>
+
+        <div id="txReinvestRow" style="display:none">
           <button
             id="txReinvestBtn"
             onclick="toggleTxReinvest()"
@@ -1400,7 +1402,6 @@
           <input type="checkbox" id="txIsReinvestment" style="display:none">
         </div>
 
-        <div class="tx-status" id="txStatus"></div>
         <button class="tx-submit-btn" id="txSubmitBtn" onclick="submitTransaction()">Guardar transacción</button>
 
       </div>
