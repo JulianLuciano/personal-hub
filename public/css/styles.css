@@ -1625,16 +1625,20 @@
 .saldo-edit-row {
   display: none;
   margin-top: 10px;
-  gap: 6px;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
 }
 .saldo-card.editing .saldo-edit-row {
   display: flex;
 }
+.saldo-edit-line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .saldo-input {
   flex: 1;
   min-width: 0;
-  max-width: 110px;
   background: var(--bg);
   border: 1.5px solid var(--accent);
   border-radius: 8px;
@@ -1647,25 +1651,15 @@
   -webkit-appearance: none;
 }
 .saldo-save-btn {
-  padding: 7px 12px;
+  width: 100%;
+  padding: 8px 0;
   border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  flex-shrink: 0;
-}
-.saldo-cancel-btn {
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--muted);
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════
