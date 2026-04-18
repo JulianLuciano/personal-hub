@@ -2073,20 +2073,19 @@ function closePerfDetail() {
 
 // Fixed colors per ticker — stable regardless of portfolio order
 const REL_TICKER_COLORS = {
-  'MELI':     '#f7b731', // amarillo (era de NDIA)
+  'MELI':     '#f7b731', // amarillo
   'NDIA.L':   '#ffffff', // blanco
-  'RSU_META': '#4361ee', // azul oscuro (no el celeste)
-  'GOOGL':    '#ea4335', // rojo Google (multicolor representado por rojo primario)
-  'BTC':      '#f97316', // naranja (era de SPY)
-  'SPY':      '#43e97b', // verde (era de ARK)
-  'ARKK.L':   '#111111', // negro
-  'VWRP.L':   '#ff6584', // rojo (era de GOOGL)
-  // fallbacks para cualquier otro ticker
-  'NU':       '#a29bfe',
+  'RSU_META': '#4361ee', // azul oscuro
+  'GOOGL':    '#ea4335', // rojo Google
+  'BTC':      '#f97316', // naranja
+  'SPY':      '#43e97b', // verde
+  'ARKK.L':   '#888888', // gris
+  'VWRP.L':   '#ff6584', // rosa/rojo
+  'NU':       '#6c63ff', // violeta fuerte (el que tenía antes)
   'BRK.B':    '#74b9ff',
   'QQQ':      '#4fc3f7',
   'TLT':      '#fdcb6e',
-  'MSFT':     '#00cec9',
+  'MSFT':     '#a29bfe', // lila clarito (el que tenía NU antes)
   'AAPL':     '#55efc4',
   'TSLA':     '#fd79a8',
   'AMZN':     '#e17055',
@@ -2102,10 +2101,32 @@ function getRelColor(ticker, fallbackIdx) {
 
 const REL_WINDOWS = ['1W','1M','3M','6M','1A','YTD'];
 
+// Only SPY and VWRP.L visible by default — everything else hidden
+const REL_DEFAULT_VISIBLE = new Set(['SPY', 'VWRP.L']);
+
 let relPerfChart    = null;
 let relPerfPeriod   = '1M';  // default 1M
 let relPerfCache    = {};
-let relPerfHidden   = new Set();
+let relPerfHidden   = new Set(); // populated on first load based on REL_DEFAULT_VISIBLE
+
+// Background prefetch: fetch all windows sequentially after initial render
+// so switching windows is instant. Runs after loadRelPerf() finishes.
+async function prefetchRelPerf(tickers) {
+  for (const win of REL_WINDOWS) {
+    if (relPerfCache[win]) continue; // already cached (current window fetched first)
+    try {
+      const qs  = `window=${win}&tickers=${tickers.join(',')}`;
+      const res = await fetch(`/api/price-history?${qs}`);
+      if (!res.ok) continue;
+      const json = await res.json();
+      relPerfCache[win] = json.data || {};
+    } catch (e) {
+      console.warn(`[relPerf prefetch] ${win}:`, e.message);
+    }
+    // Small delay between fetches to avoid hammering Yahoo in parallel
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
 
 function onRelPerfSlider(val) {
   const win = REL_WINDOWS[parseInt(val)];
@@ -2167,8 +2188,17 @@ async function loadRelPerf() {
 
   if (!tickers.length) { emptyEl.textContent = 'Sin activos en cartera'; return; }
 
+  // Initialize hidden set on very first call: hide everything except REL_DEFAULT_VISIBLE
+  const isFirstLoad = relPerfHidden.size === 0 && !relPerfChart;
+  if (isFirstLoad) {
+    tickers.forEach(t => {
+      if (!REL_DEFAULT_VISIBLE.has(t)) relPerfHidden.add(t);
+    });
+  }
+
   let seriesMap = relPerfCache[relPerfPeriod];
-  if (!seriesMap) {
+  const needsFetch = !seriesMap;
+  if (needsFetch) {
     try {
       const qs  = `window=${relPerfPeriod}&tickers=${tickers.join(',')}`;
       const res = await fetch(`/api/price-history?${qs}`);
@@ -2185,6 +2215,9 @@ async function loadRelPerf() {
 
   const loaded = tickers.filter(t => seriesMap[t]?.length > 1);
   if (!loaded.length) { emptyEl.textContent = 'Sin datos para esta ventana'; return; }
+
+  // Kick off background prefetch for remaining windows (after this render)
+  if (needsFetch) setTimeout(() => prefetchRelPerf(tickers), 200);
 
   // Build common timeline so all datasets share the same x points → tooltip crosshair aligns
   const commonTs = buildCommonTimeline(seriesMap, loaded);

@@ -223,7 +223,7 @@ router.get('/watchlist-data', async (req, res) => {
 // window → { period1 offset in days, interval }
 const PRICE_HISTORY_WINDOWS = {
   '1W': { days: 8,   interval: '1h'  },
-  '1M': { days: 32,  interval: '90m' },
+  '1M': { days: 32,  interval: '1d'  },
   '3M': { days: 95,  interval: '1d'  },
   '6M': { days: 185, interval: '1d'  },
   '1A': { days: 370, interval: '1d'  },

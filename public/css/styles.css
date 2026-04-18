@@ -2965,6 +2965,9 @@
 /* ── Relative Performance Slider ─────────────────────────────────────────── */
 .rel-perf-slider-wrap {
   margin-bottom: 14px;
+  /* Padding horizontal = thumb_width/2 so thumb travels exactly over the tick marks */
+  padding: 0 9px;
+  box-sizing: border-box;
 }
 .rel-perf-slider {
   -webkit-appearance: none;
@@ -2975,7 +2978,8 @@
   background: var(--border);
   outline: none;
   cursor: pointer;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  display: block;
 }
 .rel-perf-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -3000,10 +3004,12 @@
   border: 2px solid var(--surface);
   cursor: pointer;
 }
+/* Tick marks: use a wrapper with same horizontal padding as the slider wrap
+   so labels sit exactly under each stop */
 .rel-perf-slider-labels {
   display: flex;
   justify-content: space-between;
-  padding: 0 2px;
+  /* No extra padding — inherits from .rel-perf-slider-wrap's padding */
 }
 .rel-perf-slider-labels span {
   font-size: 10px;
@@ -3011,5 +3017,5 @@
   font-family: 'DM Sans', sans-serif;
   font-weight: 600;
   text-align: center;
-  width: 16.66%;
+  /* Each label is centered over its stop; flex space-between handles distribution */
 }
