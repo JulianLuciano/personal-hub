@@ -21,7 +21,7 @@ function switchAnalyticsTab(tab, btn) {
   ).classList.add('active');
   if (tab === 'health' && typeof renderHealthScore === 'function') renderHealthScore();
   if (tab === 'corr') loadCorrelation();
-  if (tab === 'perf') loadPerformance();
+  if (tab === 'perf') { loadPerformance(); loadRelPerf(); }
   if (tab === 'sims' && !mcAutoRan && typeof mcRun === 'function') {
     mcAutoRan = true;
     setTimeout(() => { const btn = document.getElementById('mcRunBtn'); if (btn) btn.click(); }, 100);
@@ -2067,4 +2067,212 @@ function openPerfDetail(type) {
 
 function closePerfDetail() {
   document.getElementById('perfDetailModal').classList.remove('open');
+}
+
+// ── RELATIVE PERFORMANCE (base-100 per asset) ─────────────────────────────────
+
+const REL_COLORS = [
+  '#6c63ff','#43e97b','#f7b731','#4fc3f7','#ff6584',
+  '#a29bfe','#fd79a8','#00cec9','#e17055','#74b9ff',
+  '#55efc4','#fdcb6e','#ff7675','#81ecec',
+];
+
+let relPerfChart    = null;
+let relPerfPeriod   = '1W';
+let relPerfCache    = {};   // { window: { ticker: [{t,v}] } }
+let relPerfHidden   = new Set(); // tickers currently toggled off
+
+function setRelPeriod(win, btn) {
+  relPerfPeriod = win;
+  document.querySelectorAll('[data-relperiod]').forEach(p => p.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  loadRelPerf();
+}
+
+async function loadRelPerf() {
+  const emptyEl  = document.getElementById('relPerfEmpty');
+  const canvasEl = document.getElementById('relPerfChart');
+  const legendEl = document.getElementById('relPerfLegend');
+
+  emptyEl.textContent = 'Cargando…';
+  emptyEl.style.display = 'flex';
+  canvasEl.style.display = 'none';
+
+  // Collect investable tickers from liveData (same exclusions as rest of perf tab)
+  const EXCLUDED = new Set(['RENT_DEPOSIT','EMERGENCY_FUND','GBP_LIQUID','USD_CASH']);
+  if (!liveData) { emptyEl.textContent = 'Sin datos de portfolio'; return; }
+
+  const tickers = liveData.assets
+    .filter(a => a.pos.category !== 'fiat' && !EXCLUDED.has(a.pos.ticker) && a.valueUSD > 0.5)
+    .map(a => a.pos.ticker);
+
+  if (!tickers.length) { emptyEl.textContent = 'Sin activos en cartera'; return; }
+
+  // Use cache if available
+  let seriesMap = relPerfCache[relPerfPeriod];
+  if (!seriesMap) {
+    try {
+      const qs  = `window=${relPerfPeriod}&tickers=${tickers.join(',')}`;
+      const res = await fetch(`/api/price-history?${qs}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      seriesMap = json.data || {};
+      relPerfCache[relPerfPeriod] = seriesMap;
+    } catch (e) {
+      console.error('[relPerf] fetch error:', e);
+      emptyEl.textContent = 'Error cargando datos';
+      return;
+    }
+  }
+
+  const loaded = tickers.filter(t => seriesMap[t]?.length > 1);
+  if (!loaded.length) {
+    emptyEl.textContent = 'Sin datos para esta ventana';
+    return;
+  }
+
+  const isDark = !document.documentElement.classList.contains('light');
+  const tc = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+  const gc = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+  // Build datasets
+  const datasets = loaded.map((ticker, i) => {
+    const color  = REL_COLORS[i % REL_COLORS.length];
+    const label  = ticker === 'RSU_META' ? 'META' : ticker;
+    const pts    = seriesMap[ticker];
+    return {
+      label,
+      _ticker: ticker,
+      data: pts.map(p => ({ x: p.t, y: p.v })),
+      borderColor: color,
+      borderWidth: 1.8,
+      pointRadius: 0,
+      fill: false,
+      tension: 0.15,
+      hidden: relPerfHidden.has(ticker),
+    };
+  });
+
+  // Legend chips
+  legendEl.innerHTML = datasets.map((ds, i) => {
+    const hidden  = relPerfHidden.has(ds._ticker);
+    const opacity = hidden ? '0.35' : '1';
+    return `<div
+      onclick="toggleRelLine('${ds._ticker}')"
+      style="display:flex;align-items:center;gap:4px;cursor:pointer;opacity:${opacity};transition:opacity .15s"
+      id="relleg-${ds._ticker}">
+      <div style="width:14px;height:2px;background:${ds.borderColor};border-radius:1px;flex-shrink:0"></div>
+      <span style="font-size:10px;color:var(--muted)">${ds.label}</span>
+    </div>`;
+  }).join('');
+
+  emptyEl.style.display = 'none';
+  canvasEl.style.display = 'block';
+  if (relPerfChart) relPerfChart.destroy();
+
+  relPerfChart = new Chart(canvasEl, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDark ? '#1c1c26' : '#fff',
+          titleColor: tc,
+          bodyColor: tc,
+          callbacks: {
+            title: ctx => {
+              const ts = ctx[0]?.raw?.x;
+              if (!ts) return '';
+              const d = new Date(ts);
+              // For 1W show time, otherwise just date
+              if (relPerfPeriod === '1W') {
+                return d.toLocaleDateString('es-AR', { weekday:'short', month:'short', day:'numeric' })
+                  + ' ' + d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
+              }
+              return d.toLocaleDateString('es-AR', { month: 'short', day: 'numeric', year: relPerfPeriod === '1A' ? '2-digit' : undefined });
+            },
+            label: ctx => {
+              if (ctx.dataset.hidden) return null;
+              const v = ctx.raw.y;
+              const chg = v - 100;
+              const sign = chg >= 0 ? '+' : '';
+              return `${ctx.dataset.label}: ${v.toFixed(1)}  (${sign}${chg.toFixed(1)}%)`;
+            },
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: relPerfPeriod === '1W' ? 'day'
+                : relPerfPeriod === '1M' ? 'week'
+                : 'month',
+            displayFormats: {
+              day:   'd MMM',
+              week:  'd MMM',
+              month: 'MMM yy',
+            }
+          },
+          grid:  { color: gc },
+          ticks: { color: tc, font: { size: 9 }, maxRotation: 0, maxTicksLimit: 6 },
+        },
+        y: {
+          grid:  { color: gc },
+          ticks: {
+            color: tc, font: { size: 9 },
+            callback: v => v.toFixed(0),
+          },
+          // Draw a reference line at 100
+          afterDataLimits: scale => {
+            scale.min = Math.min(scale.min, 95);
+          },
+        }
+      }
+    }
+  });
+
+  // Draw base-100 reference line via annotation-free approach: add a dummy dataset
+  // Actually: use a constant dataset instead, simpler than plugin
+  relPerfChart.data.datasets.push({
+    label: '—',
+    data: (() => {
+      // span full x range
+      const allTs = loaded.flatMap(t => seriesMap[t].map(p => p.t));
+      const minT = Math.min(...allTs), maxT = Math.max(...allTs);
+      return [{ x: minT, y: 100 }, { x: maxT, y: 100 }];
+    })(),
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+    borderWidth: 1,
+    borderDash: [3, 3],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+    hidden: false,
+    _isBaseline: true,
+    // Don't show in tooltip
+    tooltip: { enabled: false },
+  });
+  relPerfChart.update('none');
+}
+
+function toggleRelLine(ticker) {
+  if (!relPerfChart) return;
+  const ds = relPerfChart.data.datasets.find(d => d._ticker === ticker);
+  if (!ds) return;
+
+  ds.hidden = !ds.hidden;
+  if (ds.hidden) relPerfHidden.add(ticker);
+  else           relPerfHidden.delete(ticker);
+
+  const chip = document.getElementById(`relleg-${ticker}`);
+  if (chip) chip.style.opacity = ds.hidden ? '0.35' : '1';
+
+  relPerfChart.update('none');
 }

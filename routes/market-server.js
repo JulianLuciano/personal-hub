@@ -218,6 +218,86 @@ router.get('/watchlist-data', async (req, res) => {
   res.json({ data: results, errors, cached: false, cachedAt: watchlistCachedAt });
 });
 
+// ── Price History (relative performance / base-100 chart) ────────────────────
+
+// window → { period1 offset in days, interval }
+const PRICE_HISTORY_WINDOWS = {
+  '1W': { days: 8,   interval: '1h'  },
+  '1M': { days: 32,  interval: '90m' },
+  '3M': { days: 95,  interval: '1d'  },
+  '6M': { days: 185, interval: '1d'  },
+  '1A': { days: 370, interval: '1d'  },
+  'YTD': { ytd: true, interval: '1d' },
+};
+
+// Map internal tickers → Yahoo tickers (same logic used elsewhere in the app)
+function toYahooTicker(ticker) {
+  if (ticker === 'RSU_META') return 'META';
+  if (ticker === 'BTC')      return 'BTC-USD';
+  return ticker;
+}
+
+// Small per-window cache: key = `${window}:${ticker}`, val = { data, cachedAt }
+const priceHistoryCache = {};
+const PRICE_HISTORY_TTL = 15 * 60 * 1000; // 15 min
+
+router.get('/price-history', async (req, res) => {
+  const win = (req.query.window || '1M').toUpperCase();
+  const cfg = PRICE_HISTORY_WINDOWS[win];
+  if (!cfg) return res.status(400).json({ error: `Unknown window: ${win}` });
+
+  const requestedRaw = req.query.tickers
+    ? req.query.tickers.split(',').map(t => t.trim()).filter(Boolean)
+    : [];
+  if (!requestedRaw.length) return res.json({ data: {}, errors: {}, window: win });
+
+  // Build period1
+  let period1;
+  if (cfg.ytd) {
+    period1 = new Date(new Date().getFullYear(), 0, 1); // Jan 1 current year
+  } else {
+    period1 = new Date();
+    period1.setDate(period1.getDate() - cfg.days);
+  }
+
+  const results = {}, errors = {};
+
+  await Promise.allSettled(requestedRaw.map(async rawTicker => {
+    const yticker = toYahooTicker(rawTicker);
+    const cacheKey = `${win}:${yticker}`;
+    const cached = priceHistoryCache[cacheKey];
+    if (cached && (Date.now() - cached.cachedAt) < PRICE_HISTORY_TTL) {
+      results[rawTicker] = cached.data;
+      return;
+    }
+
+    try {
+      const chart = await yf.chart(yticker, {
+        period1,
+        interval: cfg.interval,
+        // includePrePost: false keeps cleaner data
+      });
+      const quotes = (chart?.quotes || []).filter(q => q.close != null);
+      if (!quotes.length) { errors[rawTicker] = 'No data'; return; }
+
+      // Normalise to base-100 at first point
+      const base = quotes[0].close;
+      const series = quotes.map(q => ({
+        t: q.date instanceof Date ? q.date.getTime() : new Date(q.date).getTime(),
+        v: Math.round((q.close / base) * 10000) / 100, // 4 decimals → 2dp
+      }));
+
+      priceHistoryCache[cacheKey] = { data: series, cachedAt: Date.now() };
+      results[rawTicker] = series;
+    } catch (e) {
+      errors[rawTicker] = e.message;
+      console.warn(`[price-history] ${yticker} (${win}):`, e.message);
+    }
+  }));
+
+  res.json({ data: results, errors, window: win, interval: cfg.interval });
+});
+
 module.exports = {
   router,
   getPortfolioCache: () => ({ data: portfolioCache, tickers: portfolioTickers, cachedAt: portfolioCachedAt }),
