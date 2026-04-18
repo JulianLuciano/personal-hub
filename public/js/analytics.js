@@ -52,7 +52,7 @@ const TICKER_IS_BROAD_ETF = {
 
 const TICKER_BETA_FALLBACK = {
   'SPY': 1.0, 'BRK.B': 0.9, 'MELI': 1.6, 'NU': 1.5, 'ARKK.L': 1.4,
-  'VWRP.L': 0.95, 'MSFT': 1.1, 'NDIA.L': 1.1, 'BTC': 1.8, 'ADA': 2.0, 'RSU_META': 1.3,
+  'VWRP.L': 0.95, 'MSFT': 1.1, 'NDIA.L': 1.1, 'BTC': 1.2, 'ADA': 1.8, 'RSU_META': 1.3,
 };
 
 const DRAWDOWN_TOLERANCE = 20; // %
