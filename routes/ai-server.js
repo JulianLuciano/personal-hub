@@ -1260,7 +1260,7 @@ router.get('/briefing-context', async (req, res) => {
       `Generá un briefing financiero diario conciso en español. Máximo 600 palabras. Usá markdown (negrita, bullets).\n` +
       `Estructura:\n` +
       `1. **Cierre de mercado** — macro: VIX, índices, tasas, GBP/USD\n` +
-      `2. **Tu portfolio hoy** — valor total, variación del día en USD (nominal + %) y GBP (nominal + %), P&L acumulado en USD (nominal + %) y GBP (nominal + %), posiciones más impactadas con day%_usd y day%_gbp\n` +
+      `2. **Tu portfolio hoy** — valor total, rendimiento del día en USD (nominal + %) y GBP (nominal + %), P&L acumulado en USD (nominal + %) y GBP (nominal + %), posiciones más impactadas con day%_usd y day%_gbp\n` +
       `3. **Una observación concreta** — algo accionable o a monitorear\n\n` +
       `Sé directo. No repitas datos que ya están en los números.\n` +
       (yesterdayBriefing ? `La observación concreta de ayer fue:\n${yesterdayBriefing}\nNo repitas esa observación hoy — buscá un ángulo distinto.\n` : '') +

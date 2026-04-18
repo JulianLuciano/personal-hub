@@ -1603,6 +1603,7 @@ ${buildPortfolioContext()}
 ${buildHealthContext()}
 ${buildMarketContext()}`;
       _cachedSystemPromptKey = _snapKey;
+      window._cachedSystemPrompt = _cachedSystemPrompt; // expose for console inspection
     }
 
     const systemPrompt = _cachedSystemPrompt
