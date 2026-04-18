@@ -224,7 +224,7 @@ function needsExtendedWatchlist(userMsg) {
     'qué comprarías','que comprarias','dónde metería','donde meteria',
     'alternativa','diversificar','rotar','rotación','rotacion',
     // rioplatense / coloquial
-    'pongo plata',
+    'pongo plata', 'donde pongo', 'donde los pongo', 'que compro', 'qué compro',
     'vale la pena','conviene','qué conviene','que conviene',
     'fuera del portfolio','afuera del portfolio','por fuera',
     'algo interesante','algo lindo','algo bueno',
@@ -1592,9 +1592,9 @@ annual_investable: ${_annualInvest} | promotion_possible_2-3yr: bonus+10% saving
 RULES
 - ${fxLine}
 - day_return_gbp includes intraday USD/GBP FX move; day_cashflow_* es capital nuevo, no rendimiento
-- META: RSUs+shares = largest single exposure, warn if overweight
+- META: largest single exposure; >40% = warn explicitly; 30-40% = mention only if contextually relevant (e.g. earnings, volatility spike, new investment decision)
 - VIX >30=panic >20=elevated <15=calm | US10Y rising = pressure on growth+bonds
-- GBP/USD up = USD portfolio worth less in GBP
+- GBP/USD up = GBP stronger = USD assets worth less in GBP terms
 - If emergency_fund<£${_emergencyMin}: replenish before investing
 - Use all provided data for analysis
 
