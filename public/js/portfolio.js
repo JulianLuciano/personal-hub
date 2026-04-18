@@ -137,19 +137,28 @@ async function loadPortfolio() {
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
-    // Get snapshots: select total_usd AND total_gbp for accurate per-currency % change
-    const snapData = await sbFetch('/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=150');
-    if (snapData.length > 0) {
-      FX_RATE = snapData[0].fx_rate;
-      lastSnapshotAt = new Date(snapData[0].captured_at);
+    // Get snapshots: one targeted query per day (today / yesterday / day-before).
+    // Each query fetches only the latest row for that calendar day — no bulk fetch.
+    const _snapField = 'select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1';
+    const _dayRange = (d) => {
+      const start = d.toISOString().slice(0,10) + 'T00:00:00.000Z';
+      const end   = new Date(d.getTime() + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
+      return '&captured_at=gte.' + start + '&captured_at=lt.' + end;
+    };
+    const [_s0, _s1, _s2] = await Promise.all([
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date())),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date(Date.now() -     24*60*60*1000))),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date(Date.now() - 2 * 24*60*60*1000))),
+    ]);
+    const todaySnap        = _s0[0] || null;
+    const yesterdaySnap    = _s1[0] || null;
+    const dayBeforeSnapObj = _s2[0] || null;
+    const snapData = [todaySnap, yesterdaySnap, dayBeforeSnapObj].filter(Boolean);
+    if (todaySnap) {
+      FX_RATE = todaySnap.fx_rate;
+      lastSnapshotAt = new Date(todaySnap.captured_at);
       updateLastUpdatedLabel();
     }
-    const todayDay = snapData.length > 0 ? new Date(snapData[0].captured_at).toISOString().slice(0,10) : null;
-    const yesterdaySnap   = snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== todayDay) || null;
-    const yesterdayDay    = yesterdaySnap ? new Date(yesterdaySnap.captured_at).toISOString().slice(0,10) : null;
-    const dayBeforeSnapObj = yesterdayDay
-      ? snapData.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== todayDay && new Date(s.captured_at).toISOString().slice(0,10) !== yesterdayDay)
-      : null;
 
     // Calculate values
     let totalUSD = 0;
@@ -295,7 +304,7 @@ async function loadPortfolio() {
     // both come from the table and carry their own FX, so the diff is clean.
     let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
-    const todaySnap = snapData.length > 0 ? snapData[0] : null; // most recent snapshot (today)
+    // todaySnap already defined above from targeted day query
     if (lseOpened) {
       // Normal: today vs yesterday
       if (todaySnap && yesterdaySnap) {
