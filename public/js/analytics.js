@@ -2075,17 +2075,18 @@ function closePerfDetail() {
 const REL_TICKER_COLORS = {
   'MELI':     '#f7b731', // amarillo
   'NDIA.L':   '#ffffff', // blanco
-  'RSU_META': '#4361ee', // azul oscuro
+  'RSU_META': '#4361ee', // azul oscuro violáceo
+  'ADA':      '#0ea5e9', // azul eléctrico puro (más azulado que META)
   'GOOGL':    '#ea4335', // rojo Google
   'BTC':      '#f97316', // naranja
   'SPY':      '#43e97b', // verde
   'ARKK.L':   '#888888', // gris
   'VWRP.L':   '#ff6584', // rosa/rojo
-  'NU':       '#6c63ff', // violeta fuerte (el que tenía antes)
+  'NU':       '#6c63ff', // violeta fuerte
   'BRK.B':    '#74b9ff',
   'QQQ':      '#4fc3f7',
   'TLT':      '#fdcb6e',
-  'MSFT':     '#a29bfe', // lila clarito (el que tenía NU antes)
+  'MSFT':     '#a29bfe', // lila clarito
   'AAPL':     '#55efc4',
   'TSLA':     '#fd79a8',
   'AMZN':     '#e17055',
