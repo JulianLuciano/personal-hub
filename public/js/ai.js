@@ -1574,7 +1574,7 @@ async function aiSendMsg() {
       const _nextBonus   = bonusDates[0] || lastBizDay(yr + 1, 2);
       const _daysToBonus = Math.round((new Date(_nextBonus) - _now) / 86400000);
 
-      _cachedSystemPrompt = `You are ${_name}'s personal financial advisor. Reply in Spanish, direct and concise. Minimal markdown. All tool call reasoning, intermediate steps, and error messages must also be in Spanish.
+      _cachedSystemPrompt = `You are ${_name}'s personal financial advisor. Reply in Rioplatense Spanish (voseo, tuteo rioplatense), direct and concise. Minimal markdown. All tool call reasoning, intermediate steps, and error messages must also be in Rioplatense Spanish.
 
 TODAY: ${_todayISO} | NEXT_BONUS: ${_nextBonus} (${_daysToBonus}d) — 50% annual net bonus
 
