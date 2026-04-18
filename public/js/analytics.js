@@ -29,12 +29,19 @@ function switchAnalyticsTab(tab, btn) {
 }
 
 // Sector comes from Yahoo assetProfile via /api/market-data — no hardcoding
+function toYahooTicker(ticker) {
+  if (ticker === 'RSU_META') return 'META';
+  if (ticker === 'BTC')      return 'BTC-USD';
+  if (ticker === 'ADA')      return 'ADA-USD';
+  return ticker;
+}
+
 function getTickerSector(ticker, marketMeta) {
-  const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
+  const yahooTicker = toYahooTicker(ticker);
   const d = marketMeta[yahooTicker];
   if (d?.sector) return d.sector;
   // Crypto has no sector in Yahoo
-  if (ticker === 'BTC' || yahooTicker.endsWith('-USD')) return 'Crypto';
+  if (yahooTicker.endsWith('-USD')) return 'Crypto';
   return 'Other';
 }
 
@@ -45,7 +52,7 @@ const TICKER_IS_BROAD_ETF = {
 
 const TICKER_BETA_FALLBACK = {
   'SPY': 1.0, 'BRK.B': 0.9, 'MELI': 1.6, 'NU': 1.5, 'ARKK.L': 1.4,
-  'VWRP.L': 0.95, 'MSFT': 1.1, 'NDIA.L': 1.1, 'BTC': 1.8, 'RSU_META': 1.3,
+  'VWRP.L': 0.95, 'MSFT': 1.1, 'NDIA.L': 1.1, 'BTC': 1.8, 'ADA': 2.0, 'RSU_META': 1.3,
 };
 
 const DRAWDOWN_TOLERANCE = 20; // %
@@ -116,7 +123,7 @@ function computeHealthData() {
   // This correctly reflects that cash dampens portfolio volatility
   let betaSum = 0;
   weights.forEach(({ ticker, valueUSD }) => {
-    const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
+    const yahooTicker = toYahooTicker(ticker);
     const beta = mm[yahooTicker]?.beta ?? TICKER_BETA_FALLBACK[ticker] ?? 1.0;
     betaSum += beta * (valueUSD / healthTotalUSD); // weight over full health total (incl cash)
   });
@@ -130,7 +137,7 @@ function computeHealthData() {
   // ── Valuation (weighted forward P/E) — live Yahoo data only ──
   let peSum = 0, peWeightSum = 0;
   weights.forEach(({ ticker, wInv }) => {
-    const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
+    const yahooTicker = toYahooTicker(ticker);
     const d = mm[yahooTicker];
     const fpe = d?.forwardPE ?? d?.trailingPE;
     if (fpe && fpe > 0 && fpe < 200) {
@@ -196,7 +203,7 @@ function computeHealthData() {
 
   // Per-position detail data for modals (investments + cash)
   const positionDetails = weights.map(({ ticker, w, wInv, valueUSD, currency }) => {
-    const yahooTicker = ticker === 'RSU_META' ? 'META' : ticker === 'BTC' ? 'BTC-USD' : ticker;
+    const yahooTicker = toYahooTicker(ticker);
     const d = mm[yahooTicker] || {};
     const displayTicker = ticker === 'RSU_META' ? 'META' : ticker;
     return {
