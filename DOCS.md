@@ -377,6 +377,8 @@ Motor de Health Score, Monte Carlo y Correlation Heatmap.
   - Drawdown estimado
   Devuelve un objeto con el score total y sub-scores por dimensión.
 
+- `TICKER_BETA_FALLBACK` — Yahoo Finance **no provee beta para crypto** (quoteType `CRYPTOCURRENCY`). Los valores de fallback son empíricos, calculados con retornos diarios vs SPY en una ventana de 5 años (metodología consistente con la que usa Yahoo para equities). Calculados en abril 2026: `BTC 1.2 · ADA 1.8`. Para recalcular: `calc_crypto_beta2.py` en el Playground, usar la columna `5Y`.
+
 - `renderHealthScore()` — actualiza el gauge SVG y las tarjetas de sub-scores en la UI
 - `openHealthDetail(type)` — abre el modal de detalle para un sub-score específico
 - `closeHealthDetail()` — cierra el modal
