@@ -865,6 +865,31 @@
     <!-- ═══ PERFORMANCE SUB-TAB ═══ -->
     <div class="analytics-subtab" id="analyticsPerf">
 
+      <!-- Relative Performance — base 100 por activo (FIRST) -->
+      <div class="mc-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Rendimiento relativo</div>
+          <div style="font-size:10px;color:var(--muted)" id="relPerfWindowLabel">1M</div>
+        </div>
+        <!-- Slider -->
+        <div class="rel-perf-slider-wrap">
+          <input type="range" id="relPerfSlider" class="rel-perf-slider"
+            min="0" max="5" step="1" value="1"
+            oninput="onRelPerfSlider(this.value)">
+          <div class="rel-perf-slider-labels">
+            <span>1S</span><span>1M</span><span>3M</span><span>6M</span><span>1A</span><span>YTD</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Base 100 al inicio de la ventana · cada activo de la cartera</div>
+        <!-- Legend chips generados dinámicamente -->
+        <div id="relPerfLegend" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+        <div style="position:relative;width:100%;height:210px">
+          <div id="relPerfEmpty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">Cargando...</div>
+          <canvas id="relPerfChart" style="display:none;width:100%;height:100%"></canvas>
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:6px">Tocá un activo en la leyenda para mostrarlo / ocultarlo</div>
+      </div>
+
       <!-- Sharpe + Sortino cards -->
       <div class="mc-card" style="padding:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -921,29 +946,6 @@
           <canvas id="pmeChart" style="display:none;width:100%;height:100%"></canvas>
         </div>
         <div style="font-size:9px;color:var(--muted);margin-top:6px">La curva sube con aportes nuevos — compará pendiente, no nivel absoluto</div>
-      </div>
-
-      <!-- Relative Performance — base 100 por activo -->
-      <div class="mc-card" style="padding:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700">Rendimiento relativo</div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
-            <button class="corr-period-pill active" data-relperiod="1W"  onclick="setRelPeriod('1W',this)">1S</button>
-            <button class="corr-period-pill"        data-relperiod="1M"  onclick="setRelPeriod('1M',this)">1M</button>
-            <button class="corr-period-pill"        data-relperiod="3M"  onclick="setRelPeriod('3M',this)">3M</button>
-            <button class="corr-period-pill"        data-relperiod="6M"  onclick="setRelPeriod('6M',this)">6M</button>
-            <button class="corr-period-pill"        data-relperiod="1A"  onclick="setRelPeriod('1A',this)">1A</button>
-            <button class="corr-period-pill"        data-relperiod="YTD" onclick="setRelPeriod('YTD',this)">YTD</button>
-          </div>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Base 100 al inicio de la ventana · cada activo de la cartera</div>
-        <!-- Legend: chips generados dinámicamente, clickeables para toggle -->
-        <div id="relPerfLegend" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
-        <div style="position:relative;width:100%;height:210px">
-          <div id="relPerfEmpty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">Cargando...</div>
-          <canvas id="relPerfChart" style="display:none;width:100%;height:100%"></canvas>
-        </div>
-        <div style="font-size:9px;color:var(--muted);margin-top:6px">Tocá un activo en la leyenda para mostrarlo / ocultarlo</div>
       </div>
 
     </div><!-- end analyticsPerf -->

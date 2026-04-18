@@ -2961,9 +2961,55 @@
   font-size: 13px;
   text-align: center;
 }
-#corrInsight {
-  margin-top: 14px;
+
+/* ── Relative Performance Slider ─────────────────────────────────────────── */
+.rel-perf-slider-wrap {
+  margin-bottom: 14px;
+}
+.rel-perf-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.rel-perf-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--accent);
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.rel-perf-slider:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(108,99,255,0.25);
+}
+.rel-perf-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  cursor: pointer;
+}
+.rel-perf-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+.rel-perf-slider-labels span {
   font-size: 10px;
   color: var(--muted);
-  line-height: 1.5;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  text-align: center;
+  width: 16.66%;
 }
