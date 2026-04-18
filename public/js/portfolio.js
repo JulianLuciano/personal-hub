@@ -137,22 +137,39 @@ async function loadPortfolio() {
     console.log('[Portfolio] prices yesterday:', pricesYesterday);
     console.log('[Portfolio] prices day-before:', pricesDayBefore);
 
-    // Get snapshots: one targeted query per day (today / yesterday / day-before).
-    // Each query fetches only the latest row for that calendar day — no bulk fetch.
+    // Get snapshots: one targeted query per market day — always the last snapshot of that day.
+    // Market days skip weekends. Logic:
+    //   - "today" snapshot: always today's calendar day (worker runs 24/7 incl. weekends)
+    //   - "prev market day" / "prev prev market day": walk back skipping Sat/Sun
+    // This means Sat/Sun/Mon-pre-open all resolve prev=Fri, prevPrev=Thu → correct diff.
     const _snapField = 'select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1';
     const _dayRange = (d) => {
       const start = d.toISOString().slice(0,10) + 'T00:00:00.000Z';
       const end   = new Date(d.getTime() + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
       return '&captured_at=gte.' + start + '&captured_at=lt.' + end;
     };
+    // Walk back from a given Date to find the Nth previous market day (skipping Sat/Sun)
+    const _prevMarketDay = (fromDate, stepsBack) => {
+      let d = new Date(fromDate);
+      let steps = 0;
+      while (steps < stepsBack) {
+        d = new Date(d.getTime() - 24*60*60*1000);
+        const dow = d.getUTCDay();
+        if (dow !== 0 && dow !== 6) steps++;
+      }
+      return d;
+    };
+    const _now = new Date();
+    const _prevMD1 = _prevMarketDay(_now, 1); // last market day before today
+    const _prevMD2 = _prevMarketDay(_now, 2); // market day before that
     const [_s0, _s1, _s2] = await Promise.all([
-      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date())),
-      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date(Date.now() -     24*60*60*1000))),
-      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(new Date(Date.now() - 2 * 24*60*60*1000))),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_now)),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD1)),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD2)),
     ]);
     const todaySnap        = _s0[0] || null;
-    const yesterdaySnap    = _s1[0] || null;
-    const dayBeforeSnapObj = _s2[0] || null;
+    const yesterdaySnap    = _s1[0] || null; // last market day (e.g. Friday if today is weekend)
+    const dayBeforeSnapObj = _s2[0] || null; // market day before that (e.g. Thursday)
     const snapData = [todaySnap, yesterdaySnap, dayBeforeSnapObj].filter(Boolean);
     if (todaySnap) {
       FX_RATE = todaySnap.fx_rate;
