@@ -103,6 +103,11 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | day% del briefing incorrecto (muestra 0% o valor de ayer) | `routes/ai-server.js` → `tDayAnchor` (medianoche London). Verificar con: `SELECT ticker, price_usd, captured_at FROM price_snapshots WHERE ticker='RSU_META' AND captured_at <= NOW() - INTERVAL '20 hours' ORDER BY captured_at DESC LIMIT 3` |
 | Macro no aparece en el prompt del briefing | `routes/ai-server.js` → `fetchMacro()` directo (no usa cache HTTP). Verificar en Railway logs: `[briefing-context] macro loaded, tickers: 7` |
 | Briefing truncado (texto cortado a mitad de frase) | `notification-worker.js` → `max_tokens` (debe ser 1500+) |
+| Variación diaria del portfolio incorrecta en fin de semana / lunes | `portfolio.js` → `_prevMarketDay()` — queries de snapshots usan días de mercado (saltan sábado/domingo), no días calendario |
+| Variación diaria infla depósitos/compras del día como rendimiento | `portfolio.js` + `routes/ai-server.js` → Modified Dietz: `changeUSD = V_fin - V_ini - netCFusd`. CF fetch filtra `is_reinvestment=false`, tipos `BUY/DEPOSIT/SELL/WITHDRAWAL` |
+| `day_cashflow_*` no aparece en contexto AI | Es condicional: solo se emite cuando `netCFusd !== 0`. Si no hubo transacciones externas ese día, es correcto que no aparezca |
+| Inspeccionar system prompt del chat en consola | Mandar un mensaje al chat primero, luego: `console.log(window._cachedSystemPrompt)` (requiere `window._cachedSystemPrompt = _cachedSystemPrompt` después de línea `_cachedSystemPromptKey = _snapKey` en `ai.js`) |
+| Inspeccionar prompt del briefing con datos reales | `(async()=>{const r=await fetch('/api/briefing-context');const j=await r.json();j.systemPrompt.split('\n').forEach(l=>console.log(l))})()` |
 
 ---
 
@@ -123,7 +128,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `server.js` | Express: bootstrap, proxy genérico Supabase, chart downsampling, positions, habits, push notifications, water, jacket proxy. ~270 líneas. |
 | `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
 | `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
-| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). |
+| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz: fetcha CF del día (London date) y resta `netCFusd` de `dayChangeUSD/GBP`; emite `day_return_*` (rendimiento puro) y `day_cashflow_*` (condicional, solo si hubo CF externo). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo ignorando transacciones con `is_reinvestment = true`. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -255,6 +260,9 @@ El módulo más grande (~2745 líneas). Maneja toda la tab Portfolio.
 
 **Carga de datos:**
 - `loadPortfolio()` — fetcha positions, price_snapshots y portfolio_snapshots desde la DB. Puebla `liveData`. Llama a `renderPortfolio()`, `drawChart()`, `renderEquityPie()`, `renderHealthScore()`.
+- Snapshots de portfolio: 3 queries paralelas con filtro de rango exacto por día de mercado (`_prevMarketDay()` saltea sábado/domingo). Siempre trae el último snapshot de hoy, del último día de mercado anterior, y del anterior a ese — nunca un bulk fetch.
+- Modified Dietz: `changeUSD/GBP = V_fin - V_ini - netCFusd`. El CF neto del período se fetcha en la misma `Promise.all`, filtrando `is_reinvestment=false` y tipos `BUY/DEPOSIT/SELL/WITHDRAWAL`. En fin de semana el rango cubre desde el último día de mercado hasta hoy.
+- `liveData` incluye `netCFusd` para que `buildPortfolioContext()` en `ai.js` pueda emitir `day_cashflow_*`.
 
 **Render principal:**
 - `renderPortfolio()` — genera los ítems de posiciones en `#assetList`. Muestra precio actual, P&L, qty, valor. Incluye market status (open/closed/pre-market).
