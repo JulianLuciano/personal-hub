@@ -359,7 +359,7 @@ async function loadPortfolio() {
     // totalGBP calculated bottom-up from live totalUSD — same source as totalUSD.
     // Not taken from snapshot so manual updates reflect immediately.
     const totalGBP = totalUSD * FX_RATE;
-    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
+    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.

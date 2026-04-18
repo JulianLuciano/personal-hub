@@ -1204,8 +1204,9 @@ router.get('/briefing-context', async (req, res) => {
       `total: ${fU(totalUSD)} / ${fG(totalGBP)} (equity + cash)\n` +
       `equity_only: ${fU(totalValUSD)} / ${fG(totalValUSD * fxRate)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
-      (dayChangeUSD != null ? `day_change_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)})\n` : '') +
-      (dayChangeGBP != null ? `day_change_gbp: ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPctGBP)})\n` : '') +
+      (dayChangeUSD != null ? `day_return_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)}) [rendimiento, excluye cashflows]\n` : '') +
+      (dayChangeGBP != null ? `day_return_gbp: ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPctGBP)}) [rendimiento, excluye cashflows]\n` : '') +
+      (netCFusd !== 0 ? `day_cashflow_usd: ${netCFusd >= 0 ? '+' : ''}${fU(netCFusd)} [capital ingresado/retirado, no es rendimiento]\nday_cashflow_gbp: ${netCFusd * fxRate >= 0 ? '+' : ''}${fG(netCFusd * fxRate)} [capital ingresado/retirado, no es rendimiento]\n` : '') +
       `cost_basis: ${fU(costBasisUSD)} / ${fG(costBasisGBP)} (invested + cash)\n` +
       `total_pnl_usd: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} (${sgn(totalPnlPctUSD)})\n` +
       `total_pnl_gbp: ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPctGBP)})\n` +

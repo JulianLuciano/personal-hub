@@ -473,7 +473,7 @@ function buildCorrelationContext() {
 
 function buildPortfolioContext() {
   if (!liveData) return 'Portfolio data not loaded yet.';
-  const { totalUSD, totalGBP: _totalGBP, changeUSD, changeGBP, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
+  const { totalUSD, totalGBP: _totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, costBasisUSD, costBasisGBP } = liveData;
   const rate = FX_RATE;
   const fG  = v => '£' + Math.round(v * rate).toLocaleString('es-AR');
   const fGn = v => '£' + Math.round(v).toLocaleString('es-AR'); // already in GBP
@@ -490,8 +490,12 @@ function buildPortfolioContext() {
 
   let ctx = `PORTFOLIO\n`;
   ctx += `total: ${fU(totalUSD)} / £${Math.round(totalGBP).toLocaleString('es-AR')}\n`;
-  ctx += `day_change_usd: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${chgPctUSD >= 0 ? '+' : ''}${chgPctUSD.toFixed(2)}%)\n`;
-  if (changeGBP != null) ctx += `day_change_gbp: ${changeGBP >= 0 ? '+' : ''}${fGn(changeGBP)} (${chgPctGBP >= 0 ? '+' : ''}${chgPctGBP.toFixed(2)}%)\n`;
+  ctx += `day_return_usd: ${changeUSD >= 0 ? '+' : ''}${fU(changeUSD)} (${chgPctUSD >= 0 ? '+' : ''}${chgPctUSD.toFixed(2)}%) [rendimiento, excluye cashflows]\n`;
+  if (changeGBP != null) ctx += `day_return_gbp: ${changeGBP >= 0 ? '+' : ''}${fGn(changeGBP)} (${chgPctGBP >= 0 ? '+' : ''}${chgPctGBP.toFixed(2)}%) [rendimiento, excluye cashflows]\n`;
+  if (netCFusd != null && netCFusd !== 0) {
+    ctx += `day_cashflow_usd: ${netCFusd >= 0 ? '+' : ''}${fU(netCFusd)} [capital ingresado/retirado, no es rendimiento]\n`;
+    if (FX_RATE) ctx += `day_cashflow_gbp: ${netCFusd * FX_RATE >= 0 ? '+' : ''}${fGn(netCFusd * FX_RATE)} [capital ingresado/retirado, no es rendimiento]\n`;
+  }
   ctx += `fx: 1 USD = ${rate.toFixed(4)} GBP\n`;
 
   // Cost basis total
@@ -1587,7 +1591,7 @@ annual_investable: ${_annualInvest} | promotion_possible_2-3yr: bonus+10% saving
 
 RULES
 - ${fxLine}
-- day_change_gbp includes intraday USD/GBP FX move
+- day_return_gbp includes intraday USD/GBP FX move; day_cashflow_* es capital nuevo, no rendimiento
 - META: RSUs+shares = largest single exposure, warn if overweight
 - VIX >30=panic >20=elevated <15=calm | US10Y rising = pressure on growth+bonds
 - GBP/USD up = USD portfolio worth less in GBP
