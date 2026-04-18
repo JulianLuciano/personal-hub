@@ -162,11 +162,26 @@ async function loadPortfolio() {
     const _now = new Date();
     const _prevMD1 = _prevMarketDay(_now, 1); // last market day before today
     const _prevMD2 = _prevMarketDay(_now, 2); // market day before that
-    const [_s0, _s1, _s2] = await Promise.all([
+
+    // CF query: fetch all external cashflows from _prevMD1 up to today (inclusive).
+    // On weekdays this is just today; on weekends/Mon-pre-open it covers Fri+weekend+today.
+    // is_reinvestment=false excludes internal reallocations (sell A + buy B).
+    // RSU_VEST excluded — it's appreciation of an asset already held, not new external capital.
+    const _cfStart = _prevMD1.toISOString().slice(0,10);
+    const _cfEnd   = new Date(_now.getTime() + 24*60*60*1000).toISOString().slice(0,10);
+    const [_s0, _s1, _s2, _cfRows] = await Promise.all([
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_now)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD1)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD2)),
+      sbFetch('/rest/v1/transactions?select=type,amount_usd&date=gte.' + _cfStart + '&date=lt.' + _cfEnd + '&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)'),
     ]);
+
+    // Net cashflow in USD over the comparison window (deposits/buys positive, sells/withdrawals negative)
+    const netCFusd = (_cfRows || []).reduce((acc, tx) => {
+      if (tx.type === 'BUY' || tx.type === 'DEPOSIT') return acc + Number(tx.amount_usd || 0);
+      if (tx.type === 'SELL' || tx.type === 'WITHDRAWAL') return acc - Number(tx.amount_usd || 0);
+      return acc;
+    }, 0);
     const todaySnap        = _s0[0] || null;
     const yesterdaySnap    = _s1[0] || null; // last market day (e.g. Friday if today is weekend)
     const dayBeforeSnapObj = _s2[0] || null; // market day before that (e.g. Thursday)
@@ -311,38 +326,33 @@ async function loadPortfolio() {
       }
     }
 
-    // ── Portfolio daily change ──────────────────────────────────────────────────
-    // Both USD and GBP changes are computed from the snapshot table's NATIVE values.
-    // snapData[0].total_gbp is the GBP total recorded by the worker at that moment
-    // (with its own FX rate) — no conversion from totalUSD needed.
-    // USD change uses live totalUSD (bottom-up) vs yesterday snapshot — that's intentional:
-    // it captures price moves that happened since the last snapshot.
-    // GBP change uses snapData[0].total_gbp (latest today snapshot) vs yesterday snapshot —
-    // both come from the table and carry their own FX, so the diff is clean.
+    // ── Portfolio daily change (Modified Dietz — cashflow adjusted) ────────────
+    // changeUSD/GBP = (V_fin - V_ini - CF_neto) so that deposits/withdrawals
+    // in the comparison window don't inflate/deflate the reported daily return.
     let changeUSD = 0, changeGBP = 0;
     const lseOpened = marketOpenedTodayUTC('LSE');
     // todaySnap already defined above from targeted day query
     if (lseOpened) {
-      // Normal: today vs yesterday
+      // Normal: today vs last market day
       if (todaySnap && yesterdaySnap) {
-        changeUSD = totalUSD - Number(yesterdaySnap.total_usd);
+        changeUSD = totalUSD - Number(yesterdaySnap.total_usd) - netCFusd;
         const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
         const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
-        changeGBP = todayGBP - prevGBP;
+        changeGBP = todayGBP - prevGBP - netCFusd * FX_RATE;
       }
     } else {
-      // Pre-market: yesterday vs day-before
+      // Pre-market / weekend: last market day vs the one before it
       if (yesterdaySnap && dayBeforeSnapObj) {
-        changeUSD = Number(yesterdaySnap.total_usd) - Number(dayBeforeSnapObj.total_usd);
+        changeUSD = Number(yesterdaySnap.total_usd) - Number(dayBeforeSnapObj.total_usd) - netCFusd;
         const yGBP  = Number(yesterdaySnap.total_gbp)    || (Number(yesterdaySnap.total_usd)    * (Number(yesterdaySnap.fx_rate)    || FX_RATE));
         const d2GBP = Number(dayBeforeSnapObj.total_gbp)  || (Number(dayBeforeSnapObj.total_usd) * (Number(dayBeforeSnapObj.fx_rate)  || FX_RATE));
-        changeGBP = yGBP - d2GBP;
+        changeGBP = yGBP - d2GBP - netCFusd * FX_RATE;
       } else if (todaySnap && yesterdaySnap) {
-        // Fallback: market hasn't opened but no day-before snapshot available
-        changeUSD = totalUSD - Number(yesterdaySnap.total_usd);
+        // Fallback: no day-before snapshot available
+        changeUSD = totalUSD - Number(yesterdaySnap.total_usd) - netCFusd;
         const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
         const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
-        changeGBP = todayGBP - prevGBP;
+        changeGBP = todayGBP - prevGBP - netCFusd * FX_RATE;
       }
     }
 

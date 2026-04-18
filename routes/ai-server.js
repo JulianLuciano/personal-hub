@@ -831,13 +831,14 @@ router.get('/briefing-context', async (req, res) => {
     const t7d  = iso(new Date(now0 - 6  * 86400000));
     const t30d = iso(new Date(now0 - 29 * 86400000));
 
-    const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows] = await Promise.all([
+    const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows, cfRows] = await Promise.all([
       sb('positions?select=ticker,qty,avg_cost_usd,initial_investment_usd,initial_investment_gbp,category,pricing_currency,currency&order=ticker.asc'),
       sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1'),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t7d}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t30d}&order=captured_at.desc&limit=1`),
       sb('transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5'),
+      sb(`transactions?select=type,amount_usd&date=eq.${londonToday}&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)`),
     ]);
 
     if (!Array.isArray(positions) || !Array.isArray(latestSnaps)) {
@@ -886,8 +887,16 @@ router.get('/briefing-context', async (req, res) => {
     const snap7dGBP    = snap7d  ? (snap7d.total_gbp  || snap7d.total_usd  * fxRate) : null;
     const snap30dGBP   = snap30d ? (snap30d.total_gbp || snap30d.total_usd * fxRate) : null;
 
-    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd : null;
-    const dayChangeGBP = snap24h ? totalGBP - snap24hGBP : null;
+    // Net cashflow today (London date) — excludes reinvestments and RSU_VEST.
+    // Subtracted from day change so deposits/withdrawals don't distort the daily return.
+    const netCFusd = (Array.isArray(cfRows) ? cfRows : []).reduce((acc, tx) => {
+      if (tx.type === 'BUY' || tx.type === 'DEPOSIT') return acc + Number(tx.amount_usd || 0);
+      if (tx.type === 'SELL' || tx.type === 'WITHDRAWAL') return acc - Number(tx.amount_usd || 0);
+      return acc;
+    }, 0);
+
+    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd - netCFusd : null;
+    const dayChangeGBP = snap24h ? totalGBP - snap24hGBP - netCFusd * fxRate : null;
     const dayPctUSD    = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
     const dayPctGBP    = snap24hGBP > 0 ? (dayChangeGBP / snap24hGBP * 100) : null;
 
