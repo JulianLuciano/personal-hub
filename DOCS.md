@@ -35,7 +35,7 @@ Una app web móvil personal que corre en Railway, usa Express como servidor y Su
     │   ├── recipes.js         ← Sub-tool Recetario + timers de cocción
     │   ├── jacket.js          ← Sub-tool Predictor de abrigo (replica bot Telegram)
     │   ├── portfolio.js       ← Tab Portfolio (la más compleja)
-    │   ├── analytics.js       ← Tab Analytics: Health Score + Monte Carlo
+    │   ├── analytics.js       ← Tab Analytics: Health Score + Monte Carlo + Correlation + Performance
     │   ├── transactions.js    ← Panel de nueva transacción + OCR
     │   └── ai.js              ← Chat con Claude
     │
@@ -62,6 +62,13 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Cambiar URL de la API de predicción | `server.js` (env var `JACKET_API_URL`) |
 | Bug en Portfolio (posiciones, gráfico, pie, RSU, P&L) | `portfolio.js` |
 | Bug en Analytics (Health Score, Monte Carlo, Correlación) | `analytics.js` |
+| Bug en Performance (Sharpe, Sortino, Rolling, PME) | `analytics.js` |
+| Bug en Rendimiento Relativo (gráfico base-100) | `analytics.js` → `loadRelPerf()`, `interpolateSeries()`, `buildCommonTimeline()` |
+| Rendimiento Relativo no carga / error fetch | `routes/market-server.js` → `router.get('/price-history', ...)` |
+| 3M / 6M / 1A muestra muy pocos puntos o solo 1 semana | `routes/market-server.js` → `PRICE_HISTORY_WINDOWS` — verificar que `interval` sea `1d`, no `90m` |
+| ADA no aparece en el gráfico relativo | `routes/market-server.js` → `toYahooTicker()` — debe mapear `ADA → ADA-USD` |
+| Tooltip del gráfico relativo no alinea todas las líneas | `analytics.js` → `buildCommonTimeline()` + `interpolateSeries()` — todas las series deben tener los mismos timestamps |
+| Slider de ventana no alinea con las marcas | `styles.css` → `.rel-perf-slider-wrap { padding: 0 9px }` — compensa el offset del thumb (thumb_width/2) |
 | Bug en correlación (valores raros, no carga, períodos) | `analytics.js` + `worker.js` |
 | Bug en contexto de correlación del agente (siempre null, datos viejos) | `routes/ai-server.js` → `/api/ai-correlation-context` |
 | Anthropic devuelve 429/529 y el chat falla | `routes/ai-server.js` → `callAnthropic()` (retry automático) |
@@ -122,12 +129,12 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `recipes.js` | Sub-tool: datos de recetas, render, timers de cocción. |
 | `jacket.js` | Sub-tool: predictor de abrigo. Replica exactamente el bot de Telegram. |
 | `portfolio.js` | Carga y renderiza Portfolio: posiciones, gráfico, pies, RSU modal, pos detail. |
-| `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + sus UIs. |
+| `analytics.js` | Health Score engine + Monte Carlo engine + Correlation Heatmap + **Performance** (Sharpe/Sortino, Rolling Sharpe, PME vs benchmarks, Rendimiento Relativo base-100) + sus UIs. |
 | `transactions.js` | Formulario de transacción, validaciones, submit a DB, OCR via Claude Vision. |
 | `ai.js` | Chat con Claude: builders de contexto, SSE streaming de respuestas, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete y búsqueda fulltext, mensajes favoritos (★), modal de briefing diario, banner de alertas proactivas colapsable. |
 | `server.js` | Express: bootstrap, proxy genérico Supabase, chart downsampling, positions, habits, push notifications, water, jacket proxy. ~270 líneas. |
 | `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
-| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
+| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`, `/api/price-history`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
 | `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz: fetcha CF del día (London date) y resta `netCFusd` de `dayChangeUSD/GBP`; emite `day_return_*` (rendimiento puro) y `day_cashflow_*` (condicional, solo si hubo CF externo). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo ignorando transacciones con `is_reinvestment = true`. |
@@ -311,6 +318,46 @@ El módulo más grande (~2745 líneas). Maneja toda la tab Portfolio.
 - `renderPosModalValues(ticker)` — calcula y muestra P&L, avg cost, rendimiento
 - `drawPosChart(ticker, meta)` — gráfico de precio histórico de la posición
 - `setPosModalCurrency(cur)` — cambia moneda dentro del modal
+
+---
+
+**Performance Tab:**
+- `loadPerformance(period?)` — punto de entrada del sub-tab Performance. Fetcha `daily_returns` desde Supabase (últimos 400d), agrupa por ticker, y llama a `renderSharpeAndSortino()`, `renderRollingSharpe()`, `renderPME()`.
+- `fetchPerfData()` — fetcha `daily_returns` de todos los tickers del portfolio + benchmarks (SPY, QQQ, TLT, VWRP.L) desde Supabase. También fetcha transactions para los cash flows de PME.
+- `renderSharpeAndSortino()` — calcula y muestra Sharpe y Sortino anualizados para el período activo.
+- `renderRollingSharpe()` — dibuja el chart de Sharpe rodante (ventana 90d) sobre todo el historial disponible.
+- `renderPME()` / `setPmePeriod(period)` — dibuja el gráfico Portfolio vs Benchmarks en índice 100 con cash flows aplicados (Public Market Equivalent). El portfolio refleja retornos ponderados reales; los benchmarks reciben los mismos aportes en las mismas fechas.
+- `computeRatios(returnArr, rfAnnual)` — calcula Sharpe y Sortino. Anualiza con factor √252.
+- `openPerfDetail(type)` / `closePerfDetail()` — modal de detalle para Sharpe y Sortino.
+
+**Rendimiento Relativo (base-100):**
+- `loadRelPerf()` — fetcha `/api/price-history?window=X&tickers=...` para el período activo y renderiza el gráfico. En el primer render inicializa `relPerfHidden` ocultando todos los tickers excepto SPY y VWRP.L. Después del primer fetch dispara `prefetchRelPerf()` en background.
+- `prefetchRelPerf(tickers)` — fetcha secuencialmente (400ms entre requests) los 5 períodos restantes en background para que los cambios de ventana sean instantáneos.
+- `setRelPeriod(win, btn)` — cambia la ventana activa y llama `loadRelPerf()`. Disparado por el slider HTML.
+- `onRelPerfSlider(val)` — handler del `<input type=range>` (0-5 → 1W/1M/3M/6M/1A/YTD). Actualiza el label y llama `loadRelPerf()`.
+- `interpolateSeries(series, targetTs)` — interpola una serie `[{t,v}]` sobre un array de timestamps destino usando búsqueda binaria. Necesario porque Yahoo no alinea los timestamps entre tickers.
+- `buildCommonTimeline(seriesMap, loaded)` — elige la serie con más puntos como master timeline. Todas las demás se interpolan sobre ella para que `mode:'index'` del tooltip toque el mismo punto en todas las líneas.
+- `toggleRelLine(ticker)` — muestra/oculta una línea y actualiza su chip en la leyenda.
+- `REL_TICKER_COLORS` — mapa fijo de colores por ticker (estable, no depende del orden del portfolio).
+- `REL_DEFAULT_VISIBLE` — `Set(['SPY', 'VWRP.L'])` — solo estos dos visibles por default.
+
+**Ventanas del gráfico relativo:**
+
+| Ventana | Días | Interval Yahoo |
+|---|---|---|
+| 1W | 8 | 1h |
+| 1M | 32 | 90m |
+| 3M | 95 | 1d |
+| 6M | 185 | 1d |
+| 1A | 370 | 1d |
+| YTD | desde Jan 1 | 1d |
+
+**Dependencia nueva:** `chartjs-adapter-date-fns@3` — requerido para el eje X de tipo `time` en Chart.js. Cargado via CDN en `index.html`.
+
+**Ticker maps en `market-server.js`:**
+- `RSU_META → META`
+- `BTC → BTC-USD`
+- `ADA → ADA-USD`
 
 ---
 
