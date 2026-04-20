@@ -534,7 +534,7 @@ function buildPortfolioContext() {
   }
 
   ctx += '\nPOSITIONS\nticker|name|weight%|value_usd|value_gbp|qty|price|avg_cost_usd|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|pnl_abs_usd|pnl_abs_gbp|day%\n';
-  assets.filter(a => a.valueUSD > 0.5).forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
+  assets.filter(a => a.valueUSD > 0.5 && a.pos.ticker !== 'ARS_CASH').forEach(({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct }) => {
     const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
     const w = totalUSD > 0 ? (valueUSD / totalUSD * 100).toFixed(1) : '—';
     const valueGBP = valueUSD * rate;
@@ -1564,7 +1564,7 @@ async function aiSendMsg() {
         const ef      = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
         const arsCash = liveData.assets.find(a => a.pos.ticker === 'ARS_CASH');
         if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
-        if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
+        if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('en-US');
         if (arsCash && arsCash.valueUSD > 0.5) {
           const arsUSD = Math.round(arsCash.valueUSD);
           const arsGBP = Math.round(arsCash.valueUSD * FX_RATE);
