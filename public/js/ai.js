@@ -605,28 +605,28 @@ function buildPortfolioContext() {
     }
   }
 
-  // Historical performance (7d and 30d)
-  const _snaps = liveData.snapshots || [];
-  if (_snaps.length > 1) {
-    const latest = _snaps[0];
-    const latestGBP = latest.total_gbp || (latest.total_usd * (latest.fx_rate || FX_RATE));
-    const msDay = 86400000;
-    const now = new Date(latest.captured_at).getTime();
-    const snap7  = _snaps.find(s => (now - new Date(s.captured_at).getTime()) >= 6 * msDay);
-    const snap30 = _snaps.find(s => (now - new Date(s.captured_at).getTime()) >= 29 * msDay);
+  // Historical performance (7d and 30d) — snapshots fetched explicitly in portfolio.js
+  const _latestSnap = (liveData.snapshots || [])[0];
+  const _snap7d  = liveData.snap7d  || null;
+  const _snap30d = liveData.snap30d || null;
+  if (_latestSnap && (_snap7d || _snap30d)) {
+    const latestUSD = Number(_latestSnap.total_usd);
+    const latestGBP = Number(_latestSnap.total_gbp) || (latestUSD * (Number(_latestSnap.fx_rate) || FX_RATE));
     ctx += '\nHISTORICAL_PERFORMANCE\n';
-    if (snap7) {
-      const gbp7 = snap7.total_gbp || (snap7.total_usd * (snap7.fx_rate || FX_RATE));
-      const chg7 = latest.total_usd - snap7.total_usd;
-      const chgG7 = latestGBP - gbp7;
-      const pct7 = snap7.total_usd > 0 ? (chg7 / snap7.total_usd * 100) : 0;
+    if (_snap7d) {
+      const base7USD = Number(_snap7d.total_usd);
+      const base7GBP = Number(_snap7d.total_gbp) || (base7USD * (Number(_snap7d.fx_rate) || FX_RATE));
+      const chg7  = latestUSD - base7USD;
+      const chgG7 = latestGBP - base7GBP;
+      const pct7  = base7USD > 0 ? (chg7 / base7USD * 100) : 0;
       ctx += `7d: ${chg7 >= 0 ? '+' : ''}${fU(chg7)} (${chgG7 >= 0 ? '+' : ''}${fGn(chgG7)}) ${pct7 >= 0 ? '+' : ''}${pct7.toFixed(2)}%\n`;
     }
-    if (snap30) {
-      const gbp30 = snap30.total_gbp || (snap30.total_usd * (snap30.fx_rate || FX_RATE));
-      const chg30 = latest.total_usd - snap30.total_usd;
-      const chgG30 = latestGBP - gbp30;
-      const pct30 = snap30.total_usd > 0 ? (chg30 / snap30.total_usd * 100) : 0;
+    if (_snap30d) {
+      const base30USD = Number(_snap30d.total_usd);
+      const base30GBP = Number(_snap30d.total_gbp) || (base30USD * (Number(_snap30d.fx_rate) || FX_RATE));
+      const chg30  = latestUSD - base30USD;
+      const chgG30 = latestGBP - base30GBP;
+      const pct30  = base30USD > 0 ? (chg30 / base30USD * 100) : 0;
       ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fGn(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
     }
   }

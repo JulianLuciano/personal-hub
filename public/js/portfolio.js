@@ -172,11 +172,23 @@ async function loadPortfolio() {
     // On a normal weekday this is just today; on Sat/Sun/Mon it covers Sat+Sun+today.
     const _cfStart = new Date(_prevMD1.getTime() + 24*60*60*1000).toISOString().slice(0,10);
     const _cfEnd   = new Date(_now.getTime() + 24*60*60*1000).toISOString().slice(0,10);
-    const [_s0, _s1, _s2, _cfRows] = await Promise.all([
+    // 7d: snapshot closest to exactly 7 calendar days ago — fetch the last snap of that day
+    const _7dAgo  = new Date(_now.getTime() - 7  * 24*60*60*1000);
+    const _30dAgo = new Date(_now.getTime() - 30 * 24*60*60*1000);
+    const _snapField7d  = 'select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1';
+    // Query: last snapshot on or before that date (gte start of 7d-ago day, lt start of 6d-ago day)
+    const _7dStart  = _7dAgo.toISOString().slice(0,10)  + 'T00:00:00.000Z';
+    const _7dEnd    = new Date(_7dAgo.getTime()  + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
+    const _30dStart = _30dAgo.toISOString().slice(0,10) + 'T00:00:00.000Z';
+    const _30dEnd   = new Date(_30dAgo.getTime() + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
+
+    const [_s0, _s1, _s2, _cfRows, _s7d, _s30d] = await Promise.all([
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_now)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD1)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD2)),
       sbFetch('/rest/v1/transactions?select=type,amount_usd&date=gte.' + _cfStart + '&date=lt.' + _cfEnd + '&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)'),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField7d  + '&captured_at=gte.' + _7dStart  + '&captured_at=lt.' + _7dEnd),
+      sbFetch('/rest/v1/portfolio_snapshots?' + _snapField7d  + '&captured_at=gte.' + _30dStart + '&captured_at=lt.' + _30dEnd),
     ]);
 
     // Net cashflow in USD over the comparison window (deposits/buys positive, sells/withdrawals negative)
@@ -368,7 +380,9 @@ async function loadPortfolio() {
     // totalGBP calculated bottom-up from live totalUSD — same source as totalUSD.
     // Not taken from snapshot so manual updates reflect immediately.
     const totalGBP = totalUSD * FX_RATE;
-    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData };
+    const snap7d  = Array.isArray(_s7d)  && _s7d[0]  ? _s7d[0]  : null;
+    const snap30d = Array.isArray(_s30d) && _s30d[0] ? _s30d[0] : null;
+    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData, snap7d, snap30d };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.
