@@ -430,6 +430,9 @@ async function run() {
       if (pos.currency === 'GBP') {
         value_usd = Number(pos.qty) / fxRate;
         breakdown.fiat_gbp += Number(pos.qty);
+      } else if (pos.currency === 'ARS') {
+        value_usd = usdArs ? Number(pos.qty) / usdArs : 0;
+        breakdown.fiat_ars = (breakdown.fiat_ars || 0) + Number(pos.qty);
       } else {
         value_usd = Number(pos.qty);
         breakdown.fiat_usd += Number(pos.qty);

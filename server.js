@@ -132,7 +132,8 @@ app.post('/api/positions/manual', async (req, res) => {
 
     const isGBPFiat = pos.category === 'fiat' && pos.currency === 'GBP';
     const isUSDFiat = pos.category === 'fiat' && pos.currency === 'USD';
-    const isFiat    = isGBPFiat || isUSDFiat;
+    const isARSFiat = pos.category === 'fiat' && pos.currency === 'ARS';
+    const isFiat    = isGBPFiat || isUSDFiat || isARSFiat;
 
     // Non-fiat or no qty change: legacy PATCH (notes update, etc.)
     if (!isFiat || qty === undefined) {
@@ -157,24 +158,28 @@ app.post('/api/positions/manual', async (req, res) => {
       return res.json({ ok: true, data: [], message: 'Sin cambios' });
     }
 
-    // FX rate (USD-per-GBP convention, ~1.27):
-    // - GBP position: provided fx_rate, fallback to stored fx_gbp_usd_avg
-    // - USD position: same FX to compute GBP equivalent (amount_local = delta / fxToUsd)
-    const fxToUsd = isGBPFiat || isUSDFiat
-      ? (parseFloat(fx_rate) || parseFloat(pos.fx_gbp_usd_avg) || 1.34)
-      : 1;
+    // FX conventions:
+    // - GBP position: fx_rate = USD-per-GBP (~1.27), amount_local=GBP, amount_usd=GBP*fx
+    // - USD position: fx_rate = USD-per-GBP (~1.27), amount_local=GBP equivalent, amount_usd=USD
+    // - ARS position: fx_rate = ARS-per-USD (~1180), amount_local=ARS, amount_usd=ARS/fx
+    const fxToUsd = isARSFiat
+      ? (parseFloat(fx_rate) || 1180)
+      : (parseFloat(fx_rate) || parseFloat(pos.fx_gbp_usd_avg) || 1.34);
 
     const absDelta = Math.abs(delta);
     const txType   = delta > 0 ? 'DEPOSIT' : 'WITHDRAWAL';
 
-    // GBP position: amount_local = GBP, amount_usd = GBP * fxToUsd
-    // USD position: amount_local = GBP equivalent = USD / fxToUsd, amount_usd = USD delta
+    // GBP: amount_local=GBP, amount_usd=GBP*fxToUsd
+    // USD: amount_local=GBP equivalent (USD/fxToUsd), amount_usd=USD
+    // ARS: amount_local=ARS, amount_usd=ARS/fxToUsd
     const amountLocal = isUSDFiat
       ? Math.round(absDelta / fxToUsd * 100) / 100   // USD → GBP
-      : absDelta;                                      // GBP as-is
+      : absDelta;                                      // GBP or ARS as-is
     const amountUsd = isUSDFiat
       ? absDelta                                       // USD as-is
-      : Math.round(absDelta * fxToUsd * 100) / 100;   // GBP → USD
+      : isARSFiat
+        ? Math.round(absDelta / fxToUsd * 100) / 100  // ARS → USD
+        : Math.round(absDelta * fxToUsd * 100) / 100; // GBP → USD
 
     // Insert transaction to track the movement
     const txPayload = {
@@ -187,6 +192,7 @@ app.post('/api/positions/manual', async (req, res) => {
       amount_local:     amountLocal,
       amount_usd:       amountUsd,
       fx_rate_to_usd:   fxToUsd,
+      fx_usd_ars:       isARSFiat ? fxToUsd : null,
       local_currency:   pos.currency,
       pricing_currency: pos.currency,
       fee_local:        0,

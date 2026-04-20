@@ -604,28 +604,35 @@ function renderSaldos() {
     const meta        = TICKER_META[pos.ticker] || { name: pos.name || pos.ticker, logo: '💰' };
     const isGBP       = pos.currency === 'GBP';
     const isUSD       = pos.currency === 'USD';
+    const isARS       = pos.currency === 'ARS';
     const qty         = Number(pos.qty) || 0;
-    const valueUSD    = isGBP ? qty / rate : qty;
-    const valueGBP    = isGBP ? qty : qty * rate;
-    const currSymbol  = isGBP ? '£' : '$';
-    const secSymbol   = isGBP ? '$' : '£';
-    const secVal      = isGBP ? valueUSD : valueGBP;
 
-    // FX display: always "USD per GBP" (~1.27), i.e. 1/FX_RATE
-    // pos.fx_gbp_usd_avg is stored as USD-per-GBP in the DB (same convention as transactions)
-    const fxDisplay = pos.fx_gbp_usd_avg
-      ? Number(pos.fx_gbp_usd_avg).toFixed(5)
-      : (1 / rate).toFixed(5);
+    // Primary display value and symbol
+    const currSymbol  = isGBP ? '£' : isARS ? 'AR$' : '$';
+
+    // USD value for conversion
+    const valueUSD    = isGBP ? qty / rate : isARS ? qty / (pos._fxUsdArs || 1180) : qty;
+    const valueGBP    = valueUSD * rate;
+
+    // Secondary line: always £ nn / $ xx
+    const secLine     = `£${Math.round(valueGBP).toLocaleString('es-AR')} / $${Math.round(valueUSD).toLocaleString('es-AR')}`;
+
+    // FX display
+    const showFxRow   = isGBP || isUSD || isARS;
+    const fxLabel     = isARS ? 'FX AR$→$' : isGBP ? 'FX £→$' : 'FX $→£';
+    const fxDisplay   = isARS
+      ? (pos._fxUsdArs ? Number(pos._fxUsdArs).toFixed(2) : '1180.00')
+      : pos.fx_gbp_usd_avg
+        ? Number(pos.fx_gbp_usd_avg).toFixed(5)
+        : (1 / rate).toFixed(5);
+    const fxStep      = isARS ? '1' : '0.0001';
+    const fxPlaceholder = isARS ? '1180' : '1.34';
 
     const logoHtml = TICKER_META[pos.ticker]?.logoUrl
       ? `<img src="${TICKER_META[pos.ticker].logoUrl}" style="width:28px;height:28px;border-radius:50%;object-fit:cover"
            onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
          <span style="display:none;font-size:22px">${meta.logo || '💰'}</span>`
       : `<span style="font-size:22px">${meta.logo || '💰'}</span>`;
-
-    // Show FX row for both GBP and USD positions
-    const showFxRow = isGBP || isUSD;
-    const fxLabel   = isGBP ? 'FX £→$' : 'FX $→£';
 
     return `
       <div class="saldo-card" id="saldo-${pos.ticker}" onclick="toggleSaldoEdit('${pos.ticker}')">
@@ -637,18 +644,18 @@ function renderSaldos() {
           </div>
           <div class="saldo-value">
             <div class="saldo-amount">${currSymbol}${Math.round(qty).toLocaleString('es-AR')}</div>
-            <div class="saldo-amount-secondary">${secSymbol}${Math.round(secVal).toLocaleString('es-AR')}</div>
+            <div class="saldo-amount-secondary">${secLine}</div>
           </div>
         </div>
         <div class="saldo-edit-row" onclick="event.stopPropagation()">
           <div class="saldo-edit-line1">
             <input class="saldo-input" id="saldo-input-${pos.ticker}" type="number"
-              value="${qty}" step="${isGBP ? 100 : 1}" placeholder="${currSymbol}0"
+              value="${qty}" step="${isARS ? 1000 : isGBP ? 100 : 1}" placeholder="${currSymbol}0"
               onkeydown="if(event.key==='Enter') saveSaldo('${pos.ticker}')">
             ${showFxRow ? `
             <span style="font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0">${fxLabel}</span>
             <input id="saldo-fx-${pos.ticker}" type="number"
-              value="${fxDisplay}" step="0.0001" placeholder="1.34"
+              value="${fxDisplay}" step="${fxStep}" placeholder="${fxPlaceholder}"
               style="width:72px;flex-shrink:0;font-size:12px;padding:7px 6px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--font-num);text-align:right;outline:none">
             <button onclick="fetchSaldoFx('${pos.ticker}');event.stopPropagation()"
               id="saldo-fx-btn-${pos.ticker}"
@@ -683,15 +690,30 @@ async function fetchSaldoFx(ticker) {
   const input = document.getElementById('saldo-fx-' + ticker);
   if (!input) return;
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  const pos = _saldosData.find(p => p.ticker === ticker);
+  const isARS = pos?.currency === 'ARS';
+
   try {
-    const res  = await fetch('/api/market-data?tickers=GBPUSD%3DX');
-    const json = await res.json();
-    const fx   = json.data?.['GBPUSD=X']?.regularMarketPrice;
-    if (fx) input.value = fx.toFixed(5);
+    if (isARS) {
+      const res  = await fetch('https://dolarapi.com/v1/dolares/bolsa');
+      const json = await res.json();
+      const fx   = json?.venta;
+      if (fx) {
+        input.value = fx;
+        // Cache on the pos object for display recalc
+        if (pos) pos._fxUsdArs = fx;
+      }
+    } else {
+      const res  = await fetch('/api/market-data?tickers=GBPUSD%3DX');
+      const json = await res.json();
+      const fx   = json.data?.['GBPUSD=X']?.regularMarketPrice;
+      if (fx) input.value = fx.toFixed(5);
+    }
   } catch(e) {
     // silently fail — user can type manually
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ Live'; }
+    if (btn) { btn.disabled = false; btn.textContent = '⚡'; }
   }
 }
 

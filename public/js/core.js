@@ -218,6 +218,7 @@ const TICKER_META = {
   'USD_CASH':        { name: 'USD Cash',           logo: '💵', logoUrl: '/logos/usd.png',    cat: 'fiat',     showTicker: false },
   'RENT_DEPOSIT':    { name: 'Rent Deposit',       logo: '🏠', logoUrl: null,                cat: 'fiat',     showTicker: false },
   'EMERGENCY_FUND':  { name: 'Emergency Fund',     logo: '🛡️', logoUrl: null,                cat: 'fiat',     showTicker: false },
+  'ARS_CASH':        { name: 'ARS Cash',           logo: '🇦🇷', logoUrl: '/logos/ars.png',    cat: 'fiat',     showTicker: false },
 };
 
 function fmtVal(usd, rate, sym) {
