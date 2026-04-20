@@ -104,20 +104,26 @@ function computeHealthData() {
   const topSector = Object.entries(sectorMap).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
 
   // ── Currency Exposure ──
-  // GBP = fiat with currency='GBP' (cash/emergency/rent) + assets with pricing_currency='GBP' (VWRP.L etc)
-  // USD = everything else (stocks, RSUs, crypto — even if bought with GBP)
+  // GBP = fiat currency='GBP' + pricing_currency='GBP' assets (VWRP.L etc)
+  // ARS = fiat currency='ARS' (ARS_CASH)
+  // USD = everything else (stocks, RSUs, crypto)
   // Uses pricing_currency from DB, NOT the transaction currency
   const currencyAssets = assets.filter(a => a.valueUSD > 0.5);
   const currencyTotalUSD = currencyAssets.reduce((s, a) => s + a.valueUSD, 0);
-  let gbpVal = 0;
+  let gbpVal = 0, arsVal = 0;
   currencyAssets.forEach(a => {
     const pos = a.pos;
-    const isGBPExposure = (pos.category === 'fiat' && pos.currency === 'GBP')
-                       || pos.pricing_currency === 'GBP';
-    if (isGBPExposure) gbpVal += a.valueUSD;
+    if (pos.category === 'fiat' && pos.currency === 'ARS') {
+      arsVal += a.valueUSD;
+    } else {
+      const isGBPExposure = (pos.category === 'fiat' && pos.currency === 'GBP')
+                         || pos.pricing_currency === 'GBP';
+      if (isGBPExposure) gbpVal += a.valueUSD;
+    }
   });
   const gbpPct = currencyTotalUSD > 0 ? gbpVal / currencyTotalUSD : 0;
-  const usdPct = 1 - gbpPct;
+  const arsPct = currencyTotalUSD > 0 ? arsVal / currencyTotalUSD : 0;
+  const usdPct = 1 - gbpPct - arsPct;
 
   // ── Portfolio Beta (weighted over FULL health portfolio — cash has beta 0) ──
   // This correctly reflects that cash dampens portfolio volatility
@@ -241,7 +247,7 @@ function computeHealthData() {
     portfolioBeta, portfolioVol, portfolioPE,
     incomeRatio, annualFlow, portfolioGBP,
     ddCorrection, ddBearMarket,
-    positionDetails, currencyTotalUSD,
+    positionDetails, currencyTotalUSD, arsPct,
     subscores: [
       { name: 'Diversificación', score: diversificationScore, icon: '◆',
         detail: `${effectiveN.toFixed(1)} pos. efectivas de ${N} · concentración ${(hhiNorm*100).toFixed(0)}%`,
@@ -253,7 +259,7 @@ function computeHealthData() {
         detail: portfolioPE ? `Forward P/E ${portfolioPE.toFixed(1)}x vs S&P ~21x` : 'Sin datos de P/E',
         color: valuationScore > 66 ? 'var(--accent3)' : valuationScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Balance cambiario', score: currencyScore, icon: '◇',
-        detail: `GBP ${(gbpPct*100).toFixed(0)}% · USD ${(usdPct*100).toFixed(0)}%`,
+        detail: `GBP ${(gbpPct*100).toFixed(0)}% · USD ${(usdPct*100).toFixed(0)}%${arsPct > 0.001 ? ' · ARS ' + (arsPct*100).toFixed(0) + '%' : ''}`,
         color: currencyScore > 66 ? 'var(--accent3)' : currencyScore > 33 ? 'var(--accent4)' : 'var(--accent2)' },
       { name: 'Concentración individual', score: singleStockScore, icon: '◉',
         detail: `Top stock: ${topNonBroadETFTicker} (${(topNonBroadETF.w*100).toFixed(1)}%)` + (topPosition.ticker !== topNonBroadETF.ticker ? ` · Top total: ${topPosition.ticker === 'RSU_META' ? 'META' : topPosition.ticker} (${(topPosition.w*100).toFixed(1)}%)` : ''),
@@ -342,7 +348,7 @@ function renderHealthScore() {
     { label: 'Volatilidad estimada (anual)', val: data.portfolioVol.toFixed(1) + '%', color: data.portfolioVol > 22 ? 'var(--accent2)' : data.portfolioVol > 16 ? 'var(--accent4)' : 'var(--accent3)' },
     { label: 'Valuación (fwd P/E)', val: data.portfolioPE ? data.portfolioPE.toFixed(1) + 'x' : '—', color: data.portfolioPE > 30 ? 'var(--accent2)' : data.portfolioPE > 22 ? 'var(--accent4)' : 'var(--accent3)', drilldown: 'pe' },
     { label: 'Mayor exposición sectorial', val: data.topSector[0] + ' (' + (data.topSector[1]*100).toFixed(0) + '%)', color: data.topSector[1] > 0.4 ? 'var(--accent4)' : 'var(--text)', drilldown: 'sector' },
-    { label: 'Exposición USD / GBP', val: (data.usdPct*100).toFixed(0) + '% / ' + (data.gbpPct*100).toFixed(0) + '%', color: data.usdPct > 0.85 ? 'var(--accent4)' : 'var(--text)', drilldown: 'currency' },
+    { label: 'Exposición monedas', val: 'GBP ' + (data.gbpPct*100).toFixed(0) + '% · USD ' + (data.usdPct*100).toFixed(0) + '%' + (data.arsPct > 0.001 ? ' · ARS ' + (data.arsPct*100).toFixed(0) + '%' : ''), color: data.usdPct > 0.85 ? 'var(--accent4)' : 'var(--text)', drilldown: 'currency' },
     { label: `Si ${topTicker} cae 20%`, val: '-' + impactIf20 + '% portfolio', color: 'var(--accent2)' },
     { label: 'Posiciones efectivas (1/HHI)', val: data.effectiveN.toFixed(1), color: data.effectiveN < 5 ? 'var(--accent2)' : data.effectiveN < 10 ? 'var(--accent4)' : 'var(--accent3)' },
   ];
@@ -423,33 +429,41 @@ function openHealthDetail(type) {
   if (type === 'currency') {
     title = 'Exposición por moneda';
     const allAssets = liveData.assets.filter(a => a.valueUSD > 0.5);
-    const usdAssets = [], gbpAssets = [];
+    const usdAssets = [], gbpAssets = [], arsAssets = [];
     allAssets.forEach(a => {
       const pos = a.pos;
       const displayTicker = pos.ticker === 'RSU_META' ? 'META' : pos.ticker;
       const meta = TICKER_META[pos.ticker] || { name: pos.ticker };
       const entry = { ticker: displayTicker, name: meta.name, valueUSD: a.valueUSD, valueGBP: a.valueUSD * FX_RATE, pct: a.valueUSD / data.currencyTotalUSD };
-      const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
-      if (isGBP) gbpAssets.push(entry);
-      else usdAssets.push(entry);
+      if (pos.category === 'fiat' && pos.currency === 'ARS') {
+        arsAssets.push(entry);
+      } else {
+        const isGBP = (pos.category === 'fiat' && pos.currency === 'GBP') || pos.pricing_currency === 'GBP';
+        if (isGBP) gbpAssets.push(entry);
+        else usdAssets.push(entry);
+      }
     });
     usdAssets.sort((a, b) => b.valueUSD - a.valueUSD);
     gbpAssets.sort((a, b) => b.valueUSD - a.valueUSD);
+    arsAssets.sort((a, b) => b.valueUSD - a.valueUSD);
 
     const fmtV = v => isGBP ? sym + Math.round(v * FX_RATE).toLocaleString('es-AR') : sym + Math.round(v).toLocaleString('es-AR');
 
-    html = '<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">USD (' + (data.usdPct*100).toFixed(0) + '%)</div>';
-    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px">';
-    usdAssets.forEach(a => {
-      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
-    });
-    html += '</table>';
-    html += '<div style="font-size:11px;font-weight:700;color:var(--accent3);margin-bottom:6px">GBP (' + (data.gbpPct*100).toFixed(0) + '%)</div>';
-    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
-    gbpAssets.forEach(a => {
-      html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
-    });
-    html += '</table>';
+    const renderGroup = (label, pct, color, assetList, mb = '14px') => {
+      let g = `<div style="font-size:11px;font-weight:700;color:${color};margin-bottom:6px">${label} (${(pct*100).toFixed(0)}%)</div>`;
+      g += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:${mb}">`;
+      assetList.forEach(a => {
+        g += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${a.ticker}</td><td style="text-align:right;padding:4px;font-family:var(--font-num);font-weight:600">${fmtV(a.valueUSD)}</td><td style="text-align:right;padding:4px;color:var(--muted)">${(a.pct*100).toFixed(1)}%</td></tr>`;
+      });
+      g += '</table>';
+      return g;
+    };
+
+    html  = renderGroup('USD', data.usdPct, 'var(--accent)', usdAssets);
+    html += renderGroup('GBP', data.gbpPct, 'var(--accent3)', gbpAssets);
+    if (arsAssets.length > 0) {
+      html += renderGroup('ARS', data.arsPct || 0, '#22d3ee', arsAssets, '0');
+    }
   }
 
   // Subscore explanations

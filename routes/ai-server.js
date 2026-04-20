@@ -1062,13 +1062,18 @@ router.get('/briefing-context', async (req, res) => {
     // Cost basis includes cash (same logic as portfolio.js):
     // fiat positions use current qty as cost (no P&L), non-fiat use initial_investment.
     const cashPositions = positions.filter(p => p.category === 'fiat');
-    // Cash basis: fiat positions use current qty as cost (no P&L possible on cash)
+    // Cash basis: fiat positions use current value as cost (no P&L on cash)
+    // ARS: use avg_cost_usd * qty (= 1/fx_usd_ars_avg * qty_ars = USD value). Never treat qty as USD.
     let cashBasisUSD = 0, cashBasisGBP = 0;
     cashPositions.forEach(p => {
       const qty = parseFloat(p.qty) || 0;
       if (p.currency === 'GBP') {
         cashBasisGBP += qty;
         cashBasisUSD += qty / fxRate;
+      } else if (p.currency === 'ARS') {
+        const avgCostUsd = parseFloat(p.avg_cost_usd) || 0;
+        cashBasisUSD += avgCostUsd > 0 ? qty * avgCostUsd : 0;
+        cashBasisGBP += avgCostUsd > 0 ? (qty * avgCostUsd) * fxRate : 0;
       } else {
         cashBasisUSD += qty;
         cashBasisGBP += qty * fxRate;
@@ -1086,8 +1091,23 @@ router.get('/briefing-context', async (req, res) => {
     const totalPnlPctUSD = costBasisUSD > 0 ? (totalPnlUSD / costBasisUSD * 100) : 0;
     const totalPnlPctGBP = costBasisGBP > 0 ? (totalPnlGBP / costBasisGBP * 100) : 0;
 
-    let cashSection = 'CASH\nticker|value_gbp\n';
-    cashPositions.forEach(p => { cashSection += `${p.ticker}|${fG(parseFloat(p.qty) || 0)}\n`; });
+    let cashSection = 'CASH\nticker|value_usd|value_gbp\n';
+    cashPositions.forEach(p => {
+      const qty = parseFloat(p.qty) || 0;
+      let valUSD, valGBP;
+      if (p.currency === 'GBP') {
+        valGBP = qty;
+        valUSD = qty / fxRate;
+      } else if (p.currency === 'ARS') {
+        const avgCostUsd = parseFloat(p.avg_cost_usd) || 0;
+        valUSD = avgCostUsd > 0 ? qty * avgCostUsd : 0;
+        valGBP = valUSD * fxRate;
+      } else {
+        valUSD = qty;
+        valGBP = qty * fxRate;
+      }
+      cashSection += `${p.ticker}|${fU(valUSD)}|${fG(valGBP)}\n`;
+    });
 
     let txSection = 'RECENT_TRANSACTIONS (últimas 5)\ndate|ticker|type|qty|price_usd|amount_usd|amount_gbp|broker\n';
     if (Array.isArray(txRows)) {
@@ -1167,22 +1187,32 @@ router.get('/briefing-context', async (req, res) => {
     const ALLOC_CASH_TICKERS = new Set(['EMERGENCY_FUND', 'GBP_LIQUID', 'USD_CASH']);
     let deployCashGBP = 0, deployCashUSD = 0;
     let emergencyGBP  = 0, emergencyUSD  = 0;
-    positions.filter(p => p.category === 'fiat' && ALLOC_CASH_TICKERS.has(p.ticker)).forEach(p => {
+    let arsCashGBP    = 0, arsCashUSD    = 0;
+    positions.filter(p => p.category === 'fiat').forEach(p => {
       const qty = parseFloat(p.qty) || 0;
-      const inGBP = p.currency === 'GBP';
-      const usd = inGBP ? qty / fxRate : qty;
-      const gbp = inGBP ? qty : qty * fxRate;
-      if (p.ticker === 'EMERGENCY_FUND') { emergencyUSD += usd; emergencyGBP += gbp; }
-      else                               { deployCashUSD += usd; deployCashGBP += gbp; }
+      let usd, gbp;
+      if (p.currency === 'GBP') {
+        gbp = qty; usd = qty / fxRate;
+      } else if (p.currency === 'ARS') {
+        const avgCostUsd = parseFloat(p.avg_cost_usd) || 0;
+        usd = avgCostUsd > 0 ? qty * avgCostUsd : 0;
+        gbp = usd * fxRate;
+      } else {
+        usd = qty; gbp = qty * fxRate;
+      }
+      if (p.ticker === 'EMERGENCY_FUND')                   { emergencyUSD += usd; emergencyGBP += gbp; }
+      else if (p.ticker === 'ARS_CASH')                    { arsCashUSD   += usd; arsCashGBP   += gbp; }
+      else if (ALLOC_CASH_TICKERS.has(p.ticker))           { deployCashUSD += usd; deployCashGBP += gbp; }
     });
-    const totalAllocUSD = totalValUSD + deployCashUSD + emergencyUSD; // all non-locked cash in denominator
-    const totalAllocGBP = totalValUSD * fxRate + deployCashGBP + emergencyGBP;
+    const totalAllocUSD = totalValUSD + deployCashUSD + emergencyUSD + arsCashUSD;
+    const totalAllocGBP = totalValUSD * fxRate + deployCashGBP + emergencyGBP + arsCashGBP;
     let allocationSection = '';
     if (totalAllocUSD > 0) {
       allocationSection = 'ALLOCATION (equity + liquid cash, excl. locked cash)\n';
       allocationSection += `note: weights over $${Math.round(totalAllocUSD).toLocaleString('en-US')} / £${Math.round(totalAllocGBP).toLocaleString('en-US')}\n`;
       allocationSection += `deployable_cash|${fU(deployCashUSD)}|${fG(deployCashGBP)}|${(deployCashUSD / totalAllocUSD * 100).toFixed(1)}%\n`;
       allocationSection += `emergency_fund|${fU(emergencyUSD)}|${fG(emergencyGBP)}|${(emergencyUSD / totalAllocUSD * 100).toFixed(1)}% (not investable)\n`;
+      if (arsCashUSD > 0) allocationSection += `ARS_CASH|${fU(arsCashUSD)}|${fG(arsCashGBP)}|${(arsCashUSD / totalAllocUSD * 100).toFixed(1)}% (liquid, ARS)\n`;
       // equity positions sorted by weight descending
       const posWeights = investedPositions.map(p => {
         const yticker = p.ticker === 'RSU_META' ? 'META' : p.ticker;

@@ -253,7 +253,7 @@ function buildHealthContext() {
   ctx += `diversification: score ${d.subscores[0].score} | HHI_norm ${(d.hhiNorm*100).toFixed(1)}% | effective_n ${d.effectiveN.toFixed(1)}\n`;
   ctx += `risk_alignment: score ${d.subscores[1].score} | beta ${d.portfolioBeta.toFixed(2)} | vol ${d.portfolioVol.toFixed(1)}% | dd_correction -${d.ddCorrection.toFixed(0)}% | dd_bear -${d.ddBearMarket.toFixed(0)}%\n`;
   ctx += `valuation: score ${d.subscores[2].score}` + (d.portfolioPE ? ` | fwd_PE ${d.portfolioPE.toFixed(1)}x vs SPY ~21x` : ' | no PE') + `\n`;
-  ctx += `currency: score ${d.subscores[3].score} | GBP ${(d.gbpPct*100).toFixed(0)}% USD ${(d.usdPct*100).toFixed(0)}%\n`;
+  ctx += `currency: score ${d.subscores[3].score} | GBP ${(d.gbpPct*100).toFixed(0)}% USD ${(d.usdPct*100).toFixed(0)}%${d.arsPct > 0.001 ? ' ARS ' + (d.arsPct*100).toFixed(0) + '%' : ''}\n`;
   ctx += `concentration: score ${d.subscores[4].score} | top_stock ${topStock} ${(d.topNonBroadETF.w*100).toFixed(1)}%\n`;
   ctx += `income: score ${d.subscores[5].score} | rsu_flow/portfolio ${(d.incomeRatio*100).toFixed(0)}%\n`;
   ctx += `sectors: ${sectors}\n`;
@@ -509,12 +509,16 @@ function buildPortfolioContext() {
 
   // Allocation — full portfolio
   ctx += '\nALLOCATION_TOTAL\n';
+  // fiat_ars is raw ARS qty in breakdown — convert to USD using avg_cost_usd from ARS_CASH position
+  const arsAsset = liveData.assets.find(a => a.pos.ticker === 'ARS_CASH');
+  const arsUSD   = arsAsset ? arsAsset.valueUSD : 0;
   const cats = [
-    ['acciones', breakdown.acciones],
-    ['cripto',   breakdown.cripto],
-    ['rsu',      breakdown.rsu],
+    ['acciones',    breakdown.acciones],
+    ['cripto',      breakdown.cripto],
+    ['rsu',         breakdown.rsu],
     ['cash_liquid', breakdown.fiat_liquid],
     ['cash_locked', breakdown.fiat_locked],
+    ['cash_ars',    arsUSD > 0.5 ? arsUSD : null],
   ];
   cats.forEach(([k, v]) => {
     if (v) ctx += `${k}: ${fU(v)} / ${fG(v)} (${(v/totalUSD*100).toFixed(1)}%)\n`;
@@ -538,11 +542,14 @@ function buildPortfolioContext() {
     const invGBP = pos.initial_investment_gbp ? Number(pos.initial_investment_gbp) : null;
     const pnlAbsUSD = pctUSD !== null && invUSD ? fU(valueUSD - invUSD) : '';
     const pnlAbsGBP = invGBP ? fGn(valueGBP - invGBP) : (invUSD ? fG(valueUSD - invUSD) : '');
+    // ARS_CASH: show qty as AR$X (native pesos), price/avg_cost in USD terms
+    const isARS = pos.currency === 'ARS';
+    const qtyDisplay = isARS ? 'AR$' + Math.round(Number(pos.qty)).toLocaleString('en-US') : pos.qty;
     ctx += [pos.ticker, meta.name, w,
       fU(valueUSD), fGn(Math.round(valueGBP)),
-      pos.qty,
-      priceUSD ? '$' + priceUSD.toFixed(2) : '',
-      pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(2) : '',
+      qtyDisplay,
+      priceUSD ? '$' + priceUSD.toFixed(6) : '',
+      pos.avg_cost_usd ? '$' + Number(pos.avg_cost_usd).toFixed(6) : '',
       invUSD ? fU(invUSD) : '',
       invGBP ? fGn(invGBP) : '',
       pctUSD !== null ? (pctUSD >= 0 ? '+' : '') + pctUSD.toFixed(2) + '%' : '',
@@ -1551,12 +1558,18 @@ async function aiSendMsg() {
           ? `~£${Math.round(_aiLow/1000)}k-${Math.round(_aiHigh/1000)}k/yr (salary+bonus+RSUs)`
           : '~£28k-31k/yr salary+bonus+RSUs');
 
-      let _gbpLiquidQty = '?', _emergencyQty = '?';
+      let _gbpLiquidQty = '?', _emergencyQty = '?', _arsCashLine = '';
       if (liveData && liveData.assets) {
-        const gbpLiq = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
-        const ef     = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
+        const gbpLiq  = liveData.assets.find(a => a.pos.ticker === 'GBP_LIQUID');
+        const ef      = liveData.assets.find(a => a.pos.ticker === 'EMERGENCY_FUND');
+        const arsCash = liveData.assets.find(a => a.pos.ticker === 'ARS_CASH');
         if (gbpLiq) _gbpLiquidQty = Math.round(gbpLiq.pos.qty || gbpLiq.valueUSD * FX_RATE).toLocaleString('es-AR');
         if (ef)     _emergencyQty = Math.round(ef.pos.qty     || ef.valueUSD     * FX_RATE).toLocaleString('es-AR');
+        if (arsCash && arsCash.valueUSD > 0.5) {
+          const arsUSD = Math.round(arsCash.valueUSD);
+          const arsGBP = Math.round(arsCash.valueUSD * FX_RATE);
+          _arsCashLine = ` | ARS_CASH=$${arsUSD.toLocaleString('en-US')} / £${arsGBP.toLocaleString('es-AR')} (liquid, ARS)`;
+        }
       }
 
       const _now      = new Date();
@@ -1583,7 +1596,7 @@ location: London UK | currency: GBP | expenses: ${_monthlyExp}/mo
 savings: ${_savingsRange} | bonus: ${_bonusRange} in 2 tranches: last biz day Mar + last biz day Sep
 rsu: ${_rsuRange} | quarterly vest Jan/Apr/Jul/Oct
 emergency_fund: £${_emergencyQty} actual | min: £${_emergencyMin} — untouchable
-cash: GBP_LIQUID=£${_gbpLiquidQty} | horizon: 5+yr | max_drawdown: 20%
+cash: GBP_LIQUID=£${_gbpLiquidQty}${_arsCashLine} | horizon: 5+yr | max_drawdown: 20%
 goals: ${_goals}
 
 CASHFLOW
