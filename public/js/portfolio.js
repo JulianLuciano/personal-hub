@@ -209,6 +209,11 @@ async function loadPortfolio() {
         if (pos.currency === 'GBP') {
           valueUSD = pos.qty / FX_RATE;
           breakdown.fiat_gbp += pos.qty;  // store raw GBP for worker compat
+        } else if (pos.currency === 'ARS') {
+          // qty = ARS nativos; avg_cost_usd = USD per 1 ARS (1/fx_usd_ars_avg)
+          const avgUsd = Number(pos.avg_cost_usd) || 0;
+          valueUSD = avgUsd > 0 ? pos.qty * avgUsd : 0;
+          breakdown.fiat_ars = (breakdown.fiat_ars || 0) + pos.qty;
         } else {
           valueUSD = pos.qty;
           breakdown.fiat_usd += pos.qty;
