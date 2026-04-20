@@ -161,25 +161,48 @@ app.post('/api/positions/manual', async (req, res) => {
     // FX conventions:
     // - GBP position: fx_rate = USD-per-GBP (~1.27), amount_local=GBP, amount_usd=GBP*fx
     // - USD position: fx_rate = USD-per-GBP (~1.27), amount_local=GBP equivalent, amount_usd=USD
-    // - ARS position: fx_rate = ARS-per-USD (~1180), amount_local=ARS, amount_usd=ARS/fx
-    const fxToUsd = isARSFiat
-      ? (parseFloat(fx_rate) || 1180)
+    // - ARS position: fx_rate = ARS-per-USD (~1180)
+    //     amount_local = GBP equiv (amount_usd / fx_gbp_usd) — keeps existing _gbp fields clean
+    //     amount_ars   = delta in ARS (new dedicated column)
+    //     amount_usd   = ARS / fx_usd_ars
+    const fxUsdArs  = isARSFiat ? (parseFloat(fx_rate) || 1180) : null;
+    // fx_gbp_usd: needed to convert USD → GBP for amount_local on ARS positions
+    // Not passed from frontend for ARS — fetch live or use stored fallback
+    const fxGbpUsd  = isARSFiat
+      ? null  // derived below after fetching live rate
       : (parseFloat(fx_rate) || parseFloat(pos.fx_gbp_usd_avg) || 1.34);
+
+    // For ARS: fetch live GBP/USD to compute amount_local in GBP
+    let fxGbpUsdLive = fxGbpUsd;
+    if (isARSFiat) {
+      try {
+        const fxRes  = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/GBPUSD=X?interval=1d&range=1d', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const fxData = await fxRes.json();
+        const rate   = fxData?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        fxGbpUsdLive = rate ? rate : 1.34;
+      } catch(e) {
+        fxGbpUsdLive = 1.34;
+        console.warn('[positions/manual] ARS: could not fetch GBPUSD, using fallback 1.34');
+      }
+    }
 
     const absDelta = Math.abs(delta);
     const txType   = delta > 0 ? 'DEPOSIT' : 'WITHDRAWAL';
 
-    // GBP: amount_local=GBP, amount_usd=GBP*fxToUsd
-    // USD: amount_local=GBP equivalent (USD/fxToUsd), amount_usd=USD
-    // ARS: amount_local=ARS, amount_usd=ARS/fxToUsd
-    const amountLocal = isUSDFiat
-      ? Math.round(absDelta / fxToUsd * 100) / 100   // USD → GBP
-      : absDelta;                                      // GBP or ARS as-is
-    const amountUsd = isUSDFiat
-      ? absDelta                                       // USD as-is
-      : isARSFiat
-        ? Math.round(absDelta / fxToUsd * 100) / 100  // ARS → USD
-        : Math.round(absDelta * fxToUsd * 100) / 100; // GBP → USD
+    let amountUsd, amountLocal, amountArs;
+    if (isARSFiat) {
+      amountArs   = absDelta;                                              // ARS as-is
+      amountUsd   = Math.round(absDelta / fxUsdArs * 100) / 100;          // ARS → USD
+      amountLocal = Math.round(amountUsd / fxGbpUsdLive * 100) / 100;     // USD → GBP
+    } else if (isUSDFiat) {
+      amountArs   = null;
+      amountUsd   = absDelta;                                              // USD as-is
+      amountLocal = Math.round(absDelta / fxGbpUsd * 100) / 100;          // USD → GBP
+    } else {
+      amountArs   = null;
+      amountLocal = absDelta;                                              // GBP as-is
+      amountUsd   = Math.round(absDelta * fxGbpUsd * 100) / 100;          // GBP → USD
+    }
 
     // Insert transaction to track the movement
     const txPayload = {
@@ -189,11 +212,12 @@ app.post('/api/positions/manual', async (req, res) => {
       type:             txType,
       asset_class:      'fiat',
       qty:              absDelta.toString(),
-      amount_local:     amountLocal,
+      amount_local:     amountLocal,          // always GBP (or GBP-equiv for ARS)
       amount_usd:       amountUsd,
-      fx_rate_to_usd:   fxToUsd,
-      fx_usd_ars:       isARSFiat ? fxToUsd : null,
-      local_currency:   pos.currency,
+      amount_ars:       amountArs,            // ARS only, null otherwise
+      fx_rate_to_usd:   isARSFiat ? fxGbpUsdLive : (isUSDFiat ? fxGbpUsd : fxGbpUsd),
+      fx_usd_ars:       isARSFiat ? fxUsdArs : null,
+      local_currency:   pos.currency,           // ARS for ARS_CASH — recalculator uses this to detect isARSTx
       pricing_currency: pos.currency,
       fee_local:        0,
       exchange:         null,

@@ -617,8 +617,9 @@ function renderSaldos() {
     // Primary display value and symbol
     const currSymbol  = isGBP ? '£' : isARS ? 'AR$' : '$';
 
-    // Secondary line
-    const valueUSD    = isGBP ? qty / rate : isARS ? qty / (pos._fxUsdArs || 1180) : qty;
+    // Secondary line — qty is ARS for ARS_CASH, GBP for GBP positions, USD for USD
+    const fxUsdArs    = pos._fxUsdArs || Number(pos.fx_usd_ars_avg) || 1180;
+    const valueUSD    = isGBP ? qty / rate : isARS ? qty / fxUsdArs : qty;
     const valueGBP    = valueUSD * rate;
     // ARS: show £ nn / $ xx  |  GBP: show $ equivalent  |  USD: show £ equivalent
     const secLine     = isARS
