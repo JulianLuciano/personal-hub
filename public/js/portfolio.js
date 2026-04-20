@@ -111,7 +111,7 @@ async function loadPortfolio() {
     const priceDataYest = await sbFetch(
       '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
       '&captured_at=gte.' + ydStart + '&captured_at=lt.' + ydEnd +
-      '&order=captured_at.desc&limit=500'
+      '&order=captured_at.desc&limit=2000'
     );
     const pricesYesterday = {};
     priceDataYest.forEach(row => {
@@ -125,7 +125,7 @@ async function loadPortfolio() {
     const priceDataD2 = await sbFetch(
       '/rest/v1/price_snapshots?select=ticker,price_usd,captured_at' +
       '&captured_at=gte.' + d2Start + '&captured_at=lt.' + d2End +
-      '&order=captured_at.desc&limit=500'
+      '&order=captured_at.desc&limit=2000'
     );
     const pricesDayBefore = {};
     priceDataD2.forEach(row => {
