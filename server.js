@@ -72,7 +72,7 @@ app.get('/api/chart/:period', async (req, res) => {
 
   const since      = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const FETCH_LIMIT = 50000;
-  const supaUrl    = `${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,breakdown&order=captured_at.asc&captured_at=gte.${since}&limit=${FETCH_LIMIT}`;
+  const supaUrl    = `${SUPABASE_URL}/rest/v1/portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,fx_usd_ars,breakdown&order=captured_at.asc&captured_at=gte.${since}&limit=${FETCH_LIMIT}`;
 
   try {
     const sbRes = await fetch(supaUrl, { headers: headers() });
