@@ -77,6 +77,10 @@ function calculateFromTransactions(transactions) {
         // Acumulador paralelo: solo capital fresco (is_reinvestment = false)
         net_invested_usd:       0,
         net_invested_local:     0,
+        // ARS only: GBP-equivalent accumulators (amount_usd / fx_gbp_usd at tx time)
+        // Used so _gbp fields and fx_gbp_usd_avg are meaningful (~1.35) instead of ARS/USD (~1400)
+        total_invested_gbp_equiv: 0,
+        net_invested_gbp_equiv:   0,
         // Metadata (tomada del primer registro, no cambia)
         name:                   t.name          || null,
         category:               resolveCategory(t.asset_class),
@@ -93,80 +97,104 @@ function calculateFromTransactions(transactions) {
     const amtLoc      = Number(t.amount_local)   || 0;
     const fee         = Number(t.fee_local)      || 0;
     const isReinvest  = t.is_reinvestment === true;
+    // For ARS: amount_local = ARS (not GBP), so _gbp fields need a GBP equivalent.
+    // GBP equiv = amount_usd * fx_gbp_usd_at_tx_time. That rate isn't stored in the
+    // transaction, so we use amount_usd * FX_FALLBACK (1.35). This is acceptable:
+    // fx_gbp_usd_avg for ARS_CASH is informational only and not used for P&L calculations.
+    const isARSTx  = s.currency === 'ARS';
+    const gbpEquiv = isARSTx ? amtUsd * 1.35 : amtLoc;
 
     if (t.type === 'BUY') {
-      s.qty                  += qty;
-      s.total_invested_usd   += amtUsd;
-      s.total_invested_local += amtLoc;
-      s.total_fees_local     += fee;
+      s.qty                      += qty;
+      s.total_invested_usd       += amtUsd;
+      s.total_invested_local     += amtLoc;
+      s.total_invested_gbp_equiv += gbpEquiv;
+      s.total_fees_local         += fee;
       // Solo suma a net_invested si es capital fresco
       if (!isReinvest) {
-        s.net_invested_usd   += amtUsd;
-        s.net_invested_local += amtLoc;
+        s.net_invested_usd       += amtUsd;
+        s.net_invested_local     += amtLoc;
+        s.net_invested_gbp_equiv += gbpEquiv;
       }
 
     } else if (t.type === 'RSU_VEST') {
       // RSU siempre es capital real, nunca reinversión
-      s.qty                  += qty;
-      s.total_invested_usd   += amtUsd;
-      s.total_invested_local += amtLoc;
-      s.total_fees_local     += fee;
-      s.net_invested_usd     += amtUsd;
-      s.net_invested_local   += amtLoc;
+      s.qty                      += qty;
+      s.total_invested_usd       += amtUsd;
+      s.total_invested_local     += amtLoc;
+      s.total_invested_gbp_equiv += gbpEquiv;
+      s.total_fees_local         += fee;
+      s.net_invested_usd         += amtUsd;
+      s.net_invested_local       += amtLoc;
+      s.net_invested_gbp_equiv   += gbpEquiv;
 
     } else if (t.type === 'SELL') {
       // Descuenta costo proporcional al qty vendido en ambos acumuladores
-      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
-      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local / s.qty : 0;
-      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd     / s.qty : 0;
-      const avgNetLoc    = s.qty > 0 ? s.net_invested_local   / s.qty : 0;
+      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd       / s.qty : 0;
+      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local     / s.qty : 0;
+      const avgTotalGbp  = s.qty > 0 ? s.total_invested_gbp_equiv / s.qty : 0;
+      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd         / s.qty : 0;
+      const avgNetLoc    = s.qty > 0 ? s.net_invested_local       / s.qty : 0;
+      const avgNetGbp    = s.qty > 0 ? s.net_invested_gbp_equiv   / s.qty : 0;
 
-      s.qty                  -= qty;
-      s.total_invested_usd   -= qty * avgTotalUsd;
-      s.total_invested_local -= qty * avgTotalLoc;
-      s.net_invested_usd     -= qty * avgNetUsd;
-      s.net_invested_local   -= qty * avgNetLoc;
-      s.total_fees_local     += fee;
+      s.qty                      -= qty;
+      s.total_invested_usd       -= qty * avgTotalUsd;
+      s.total_invested_local     -= qty * avgTotalLoc;
+      s.total_invested_gbp_equiv -= qty * avgTotalGbp;
+      s.net_invested_usd         -= qty * avgNetUsd;
+      s.net_invested_local       -= qty * avgNetLoc;
+      s.net_invested_gbp_equiv   -= qty * avgNetGbp;
+      s.total_fees_local         += fee;
 
       // Reset si quedó en cero (o negativo por floating point)
       if (s.qty <= 0.0000001) {
-        s.qty                  = 0;
-        s.total_invested_usd   = 0;
-        s.total_invested_local = 0;
-        s.net_invested_usd     = 0;
-        s.net_invested_local   = 0;
+        s.qty                      = 0;
+        s.total_invested_usd       = 0;
+        s.total_invested_local     = 0;
+        s.total_invested_gbp_equiv = 0;
+        s.net_invested_usd         = 0;
+        s.net_invested_local       = 0;
+        s.net_invested_gbp_equiv   = 0;
         // total_fees_local se acumula histórico, no se resetea
       }
 
     } else if (t.type === 'DEPOSIT') {
-      s.qty                  += qty;
-      s.total_invested_usd   += amtUsd;
-      s.total_invested_local += amtLoc;
+      s.qty                      += qty;
+      s.total_invested_usd       += amtUsd;
+      s.total_invested_local     += amtLoc;
+      s.total_invested_gbp_equiv += gbpEquiv;
       // Solo suma a net_invested si es capital fresco
       if (!isReinvest) {
-        s.net_invested_usd   += amtUsd;
-        s.net_invested_local += amtLoc;
+        s.net_invested_usd       += amtUsd;
+        s.net_invested_local     += amtLoc;
+        s.net_invested_gbp_equiv += gbpEquiv;
       }
 
     } else if (t.type === 'WITHDRAWAL') {
       // Descuenta costo proporcional al qty retirado en ambos acumuladores
-      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd   / s.qty : 0;
-      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local / s.qty : 0;
-      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd     / s.qty : 0;
-      const avgNetLoc    = s.qty > 0 ? s.net_invested_local   / s.qty : 0;
+      const avgTotalUsd  = s.qty > 0 ? s.total_invested_usd       / s.qty : 0;
+      const avgTotalLoc  = s.qty > 0 ? s.total_invested_local     / s.qty : 0;
+      const avgTotalGbp  = s.qty > 0 ? s.total_invested_gbp_equiv / s.qty : 0;
+      const avgNetUsd    = s.qty > 0 ? s.net_invested_usd         / s.qty : 0;
+      const avgNetLoc    = s.qty > 0 ? s.net_invested_local       / s.qty : 0;
+      const avgNetGbp    = s.qty > 0 ? s.net_invested_gbp_equiv   / s.qty : 0;
 
-      s.qty                  -= qty;
-      s.total_invested_usd   -= qty * avgTotalUsd;
-      s.total_invested_local -= qty * avgTotalLoc;
-      s.net_invested_usd     -= qty * avgNetUsd;
-      s.net_invested_local   -= qty * avgNetLoc;
+      s.qty                      -= qty;
+      s.total_invested_usd       -= qty * avgTotalUsd;
+      s.total_invested_local     -= qty * avgTotalLoc;
+      s.total_invested_gbp_equiv -= qty * avgTotalGbp;
+      s.net_invested_usd         -= qty * avgNetUsd;
+      s.net_invested_local       -= qty * avgNetLoc;
+      s.net_invested_gbp_equiv   -= qty * avgNetGbp;
 
       if (s.qty <= 0.0000001) {
-        s.qty                  = 0;
-        s.total_invested_usd   = 0;
-        s.total_invested_local = 0;
-        s.net_invested_usd     = 0;
-        s.net_invested_local   = 0;
+        s.qty                      = 0;
+        s.total_invested_usd       = 0;
+        s.total_invested_local     = 0;
+        s.total_invested_gbp_equiv = 0;
+        s.net_invested_usd         = 0;
+        s.net_invested_local       = 0;
+        s.net_invested_gbp_equiv   = 0;
       }
 
     } else if (t.type === 'FX_CONVERSION') {
@@ -180,17 +208,36 @@ function calculateFromTransactions(transactions) {
 
 /**
  * Convierte el estado calculado a un row listo para UPSERT en positions.
+ *
+ * Convenciones por moneda:
+ *   GBP: amount_local=GBP, amount_usd=GBP*fx  → _gbp fields = GBP, fx_gbp_usd_avg = USD/GBP (~1.35)
+ *   USD: amount_local=GBP equiv, amount_usd=USD → mismo tratamiento que GBP
+ *   ARS: amount_local=ARS, amount_usd=ARS/fx   → _gbp fields deben ser GBP equiv = usd * fx_gbp_usd
+ *        fx_gbp_usd_avg no se puede derivar de amount_local/amount_usd (eso da ARS/USD ~1400)
+ *        En su lugar: fx_gbp_usd_avg = acumulado de (amtUsd * fxGbpUsd) / amtUsd total
+ *        Lo aproximamos con total_invested_gbp_equiv que acumulamos en el state para ARS.
  */
 function stateToRow(posTicker, s) {
   const qty    = Math.max(0, s.qty);
+  const isARS  = s.currency === 'ARS';
+
   const invUsd = s.total_invested_usd;
-  const invLoc = s.total_invested_local;
   const netUsd = Math.max(0, s.net_invested_usd);
-  const netLoc = Math.max(0, s.net_invested_local);
+
+  // For ARS: _local fields hold ARS (not GBP), so we use the GBP-equiv accumulators instead
+  // For GBP/USD: _local fields hold GBP as usual
+  const invGbp = isARS ? s.total_invested_gbp_equiv : s.total_invested_local;
+  const netGbp = isARS ? Math.max(0, s.net_invested_gbp_equiv) : Math.max(0, s.net_invested_local);
 
   const avgCostUsd = qty > 0 ? invUsd / qty : null;
-  const avgCostGbp = qty > 0 ? invLoc / qty : null;
-  const fxAvg      = invLoc > 0 ? Math.round((invUsd / invLoc) * 100000) / 100000 : null;
+  const avgCostGbp = qty > 0 && invGbp > 0 ? invGbp / qty : null;
+
+  // fx_gbp_usd_avg: USD-per-GBP (~1.35)
+  // For ARS: derive from gbp_equiv and usd accumulators
+  // For GBP/USD: derive from usd / local (existing logic)
+  const fxAvg = isARS
+    ? (invGbp > 0 ? Math.round((invUsd / invGbp) * 100000) / 100000 : null)
+    : (invGbp > 0 ? Math.round((invUsd / invGbp) * 100000) / 100000 : null);
 
   return {
     ticker:                   posTicker,
@@ -202,9 +249,9 @@ function stateToRow(posTicker, s) {
     avg_cost_gbp:             avgCostGbp !== null ? Math.round(avgCostGbp * 1000) / 1000 : null,
     fx_gbp_usd_avg:           fxAvg,
     initial_investment_usd:   Math.round(invUsd * 100) / 100,
-    initial_investment_gbp:   Math.round(invLoc * 100) / 100,
+    initial_investment_gbp:   Math.round(invGbp * 100) / 100,
     net_invested_usd:         Math.round(netUsd * 100) / 100,
-    net_invested_gbp:         Math.round(netLoc * 100) / 100,
+    net_invested_gbp:         Math.round(netGbp * 100) / 100,
     total_fees_local:         Math.round(s.total_fees_local * 100) / 100,
     pricing_currency:         s.pricing_currency,
     exchange:                 s.exchange,
