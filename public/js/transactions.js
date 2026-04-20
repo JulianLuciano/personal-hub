@@ -580,11 +580,18 @@ async function loadSaldos() {
   listEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:24px 0">Cargando...</div>';
   try {
     // Include fiat positions managed by transactions (after first save they migrate)
-    const [manual, fiatTx] = await Promise.all([
+    // ARS_CASH fetched explicitly so it appears even with qty=0 (no transactions yet)
+    const [manual, fiatTx, arsCash] = await Promise.all([
       sbFetch('/rest/v1/positions?select=*&managed_by=eq.manual'),
       sbFetch('/rest/v1/positions?select=*&managed_by=eq.transactions&category=eq.fiat'),
+      sbFetch('/rest/v1/positions?select=*&ticker=eq.ARS_CASH'),
     ]);
-    _saldosData = [...manual, ...fiatTx];
+    const seen = new Set();
+    _saldosData = [...manual, ...fiatTx, ...(arsCash || [])].filter(p => {
+      if (seen.has(p.ticker)) return false;
+      seen.add(p.ticker);
+      return true;
+    });
     renderSaldos();
   } catch (e) {
     listEl.innerHTML = `<div style="color:var(--accent2);font-size:13px;text-align:center;padding:16px">${e.message}</div>`;
@@ -610,12 +617,15 @@ function renderSaldos() {
     // Primary display value and symbol
     const currSymbol  = isGBP ? '£' : isARS ? 'AR$' : '$';
 
-    // USD value for conversion
+    // Secondary line
     const valueUSD    = isGBP ? qty / rate : isARS ? qty / (pos._fxUsdArs || 1180) : qty;
     const valueGBP    = valueUSD * rate;
-
-    // Secondary line: always £ nn / $ xx
-    const secLine     = `£${Math.round(valueGBP).toLocaleString('es-AR')} / $${Math.round(valueUSD).toLocaleString('es-AR')}`;
+    // ARS: show £ nn / $ xx  |  GBP: show $ equivalent  |  USD: show £ equivalent
+    const secLine     = isARS
+      ? `£${Math.round(valueGBP).toLocaleString('es-AR')} / $${Math.round(valueUSD).toLocaleString('es-AR')}`
+      : isGBP
+        ? `$${Math.round(valueUSD).toLocaleString('es-AR')}`
+        : `£${Math.round(valueGBP).toLocaleString('es-AR')}`;
 
     // FX display
     const showFxRow   = isGBP || isUSD || isARS;
