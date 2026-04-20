@@ -46,6 +46,23 @@ async function fetchFxRate() {
   return rate ? (1 / rate) : 0.79;
 }
 
+async function fetchUsdArs() {
+  try {
+    const res = await fetch('https://dolarapi.com/v1/dolares/bolsa', {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    const data = await res.json();
+    // Use venta (ask) as the reference rate
+    const rate = data?.venta;
+    if (rate && rate > 0) return rate;
+    console.warn('[FX] USD/ARS bolsa no disponible, usando null');
+    return null;
+  } catch (e) {
+    console.error('[FX] Error fetching USD/ARS bolsa:', e.message);
+    return null;
+  }
+}
+
 // ── CORRELATION MATRIX + DAILY RETURNS ───────────────────────────────────────
 
 async function fetchDailyPriceMap(yahooTicker, range = '400d') {
@@ -353,9 +370,11 @@ async function run() {
   );
   console.log(`GBP-priced tickers: ${[...GBP_PRICED_TICKERS].join(', ') || 'ninguno'}`);
 
-  // 3. Fetch FX rate first (needed to convert GBP prices)
+  // 3. Fetch FX rates
   const fxRate = await fetchFxRate();
   console.log(`FX Rate (GBP per USD): ${fxRate}`);
+  const usdArs = await fetchUsdArs();
+  console.log(`FX Rate (USD/ARS bolsa): ${usdArs ?? 'no disponible'}`);
 
   // 4. Build list of unique Yahoo tickers from non-fiat positions
   const pricedPositions = positions.filter(p => p.category !== 'fiat' && Number(p.qty) > 0);
@@ -390,8 +409,9 @@ async function run() {
   const snapshots = Object.entries(prices).map(([ticker, price_usd]) => ({
     ticker,
     price_usd,
-    fx_rate:   Math.round(fxRate * 1e10) / 1e10,
-    price_gbp: Math.round(price_usd * fxRate * 1e8) / 1e8,
+    fx_rate:    Math.round(fxRate * 1e10) / 1e10,
+    price_gbp:  Math.round(price_usd * fxRate * 1e8) / 1e8,
+    fx_usd_ars: usdArs,
   }));
   const { error: snapError } = await supabase
     .from('price_snapshots')
@@ -433,16 +453,19 @@ async function run() {
   });
 
   // 9. Save portfolio snapshot
+  const total_ars = usdArs ? Math.round(total_usd * usdArs * 100) / 100 : null;
   const { error: portError } = await supabase
     .from('portfolio_snapshots')
     .insert({
-      total_usd: Math.round(total_usd * 100) / 100,
-      total_gbp: Math.round(total_gbp * 100) / 100,
-      fx_rate: fxRate,
+      total_usd:  Math.round(total_usd * 100) / 100,
+      total_gbp:  Math.round(total_gbp * 100) / 100,
+      total_ars,
+      fx_rate:    fxRate,
+      fx_usd_ars: usdArs,
       breakdown
     });
   if (portError) console.error('Error guardando portfolio_snapshot:', portError);
-  else console.log(`Portfolio snapshot: $${Math.round(total_usd)} / £${Math.round(total_gbp)}`);
+  else console.log(`Portfolio snapshot: $${Math.round(total_usd)} / £${Math.round(total_gbp)}${total_ars ? ` / ARS${Math.round(total_ars / 1e6)}M` : ''}`);
 
   // 10. Correlation matrix + daily returns — runs once per day
   await runCorrelationAndReturns(positions);
