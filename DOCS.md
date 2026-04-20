@@ -97,6 +97,11 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
 | ARS_CASH no aparece en saldos / valor incorrecto | `transactions.js` → `loadSaldos()` + `renderSaldos()` + `server.js` → `/api/positions/manual` |
+| HISTORICAL_PERFORMANCE vacío en contexto AI | `portfolio.js` → `loadPortfolio()` no fetcheaba snapshots 7d/30d. Ahora usa `snap7d` y `snap30d` en `liveData`. `ai.js` → `buildPortfolioContext()` los lee directamente en vez de buscar en el array de 3 snapshots |
+| HISTORICAL_PERFORMANCE return% parece incorrecto | Verificar `cf7dUsd`/`cf30dUsd` en `liveData` — son la suma de `BUY+DEPOSIT-SELL-WITHDRAWAL` con `is_reinvestment=false` en la ventana. Si el período tuvo compras activas, `return_usd` puede ser negativo aunque el portfolio total subió |
+| Currency modal en Health Score solo muestra USD/GBP | `analytics.js` → `computeHealthData()` y el modal `type === 'currency'` — ARS debe aparecer como tercer grupo celeste |
+| Agente AI no sabe del saldo en pesos | `ai.js` → `buildPortfolioContext()` — `cash` en PROFILE y `cash_ars` en ALLOCATION_TOTAL. ARS_CASH excluido de POSITIONS |
+| Briefing muestra £699k en CASH para ARS_CASH | `routes/ai-server.js` → `cashSection` — usar `avg_cost_usd * qty` para ARS, nunca `qty` directo |
 | Gráfico de evolución ignora ARS_CASH (valor cae al abrir) | `server.js` → endpoint `/api/chart/:period` (debe incluir `fx_usd_ars` en select) + `portfolio.js` → `applySnapsToCatData()` |
 | Cost basis incluye pesos argentinos como USD | `portfolio.js` → bloque `if (pos.currency === 'ARS')` en valuación fiat |
 | portfolio_snapshot tiene total_usd inflado por ARS | `worker.js` → caso `currency === 'ARS'` usa `qty_ars / usdArs`, no `qty / usdArs` |
@@ -274,7 +279,7 @@ El módulo más grande (~2745 líneas). Maneja toda la tab Portfolio.
 - `loadPortfolio()` — fetcha positions, price_snapshots y portfolio_snapshots desde la DB. Puebla `liveData`. Llama a `renderPortfolio()`, `drawChart()`, `renderEquityPie()`, `renderHealthScore()`.
 - Snapshots de portfolio: 3 queries paralelas con filtro de rango exacto por día de mercado (`_prevMarketDay()` saltea sábado/domingo). Siempre trae el último snapshot de hoy, del último día de mercado anterior, y del anterior a ese — nunca un bulk fetch.
 - Modified Dietz: `changeUSD/GBP = V_fin - V_ini - netCFusd`. El CF neto del período se fetcha en la misma `Promise.all`, filtrando `is_reinvestment=false` y tipos `BUY/DEPOSIT/SELL/WITHDRAWAL`. En fin de semana el rango cubre desde el último día de mercado hasta hoy.
-- `liveData` incluye `netCFusd` para que `buildPortfolioContext()` en `ai.js` pueda emitir `day_cashflow_*`.
+- `liveData` incluye `netCFusd` para que `buildPortfolioContext()` en `ai.js` pueda emitir `day_cashflow_*`. También incluye `snap7d`, `snap30d` (snapshots de portfolio de hace 7 y 30 días), `cf7dUsd` y `cf30dUsd` (cashflows externos en cada ventana) para `HISTORICAL_PERFORMANCE` con Modified Dietz.
 
 **Render principal:**
 - `renderPortfolio()` — genera los ítems de posiciones en `#assetList`. Muestra precio actual, P&L, qty, valor. Incluye market status (open/closed/pre-market).
@@ -374,13 +379,13 @@ Motor de Health Score, Monte Carlo y Correlation Heatmap.
   - Concentración (HHI — Herfindahl-Hirschman Index)
   - Single Stock Risk
   - Exposición sectorial
-  - Exposición a monedas
+  - Exposición a monedas (GBP / USD / ARS como tres categorías separadas — ARS no contamina USD)
   - Beta del portfolio
   - Volatilidad estimada
   - Valuación (P/E forward ponderado)
   - Income momentum
   - Drawdown estimado
-  Devuelve un objeto con el score total y sub-scores por dimensión.
+  Devuelve un objeto con el score total, sub-scores por dimensión, y `arsPct` para la tercera moneda. El score de currency usa solo GBP vs "otras" (USD+ARS) para el cálculo, pero el modal y el contexto AI muestran las 3 proporciones.
 
 - `TICKER_BETA_FALLBACK` — Yahoo Finance **no provee beta para crypto** (quoteType `CRYPTOCURRENCY`). Los valores de fallback son empíricos, calculados con retornos diarios vs SPY en una ventana de 5 años (metodología consistente con la que usa Yahoo para equities). Calculados en abril 2026: `BTC 1.2 · ADA 1.8`. Para recalcular: `calc_crypto_beta2.py` en el Playground, usar la columna `5Y`.
 
@@ -464,7 +469,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - `max_tokens: 3000` para ambos modelos.
 
 **Contexto builders** (arman el system prompt con datos reales del portfolio):
-- `buildPortfolioContext()` — posiciones con valores, P&L, pesos, cost basis, vest schedule RSU
+- `buildPortfolioContext()` — posiciones con valores, P&L, pesos, cost basis, vest schedule RSU. Incluye `HISTORICAL_PERFORMANCE` (tabla 7d/30d con total_chg y return neto de cashflows via Modified Dietz), `ALLOCATION_TOTAL` con `cash_ars`, y ARS_CASH en PROFILE. ARS_CASH excluido de POSITIONS (aparece en PROFILE y ALLOCATION)
 - `buildHealthContext()` — sub-scores del Health Score actual (HHI, beta, PE, currency, concentración, income)
 - `buildMacroContext()` — datos macro en TSV (VIX, US10Y, FX, índices) con cambios 7d/30d y tendencia
 - `buildWatchlistBase()` — ~14 tickers de referencia fija (SPY, QQQ, BTC, NVDA, etc.) en TSV
@@ -684,13 +689,13 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
   
   **Secciones del system prompt generado:**
   - `PORTFOLIO` — total (equity+cash desde snapshot), equity_only, fx, day_change USD+GBP (nominal+%), cost_basis (invested+cash), total_pnl USD+GBP (nominal+%), note_pnl
-  - `HISTORICAL_PERFORMANCE` — 7d y 30d en USD y GBP (nominal + %)
+  - `HISTORICAL_PERFORMANCE` — tabla 8 columnas: `period|total_chg_usd|total_chg_gbp|total_chg%|return_usd|return_gbp|return%|cf_usd`. `total_chg` = variación bruta del portfolio. `return` = variación neta de cashflows externos (Modified Dietz). `cf_usd` = capital nuevo neto en la ventana (`is_reinvestment=false`, tipos BUY/DEPOSIT/SELL/WITHDRAWAL)
   - `POSITIONS` — tabla con 15 columnas: ticker, category, value, weight%, invested, pnl_usd%, pnl_gbp%, day%_usd, day%_gbp, 7d%_usd, 7d%_gbp, 30d%_usd, 30d%_gbp. 7d/30d usan precio unitario (no valor de posición). Fallback a Yahoo (`fetchMacro`) para tickers sin historial en `price_snapshots`.
-  - `CASH` — posiciones fiat con value_gbp
+  - `CASH` — posiciones fiat con `value_usd` y `value_gbp`. ARS_CASH usa `avg_cost_usd * qty` para convertir a USD/GBP — nunca `qty` directo (que son pesos)
   - `PNL_ATTRIBUTION` — por categoría (cripto/acciones/rsu): invested, current, pnl USD+GBP+%
   - `UPCOMING_EARNINGS` — tickers del portfolio con earnings en los próximos 30 días. RSU_META aparece como `META (RSU)`.
   - `NEXT_RSU_VEST` — próximo vest: fecha, días_hasta, unidades, gross_usd, net_usd (×53%), net_gbp
-  - `ALLOCATION` — pesos sobre equity + cash líquido (excl. RENT_DEPOSIT y GBP_RECEIVABLE). `deployable_cash` (GBP_LIQUID + USD_CASH) y `emergency_fund` como líneas separadas; emergency incluido en el denominador pero etiquetado como `(not investable)`.
+  - `ALLOCATION` — pesos sobre equity + cash líquido (excl. RENT_DEPOSIT y GBP_RECEIVABLE). `deployable_cash` (GBP_LIQUID + USD_CASH), `emergency_fund` y `ARS_CASH` como líneas separadas. ARS_CASH etiquetado `(liquid, ARS)`, incluido en el denominador. Todos los valores en USD/GBP, nunca en ARS.
   - `RECENT_TRANSACTIONS` — últimas 5 + MONTH_INVESTED mes corriente y anterior
   - `MACRO` — VIX, 10Y/3M UST, GBP/USD, EUR/USD, Nasdaq, FTSE
   - Briefing de ayer (completo) con instrucción explícita de no repetir la observación concreta
@@ -1551,3 +1556,7 @@ Si hubo intereses o diferencia de FX que generó un delta entre los dos montos, 
 | Cost basis sube al guardar pesos | `portfolio.js` → cost basis fiat | Usa `net_invested_gbp/usd` directamente para todos los fiat |
 | Gráfico cae al agregar ARS_CASH | `server.js` → `/api/chart/:period` | Debe incluir `fx_usd_ars` en el select de `portfolio_snapshots` |
 | `fxToUsd is not defined` en server | `server.js` → log de `/api/positions/manual` | Variable renombrada a `fxUsdArs` / `fxGbpUsd` |
+| Briefing muestra £699k en ARS_CASH | `routes/ai-server.js` → `cashSection` y cost basis fiat | Usar `avg_cost_usd * qty` para ARS — nunca `qty` como USD |
+| HISTORICAL_PERFORMANCE vacío en contexto AI | `portfolio.js` → `loadPortfolio()` | Agregar fetches de `snap7d`/`snap30d` y `cf7dUsd`/`cf30dUsd` al Promise.all |
+| Currency modal solo muestra 2 monedas | `analytics.js` → `computeHealthData()` + modal `type === 'currency'` | `arsPct` calculado separado, tercer grupo celeste `#22d3ee` en el modal |
+| Agente no ve ARS_CASH en su contexto | `ai.js` → `buildPortfolioContext()` | ARS_CASH en PROFILE (cash line) y ALLOCATION_TOTAL (cash_ars), excluido de POSITIONS |
