@@ -163,11 +163,11 @@ async function loadPortfolio() {
     const _prevMD1 = _prevMarketDay(_now, 1); // last market day before today
     const _prevMD2 = _prevMarketDay(_now, 2); // market day before that
 
-    // CF query: fetch all external cashflows from _prevMD1 up to today (inclusive).
-    // On weekdays this is just today; on weekends/Mon-pre-open it covers Fri+weekend+today.
-    // is_reinvestment=false excludes internal reallocations (sell A + buy B).
-    // RSU_VEST excluded — it's appreciation of an asset already held, not new external capital.
-    const _cfStart = _prevMD1.toISOString().slice(0,10);
+    // CF query: fetch all external cashflows AFTER the baseline snapshot up to today (inclusive).
+    // _prevMD1 is already the baseline (Friday snapshot already includes Friday's CFs),
+    // so we start from the day AFTER _prevMD1 to avoid double-counting Friday transactions.
+    // On a normal weekday this is just today; on Sat/Sun/Mon it covers Sat+Sun+today.
+    const _cfStart = new Date(_prevMD1.getTime() + 24*60*60*1000).toISOString().slice(0,10);
     const _cfEnd   = new Date(_now.getTime() + 24*60*60*1000).toISOString().slice(0,10);
     const [_s0, _s1, _s2, _cfRows] = await Promise.all([
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_now)),
