@@ -2236,10 +2236,13 @@ function applySnapsToCatData(snaps) {
   weekdaySnaps.forEach(snap => {
     const b = snap.breakdown || {};
     const fxR = snap.fx_rate || 0.79;
-    // Fiat: handle old format (fiat in USD) and new format (fiat_gbp + fiat_usd stored separately)
+    // Fiat: handle old format (fiat in USD) and new format (fiat_gbp + fiat_usd + fiat_ars stored separately)
+    // fiat_ars stores raw ARS qty — convert to USD using fx_usd_ars from the snapshot
     let fiatUSD;
     if (b.fiat_gbp !== undefined || b.fiat_usd !== undefined) {
-      fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0);
+      const fxUsdArs = snap.fx_usd_ars ? Number(snap.fx_usd_ars) : 0;
+      const arsUSD   = fxUsdArs > 0 ? (b.fiat_ars || 0) / fxUsdArs : 0;
+      fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0) + arsUSD;
     } else {
       fiatUSD = b.fiat || 0;
     }
