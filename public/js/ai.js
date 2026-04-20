@@ -605,29 +605,42 @@ function buildPortfolioContext() {
     }
   }
 
-  // Historical performance (7d and 30d) — snapshots fetched explicitly in portfolio.js
+  // Historical performance (7d and 30d) — snapshots and CFs fetched explicitly in portfolio.js
+  // total_chg = V_fin - V_ini (includes capital flows)
+  // return    = V_fin - V_ini - CF_neto (Modified Dietz, pure performance)
+  // cf        = net external capital flows in the window (is_reinvestment=false)
   const _latestSnap = (liveData.snapshots || [])[0];
   const _snap7d  = liveData.snap7d  || null;
   const _snap30d = liveData.snap30d || null;
+  const _cf7d    = liveData.cf7dUsd  || 0;
+  const _cf30d   = liveData.cf30dUsd || 0;
   if (_latestSnap && (_snap7d || _snap30d)) {
     const latestUSD = Number(_latestSnap.total_usd);
     const latestGBP = Number(_latestSnap.total_gbp) || (latestUSD * (Number(_latestSnap.fx_rate) || FX_RATE));
+    const sgn = v => v >= 0 ? '+' : '';
     ctx += '\nHISTORICAL_PERFORMANCE\n';
+    ctx += 'period|total_chg_usd|total_chg_gbp|total_chg%|return_usd|return_gbp|return%|cf_usd\n';
     if (_snap7d) {
       const base7USD = Number(_snap7d.total_usd);
       const base7GBP = Number(_snap7d.total_gbp) || (base7USD * (Number(_snap7d.fx_rate) || FX_RATE));
-      const chg7  = latestUSD - base7USD;
-      const chgG7 = latestGBP - base7GBP;
-      const pct7  = base7USD > 0 ? (chg7 / base7USD * 100) : 0;
-      ctx += `7d: ${chg7 >= 0 ? '+' : ''}${fU(chg7)} (${chgG7 >= 0 ? '+' : ''}${fGn(chgG7)}) ${pct7 >= 0 ? '+' : ''}${pct7.toFixed(2)}%\n`;
+      const chg7     = latestUSD - base7USD;
+      const chgG7    = latestGBP - base7GBP;
+      const pct7     = base7USD > 0 ? (chg7 / base7USD * 100) : 0;
+      const ret7     = chg7 - _cf7d;
+      const retG7    = chgG7 - _cf7d * FX_RATE;
+      const retPct7  = base7USD > 0 ? (ret7 / base7USD * 100) : 0;
+      ctx += `7d|${sgn(chg7)}${fU(chg7)}|${sgn(chgG7)}${fGn(chgG7)}|${sgn(pct7)}${pct7.toFixed(2)}%|${sgn(ret7)}${fU(ret7)}|${sgn(retG7)}${fGn(retG7)}|${sgn(retPct7)}${retPct7.toFixed(2)}%|${sgn(_cf7d)}${fU(_cf7d)}\n`;
     }
     if (_snap30d) {
       const base30USD = Number(_snap30d.total_usd);
       const base30GBP = Number(_snap30d.total_gbp) || (base30USD * (Number(_snap30d.fx_rate) || FX_RATE));
-      const chg30  = latestUSD - base30USD;
-      const chgG30 = latestGBP - base30GBP;
-      const pct30  = base30USD > 0 ? (chg30 / base30USD * 100) : 0;
-      ctx += `30d: ${chg30 >= 0 ? '+' : ''}${fU(chg30)} (${chgG30 >= 0 ? '+' : ''}${fGn(chgG30)}) ${pct30 >= 0 ? '+' : ''}${pct30.toFixed(2)}%\n`;
+      const chg30     = latestUSD - base30USD;
+      const chgG30    = latestGBP - base30GBP;
+      const pct30     = base30USD > 0 ? (chg30 / base30USD * 100) : 0;
+      const ret30     = chg30 - _cf30d;
+      const retG30    = chgG30 - _cf30d * FX_RATE;
+      const retPct30  = base30USD > 0 ? (ret30 / base30USD * 100) : 0;
+      ctx += `30d|${sgn(chg30)}${fU(chg30)}|${sgn(chgG30)}${fGn(chgG30)}|${sgn(pct30)}${pct30.toFixed(2)}%|${sgn(ret30)}${fU(ret30)}|${sgn(retG30)}${fGn(retG30)}|${sgn(retPct30)}${retPct30.toFixed(2)}%|${sgn(_cf30d)}${fU(_cf30d)}\n`;
     }
   }
 

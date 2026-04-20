@@ -182,13 +182,21 @@ async function loadPortfolio() {
     const _30dStart = _30dAgo.toISOString().slice(0,10) + 'T00:00:00.000Z';
     const _30dEnd   = new Date(_30dAgo.getTime() + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
 
-    const [_s0, _s1, _s2, _cfRows, _s7d, _s30d] = await Promise.all([
+    // CF queries for 7d and 30d: transactions with is_reinvestment=false in each window
+    const _7dStartDate  = _7dAgo.toISOString().slice(0, 10);
+    const _30dStartDate = _30dAgo.toISOString().slice(0, 10);
+    const _todayEnd     = _cfEnd; // already computed above
+    const _CF_SELECT    = 'select=type,amount_usd&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)';
+
+    const [_s0, _s1, _s2, _cfRows, _s7d, _s30d, _cf7dRows, _cf30dRows] = await Promise.all([
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_now)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD1)),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField + _dayRange(_prevMD2)),
       sbFetch('/rest/v1/transactions?select=type,amount_usd&date=gte.' + _cfStart + '&date=lt.' + _cfEnd + '&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)'),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField7d  + '&captured_at=gte.' + _7dStart  + '&captured_at=lt.' + _7dEnd),
       sbFetch('/rest/v1/portfolio_snapshots?' + _snapField7d  + '&captured_at=gte.' + _30dStart + '&captured_at=lt.' + _30dEnd),
+      sbFetch('/rest/v1/transactions?' + _CF_SELECT + '&date=gte.' + _7dStartDate  + '&date=lt.' + _todayEnd),
+      sbFetch('/rest/v1/transactions?' + _CF_SELECT + '&date=gte.' + _30dStartDate + '&date=lt.' + _todayEnd),
     ]);
 
     // Net cashflow in USD over the comparison window (deposits/buys positive, sells/withdrawals negative)
@@ -382,7 +390,17 @@ async function loadPortfolio() {
     const totalGBP = totalUSD * FX_RATE;
     const snap7d  = Array.isArray(_s7d)  && _s7d[0]  ? _s7d[0]  : null;
     const snap30d = Array.isArray(_s30d) && _s30d[0] ? _s30d[0] : null;
-    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData, snap7d, snap30d };
+
+    // Net external cashflows for 7d and 30d windows (for Modified Dietz return)
+    const _calcCF = rows => (rows || []).reduce((acc, tx) => {
+      if (tx.type === 'BUY' || tx.type === 'DEPOSIT') return acc + Number(tx.amount_usd || 0);
+      if (tx.type === 'SELL' || tx.type === 'WITHDRAWAL') return acc - Number(tx.amount_usd || 0);
+      return acc;
+    }, 0);
+    const cf7dUsd  = _calcCF(_cf7dRows);
+    const cf30dUsd = _calcCF(_cf30dRows);
+
+    liveData = { totalUSD, totalGBP, changeUSD, changeGBP, netCFusd, breakdown, assets, prices, costBasisUSD, costBasisGBP, snapshots: snapData, snap7d, snap30d, cf7dUsd, cf30dUsd };
 
     // Fetch fundamentals from Yahoo (via our server proxy) — fire-and-forget,
     // result lands in window._marketMeta before user opens AI chat.
