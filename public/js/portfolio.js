@@ -160,7 +160,10 @@ async function loadPortfolio() {
       return d;
     };
     const _now = new Date();
-    const _prevMD1 = _prevMarketDay(_now, 1); // last market day before today
+    const _nowDow = _now.getUTCDay(); // 0=Sun, 1=Mon
+    const _prevMD1 = _nowDow === 1
+      ? new Date(_now.getTime() - 24*60*60*1000) // lunes → domingo
+      : _prevMarketDay(_now, 1);                  // resto → market day normal
     const _prevMD2 = _prevMarketDay(_now, 2); // market day before that
 
     // CF query: fetch all external cashflows AFTER the baseline snapshot up to today (inclusive).
