@@ -244,9 +244,10 @@ app.post('/api/positions/manual', async (req, res) => {
 
     // Recalculate positions from transactions
     const recalc = await recalculatePositions();
-    console.log(`[positions/manual] ${ticker} ${txType} ${absDelta} @ fx ${fxToUsd} | recalc: updated=[${recalc.updated}] inserted=[${recalc.inserted}]`);
+    const fxLog = isARSFiat ? `usdArs=${fxUsdArs} gbpUsd=${fxGbpUsdLive}` : `fx=${fxGbpUsd}`;
+    console.log(`[positions/manual] ${ticker} ${txType} ${absDelta} @ ${fxLog} | recalc: updated=[${recalc.updated}] inserted=[${recalc.inserted}]`);
 
-    res.json({ ok: true, delta, txType, fxToUsd, recalc });
+    res.json({ ok: true, delta, txType, recalc });
   } catch (e) {
     console.error('[positions/manual]', e.message);
     res.status(502).json({ error: e.message });
