@@ -96,6 +96,11 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en tracker de agua (UI, botones, barra) | `habits.js` |
 | Bug en endpoints de agua o push | `server.js` |
 | Bug en recálculo de posiciones | `recalculator.js` |
+| ARS_CASH no aparece en saldos / valor incorrecto | `transactions.js` → `loadSaldos()` + `renderSaldos()` + `server.js` → `/api/positions/manual` |
+| Gráfico de evolución ignora ARS_CASH (valor cae al abrir) | `server.js` → endpoint `/api/chart/:period` (debe incluir `fx_usd_ars` en select) + `portfolio.js` → `applySnapsToCatData()` |
+| Cost basis incluye pesos argentinos como USD | `portfolio.js` → bloque `if (pos.currency === 'ARS')` en valuación fiat |
+| portfolio_snapshot tiene total_usd inflado por ARS | `worker.js` → caso `currency === 'ARS'` usa `qty_ars / usdArs`, no `qty / usdArs` |
+| FX USD/ARS no se actualiza en worker | `worker.js` → `fetchUsdArs()` — llama a `dolarapi.com/v1/dolares/bolsa`, usa campo `venta` |
 | Cost basis del portfolio inflado tras reinversión | `recalculator.js` + `transactions.js` → marcar `is_reinvestment = true` en BUY/DEPOSIT/WITHDRAWAL de la operación |
 | Bug en saldo fiat (FX promedio incorrecto, investment desincronizado) | `server.js` → `/api/positions/manual` + `recalculator.js` + `transactions.js` → `saveSaldo()` |
 | Saldo actualizado no refleja en header total | `portfolio.js` → `totalGBP` (bottom-up desde `totalUSD * FX_RATE`, no del snapshot) |
@@ -136,7 +141,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
 | `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`, `/api/price-history`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
 | `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz: fetcha CF del día (London date) y resta `netCFusd` de `dayChangeUSD/GBP`; emite `day_return_*` (rendimiento puro) y `day_cashflow_*` (condicional, solo si hubo CF externo). |
-| `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. |
+| `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. También fetchea USD/ARS bolsa MEP desde DolarApi cada tick y lo guarda en `price_snapshots.fx_usd_ars`, `portfolio_snapshots.fx_usd_ars` y `portfolio_snapshots.total_ars`. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo ignorando transacciones con `is_reinvestment = true`. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
 | `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30, agua cada ~90 min con lógica adaptativa, y briefing financiero 5 min después del cierre NYSE (lun-vie). |
@@ -940,10 +945,10 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 
 | Tabla | Qué guarda |
 |---|---|
-| `positions` | Una fila por activo. Qty, avg_cost, initial_investment, net_invested, managed_by. |
-| `transactions` | Historial completo de compras/ventas/vests. Incluye `is_reinvestment` para distinguir capital fresco de ganancias reubicadas. |
-| `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). |
-| `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). |
+| `positions` | Una fila por activo. Qty, avg_cost, initial_investment, net_invested, managed_by. Para ARS_CASH: columnas adicionales `fx_usd_ars_avg`, `initial_investment_ars`, `net_invested_ars`. |
+| `transactions` | Historial completo de compras/ventas/vests. Incluye `is_reinvestment` para distinguir capital fresco de ganancias reubicadas. Columnas adicionales: `fx_usd_ars` (tipo de cambio ARS/USD al momento), `amount_ars` (monto en ARS, solo para ARS_CASH), `price_ars` (reservado para CEDEARs futuros). |
+| `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (tipo de cambio ARS/USD bolsa MEP al momento del tick). |
+| `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (ARS/USD bolsa MEP), `total_ars` (valor total en ARS = total_usd * fx_usd_ars). El campo `breakdown` puede contener `fiat_ars` con el saldo nativo en ARS. |
 | `rsu_vests` | Schedule de vesting de RSUs META. |
 | `habit_daily_logs` | Un registro por día con estado de cada hábito. UNIQUE(log_date). |
 | `habit_oneshots` | Contadores anuales (presentaciones, viajes, clases de piano, etc.). UNIQUE(year). |
@@ -1078,6 +1083,7 @@ ORDER BY seq;
 - El worker siempre convierte precios a USD antes de guardar en `price_snapshots`.
 - El campo `pricing_currency` en `positions` indica si el activo cotiza en GBP (ej: VWRP.L) o USD.
 - `correlation_matrix` se calcula una vez por día. Los tickers con `pricing_currency = 'GBP'` se ajustan a USD antes de calcular correlaciones (se multiplica el precio por GBPUSD del mismo día). El inner join por fecha elimina la desalineación entre mercados UK y US.
+- Para ARS_CASH: `qty` en `positions` es ARS nativos. El worker valúa con `qty / fx_usd_ars`. El recalculator acumula `amount_local` (GBP-equiv) correctamente para que todos los campos `_gbp` y `_usd` sean válidos para el resto del sistema. Los campos `_ars` son complementarios para reporting nativo.
 
 ---
 
@@ -1437,3 +1443,111 @@ WHERE ticker IN ('RENT_DEPOSIT', 'EMERGENCY_FUND', 'GBP_LIQUID', 'USD_CASH');
 | FX input del saldo card muestra ~0.79 en vez de ~1.27 | `transactions.js` → `renderSaldos()` | Usar `pos.fx_gbp_usd_avg` o `1/FX_RATE` como fallback |
 | transaction fiat falla con NOT NULL en broker | `server.js` → `txPayload` | `broker: ''` siempre, `exchange: null` |
 | Recalculate no toca posiciones fiat | `recalculator.js` | Agregar casos DEPOSIT y WITHDRAWAL al loop |
+
+---
+
+## Arquitectura ARS_CASH (abril 2026)
+
+### Concepto
+
+Posición fiat en pesos argentinos. Misma arquitectura que GBP_LIQUID/USD_CASH pero con tipo de cambio ARS/USD desde DolarApi (bolsa MEP), no Yahoo Finance.
+
+### Ticker y posición inicial
+
+```sql
+INSERT INTO positions (ticker, name, category, currency, qty, pricing_currency, managed_by, total_fees_local)
+VALUES ('ARS_CASH', 'ARS Cash', 'fiat', 'ARS', 0, 'ARS', 'transactions', 0);
+```
+
+Logo: `/logos/ars.png`. Entrada en `TICKER_META` de `core.js`.
+
+### Convenciones de campos
+
+| Campo en `positions` | Valor | Lógica |
+|---|---|---|
+| `qty` | ARS nativos (ej: 699,679) | Saldo real en pesos |
+| `avg_cost_usd` | `1 / fx_usd_ars_avg` (~0.000707) | USD por 1 ARS |
+| `avg_cost_gbp` | `avg_cost_usd / fx_gbp_usd_avg` (~0.000522) | GBP por 1 ARS |
+| `fx_gbp_usd_avg` | USD/GBP ponderado (~1.35) | Igual que todos los demás fiat |
+| `fx_usd_ars_avg` | ARS/USD ponderado (~1414) | Campo nuevo exclusivo ARS |
+| `initial_investment_usd` | Suma de `amount_usd` de las tx | USD correcto |
+| `initial_investment_gbp` | Suma de `amount_local` (GBP) de las tx | GBP correcto |
+| `initial_investment_ars` | Suma de `amount_ars` de las tx | ARS nativo |
+| `net_invested_*` | Igual que `initial_investment_*` pero excluyendo `is_reinvestment=true` | Cost basis real |
+
+**Invariante portfolio:** `avg_cost_usd × qty = value_usd` — misma lógica que acciones/cripto.
+
+### Flujo al guardar saldo ARS
+
+1. `saveSaldo('ARS_CASH')` en `transactions.js` manda `POST /api/positions/manual` con `{ ticker, qty, fx_rate: fx_usd_ars }`
+2. `server.js` fetchea GBPUSD live de Yahoo, calcula:
+   - `amount_ars = |delta|` (ARS as-is)
+   - `amount_usd = amount_ars / fx_usd_ars`
+   - `amount_local = amount_usd / fx_gbp_usd_live` (GBP equiv — clave para no romper el resto del sistema)
+3. Inserta transaction con `local_currency = 'ARS'`, `fx_usd_ars = fx_usd_ars`, `amount_ars = delta`
+4. Llama `recalculatePositions()`
+
+### FX en el card de Saldos
+
+- `fetchSaldoFx('ARS_CASH')` llama directamente a `dolarapi.com/v1/dolares/bolsa` (no Yahoo)
+- Usa campo `venta` de la respuesta
+- Botón ⚡ igual que GBP/USD
+- Label: `FX AR$→$`
+- Secondary line muestra `£ nn / $ xx` (solo para ARS — GBP y USD mantienen su formato original de una sola divisa)
+
+### Separación de campos en `transactions`
+
+| Campo | GBP/USD fiat | ARS_CASH |
+|---|---|---|
+| `amount_local` | GBP | GBP-equiv (amount_usd / fx_gbp_usd_live) |
+| `amount_usd` | USD | USD (amount_ars / fx_usd_ars) |
+| `amount_ars` | null | ARS nativos |
+| `local_currency` | 'GBP' | 'ARS' |
+| `fx_rate_to_usd` | GBP/USD (~1.35) | GBP/USD live al momento |
+| `fx_usd_ars` | null | ARS/USD bolsa MEP (~1414) |
+
+### Worker — valorización ARS
+
+```js
+// qty = ARS nativos
+value_usd = usdArs && qtyArs > 0 ? qtyArs / usdArs : 0;
+breakdown.fiat_ars = (breakdown.fiat_ars || 0) + qtyArs;
+```
+
+`fxUsdArs` se fetchea desde `dolarapi.com/v1/dolares/bolsa` cada tick. Se guarda en `price_snapshots.fx_usd_ars` y `portfolio_snapshots.fx_usd_ars`.
+
+### Gráfico de evolución
+
+El endpoint `/api/chart/:period` incluye `fx_usd_ars` en el select. `applySnapsToCatData()` en `portfolio.js` convierte `fiat_ars` del breakdown a USD usando `snap.fx_usd_ars`:
+
+```js
+const arsUSD = fxUsdArs > 0 ? (b.fiat_ars || 0) / fxUsdArs : 0;
+fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0) + arsUSD;
+```
+
+### Cost basis
+
+`portfolio.js` usa `net_invested_gbp` y `net_invested_usd` directamente para todos los fiat (incluyendo ARS). El recalculator garantiza que estos campos estén en GBP/USD correctos porque `amount_local` siempre entra como GBP.
+
+### CEDEARs (futuro)
+
+Los campos `amount_ars` y `price_ars` en `transactions` están reservados para CEDEARs — activos que cotizan en ARS pero cuyo subyacente es en USD. No implementado aún.
+
+### Cómo registrar una conversión GBP → ARS correctamente
+
+Una conversión de GBP a ARS (ej: sacar £365 del Emergency Fund para comprar $699,679 ARS) se registra como dos transactions separadas, ambas con `is_reinvestment = true` para que no afecten el cost basis:
+
+1. WITHDRAWAL en la posición GBP de origen (ej: EMERGENCY_FUND) por el monto GBP real retirado
+2. DEPOSIT en ARS_CASH por el monto ARS recibido
+
+Si hubo intereses o diferencia de FX que generó un delta entre los dos montos, ese delta debe registrarse como un DEPOSIT separado con `is_reinvestment = true` en la posición de origen, con `created_at` anterior a la conversión.
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| ARS_CASH no aparece en saldos (qty=0) | `transactions.js` → `loadSaldos()` | Fetch explícito por `ticker=eq.ARS_CASH` además de la query genérica de fiat |
+| Valor ARS_CASH inflado (interpreta qty como USD) | `portfolio.js` → `if (pos.currency === 'ARS')` | Usa `qty * avg_cost_usd` en vez de `qty` directo |
+| Cost basis sube al guardar pesos | `portfolio.js` → cost basis fiat | Usa `net_invested_gbp/usd` directamente para todos los fiat |
+| Gráfico cae al agregar ARS_CASH | `server.js` → `/api/chart/:period` | Debe incluir `fx_usd_ars` en el select de `portfolio_snapshots` |
+| `fxToUsd is not defined` en server | `server.js` → log de `/api/positions/manual` | Variable renombrada a `fxUsdArs` / `fxGbpUsd` |
