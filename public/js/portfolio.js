@@ -295,19 +295,20 @@ async function loadPortfolio() {
         const netUSD = Number(pos.net_invested_usd);
         if (netGBP || netUSD) {
           // Use net_invested — correctly excludes reinvested cash in transit
-          if (pos.currency === 'GBP') {
-            costBasisGBP += netGBP;
-            costBasisUSD += netGBP / FX_RATE;
-          } else {
-            costBasisUSD += netUSD;
-            costBasisGBP += netUSD * FX_RATE;
-          }
+          // All currencies: net_invested_gbp and net_invested_usd are always correct GBP/USD values
+          // (recalculator stores GBP-equiv in _gbp fields for ARS too)
+          costBasisGBP += netGBP;
+          costBasisUSD += netUSD;
         } else {
           // Fallback for legacy manual positions without net_invested
           const qty = Number(pos.qty) || 0;
           if (pos.currency === 'GBP') {
             costBasisGBP += qty;
             costBasisUSD += qty / FX_RATE;
+          } else if (pos.currency === 'ARS') {
+            const avgUsd = Number(pos.avg_cost_usd) || 0;
+            costBasisUSD += avgUsd > 0 ? qty * avgUsd : 0;
+            costBasisGBP += avgUsd > 0 ? (qty * avgUsd) * FX_RATE : 0;
           } else {
             costBasisUSD += qty;
             costBasisGBP += qty * FX_RATE;
