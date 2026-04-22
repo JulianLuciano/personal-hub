@@ -142,7 +142,7 @@ async function loadPortfolio() {
     //   - "today" snapshot: always today's calendar day (worker runs 24/7 incl. weekends)
     //   - "prev market day" / "prev prev market day": walk back skipping Sat/Sun
     // This means Sat/Sun/Mon-pre-open all resolve prev=Fri, prevPrev=Thu → correct diff.
-    const _snapField = 'select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1';
+    const _snapField = 'select=captured_at,total_usd,total_gbp,fx_rate,fx_usd_ars&order=captured_at.desc&limit=1';
     const _dayRange = (d) => {
       const start = d.toISOString().slice(0,10) + 'T00:00:00.000Z';
       const end   = new Date(d.getTime() + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
@@ -175,7 +175,7 @@ async function loadPortfolio() {
     // 7d: snapshot closest to exactly 7 calendar days ago — fetch the last snap of that day
     const _7dAgo  = new Date(_now.getTime() - 7  * 24*60*60*1000);
     const _30dAgo = new Date(_now.getTime() - 30 * 24*60*60*1000);
-    const _snapField7d  = 'select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1';
+    const _snapField7d  = 'select=captured_at,total_usd,total_gbp,fx_rate,fx_usd_ars&order=captured_at.desc&limit=1';
     // Query: last snapshot on or before that date (gte start of 7d-ago day, lt start of 6d-ago day)
     const _7dStart  = _7dAgo.toISOString().slice(0,10)  + 'T00:00:00.000Z';
     const _7dEnd    = new Date(_7dAgo.getTime()  + 24*60*60*1000).toISOString().slice(0,10) + 'T00:00:00.000Z';
@@ -862,28 +862,63 @@ function renderPnlAttribution() {
   const _yesterdaySnap = _snaps.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== _todayDay) || null;
   const fxYesterday = _yesterdaySnap ? Number(_yesterdaySnap.fx_rate) : FX_RATE;
 
+  // ARS FX yesterday — from the same baseline snapshot used for GBP FX
+  const fxUsdArsYesterday = _yesterdaySnap && _yesterdaySnap.fx_usd_ars ? Number(_yesterdaySnap.fx_usd_ars) : 0;
+  // Today's ARS FX — derived from the live ARS_CASH position: qty_ars / value_usd = fx_usd_ars live
+  const _arsPos = assets.find(a => a.pos.ticker === 'ARS_CASH');
+  const fxUsdArsToday = _arsPos && _arsPos.pos.qty > 0 && _arsPos.valueUSD > 0
+    ? _arsPos.pos.qty / _arsPos.valueUSD
+    : 0;
+
   const contribs = [];
   let fiatGBPContribUSD = 0;     // hist mode: GBP cash FX P&L vs initial investment
   let fiatGBPDayContribUSD = 0;  // day mode: GBP cash daily FX move in USD terms
   let hasFiatGBP = false;
   let hasFiatGBPDay = false;
+  let fiatARSContribUSD = 0;     // hist mode: ARS cash FX P&L in USD
+  let fiatARSContribGBP = 0;     // hist mode: ARS cash FX P&L in GBP
+  let fiatARSDayContribUSD = 0;  // day mode: ARS daily FX move in USD
+  let fiatARSDayContribGBP = 0;  // day mode: ARS daily FX move in GBP
+  let hasFiatARS = false;
+  let hasFiatARSDay = false;
   assets.forEach(({ pos, valueUSD, dayPct, dayPctGBP, pctUSD }) => {
     if (pos.category === 'fiat') {
-      if (pos.currency !== 'GBP' || valueUSD < 1) return;
-      if (pnlAttrMode === 'hist') {
-        // Historic: FX P&L in USD — only meaningful in USD mode
-        if (isGBP) return;
-        const inv = Number(pos.initial_investment_usd);
-        if (!inv) return;
-        fiatGBPContribUSD += valueUSD - inv;
-        hasFiatGBP = true;
-      } else {
-        // Daily: same GBP qty at today's FX vs yesterday's FX — USD mode only
-        if (isGBP) return;
-        const gbpQty = Number(pos.qty);
-        if (!gbpQty || !fxYesterday) return;
-        fiatGBPDayContribUSD += valueUSD - (gbpQty / fxYesterday);
-        hasFiatGBPDay = true;
+      // GBP cash: FX P&L in USD only (GBP qty is fixed, value in GBP doesn't change)
+      if (pos.currency === 'GBP' && valueUSD >= 1) {
+        if (pnlAttrMode === 'hist') {
+          if (isGBP) return;
+          const inv = Number(pos.initial_investment_usd);
+          if (!inv) return;
+          fiatGBPContribUSD += valueUSD - inv;
+          hasFiatGBP = true;
+        } else {
+          if (isGBP) return;
+          const gbpQty = Number(pos.qty);
+          if (!gbpQty || !fxYesterday) return;
+          fiatGBPDayContribUSD += valueUSD - (gbpQty / fxYesterday);
+          hasFiatGBPDay = true;
+        }
+        return;
+      }
+      // ARS cash: FX P&L affects both USD and GBP value (ARS qty is fixed, FX moves both)
+      if (pos.currency === 'ARS' && valueUSD >= 1) {
+        const arsQty = Number(pos.qty);
+        if (!arsQty) return;
+        if (pnlAttrMode === 'hist') {
+          const invUSD = Number(pos.initial_investment_usd);
+          const invGBP = Number(pos.initial_investment_gbp);
+          if (!invUSD && !invGBP) return;
+          fiatARSContribUSD += valueUSD - invUSD;
+          fiatARSContribGBP += (valueUSD * FX_RATE) - invGBP;
+          hasFiatARS = true;
+        } else {
+          if (!fxUsdArsYesterday || !fxUsdArsToday) return;
+          const valueUSDYesterday = arsQty / fxUsdArsYesterday;
+          fiatARSDayContribUSD += valueUSD - valueUSDYesterday;
+          fiatARSDayContribGBP += (valueUSD * FX_RATE) - (valueUSDYesterday * fxYesterday);
+          hasFiatARSDay = true;
+        }
+        return;
       }
       return;
     }
@@ -935,6 +970,20 @@ function renderPnlAttribution() {
   if (hasFiatGBPDay && Math.abs(fiatGBPDayContribUSD) >= 0.01) {
     contribs.push({ ticker: 'Libras', contribUSD: fiatGBPDayContribUSD, contribDisplay: fiatGBPDayContribUSD });
   }
+  // Pesos line — hist mode: FX P&L on ARS cash (affects both USD and GBP value)
+  if (hasFiatARS) {
+    const arsDisplay = isGBP ? fiatARSContribGBP : fiatARSContribUSD;
+    if (Math.abs(arsDisplay) >= 0.01) {
+      contribs.push({ ticker: 'Pesos', contribUSD: fiatARSContribUSD, contribDisplay: arsDisplay });
+    }
+  }
+  // Pesos line — day mode: daily FX move on ARS cash (affects both USD and GBP value)
+  if (hasFiatARSDay) {
+    const arsDayDisplay = isGBP ? fiatARSDayContribGBP : fiatARSDayContribUSD;
+    if (Math.abs(arsDayDisplay) >= 0.01) {
+      contribs.push({ ticker: 'Pesos', contribUSD: fiatARSDayContribUSD, contribDisplay: arsDayDisplay });
+    }
+  }
 
   if (!contribs.length || contribs.every(c => Math.abs(c.contribUSD) < 0.01)) {
     card.style.display = 'none';
@@ -942,9 +991,11 @@ function renderPnlAttribution() {
   }
 
   contribs.sort((a, b) => {
-    // Libras always last
-    if (a.ticker === 'Libras') return 1;
-    if (b.ticker === 'Libras') return -1;
+    // Libras and Pesos always last
+    const aFiat = a.ticker === 'Libras' || a.ticker === 'Pesos';
+    const bFiat = b.ticker === 'Libras' || b.ticker === 'Pesos';
+    if (aFiat && !bFiat) return 1;
+    if (!aFiat && bFiat) return -1;
     return Math.abs(b.contribUSD) - Math.abs(a.contribUSD);
   });
 
