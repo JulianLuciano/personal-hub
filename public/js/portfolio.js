@@ -862,13 +862,11 @@ function renderPnlAttribution() {
   const _yesterdaySnap = _snaps.find(s => new Date(s.captured_at).toISOString().slice(0,10) !== _todayDay) || null;
   const fxYesterday = _yesterdaySnap ? Number(_yesterdaySnap.fx_rate) : FX_RATE;
 
-  // ARS FX yesterday — from the same baseline snapshot used for GBP FX
+  // ARS FX rates — read from portfolio_snapshots (stored by worker each tick from dolarapi)
+  // _snaps[0] = today's latest snapshot, _yesterdaySnap = prev market day baseline
+  const _todaySnap = _snaps.length > 0 ? _snaps[0] : null;
+  const fxUsdArsToday     = _todaySnap     && _todaySnap.fx_usd_ars     ? Number(_todaySnap.fx_usd_ars)     : 0;
   const fxUsdArsYesterday = _yesterdaySnap && _yesterdaySnap.fx_usd_ars ? Number(_yesterdaySnap.fx_usd_ars) : 0;
-  // Today's ARS FX — derived from the live ARS_CASH position: qty_ars / value_usd = fx_usd_ars live
-  const _arsPos = assets.find(a => a.pos.ticker === 'ARS_CASH');
-  const fxUsdArsToday = _arsPos && _arsPos.pos.qty > 0 && _arsPos.valueUSD > 0
-    ? _arsPos.pos.qty / _arsPos.valueUSD
-    : 0;
 
   const contribs = [];
   let fiatGBPContribUSD = 0;     // hist mode: GBP cash FX P&L vs initial investment
