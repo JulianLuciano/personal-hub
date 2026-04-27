@@ -824,7 +824,7 @@ router.get('/briefing-context', async (req, res) => {
       return s === 'GMT+1' ? 60 : 0;
     })();
     const londonNow   = new Date(now0.getTime() + londonOffset * 60000);
-    const londonToday = '2026-04-27'; // TEMP OVERRIDE
+    const londonToday = londonNow.toISOString().slice(0, 10);
     // Anchor = midnight London today = end of yesterday
     const tDayAnchor  = new Date(londonToday + 'T00:00:00.000Z').toISOString();
 

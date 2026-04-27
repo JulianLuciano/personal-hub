@@ -406,7 +406,7 @@ async function generateAndSendBriefing() {
   if (!briefingText) return;
 
   // Guardar en daily_briefings (upsert por fecha — reemplaza si ya existe del día)
-  const todayDate = '2026-04-27'; // TEMP OVERRIDE
+  const todayDate = new Date().toISOString().slice(0, 10);
   try {
     await fetch(SUPABASE_URL + '/rest/v1/daily_briefings', {
       method: 'POST',
@@ -416,7 +416,7 @@ async function generateAndSendBriefing() {
         'Content-Type':  'application/json',
         'Prefer':        'resolution=merge-duplicates',
       },
-      body: JSON.stringify({ date: todayDate, content: briefingText, prompt: systemPrompt, created_at: '2026-04-27T20:05:51.719646+00' }),
+      body: JSON.stringify({ date: todayDate, content: briefingText, prompt: systemPrompt }),
     });
     console.log('[briefing] saved to DB for', todayDate);
   } catch (e) {
