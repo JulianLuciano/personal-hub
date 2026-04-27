@@ -162,11 +162,15 @@ function calculateFromTransactions(transactions) {
       s.qty                  -= qty;
       s.total_invested_usd   -= qty * avgTotalUsd;
       s.total_invested_local -= qty * avgTotalLoc;
-      s.net_invested_usd     -= qty * avgNetUsd;
-      s.net_invested_local   -= qty * avgNetLoc;
+      // is_reinvestment=true: capital stays in portfolio (converted to another asset).
+      // Only deduct net_invested when capital actually leaves the portfolio.
+      if (!isReinvest) {
+        s.net_invested_usd   -= qty * avgNetUsd;
+        s.net_invested_local -= qty * avgNetLoc;
+        if (isARSTx) s.net_invested_ars -= qty * avgNetArs;
+      }
       if (isARSTx) {
         s.total_invested_ars -= qty * avgTotalArs;
-        s.net_invested_ars   -= qty * avgNetArs;
       }
 
       if (s.qty <= 0.0000001) {

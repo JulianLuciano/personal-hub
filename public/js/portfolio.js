@@ -313,25 +313,20 @@ async function loadPortfolio() {
       if (pos.category === 'fiat') {
         const netGBP = Number(pos.net_invested_gbp);
         const netUSD = Number(pos.net_invested_usd);
-        if (pos.currency === 'ARS') {
-          // ARS: cost basis = initial_investment (capital real convertido al TC de entrada).
-          // No usar qty * avg_cost_usd porque qty sube con reinversiones y distorsiona el cost basis.
-          // No usar net_invested porque es 0 (toda la posición es reinversión de GBP→ARS).
-          // initial_investment_usd/gbp refleja el capital original correctamente y no cambia con reinversiones.
-          const invUSD = Number(pos.initial_investment_usd) || 0;
-          const invGBP = Number(pos.initial_investment_gbp) || 0;
-          costBasisUSD += invUSD;
-          costBasisGBP += invGBP;
-        } else if (netGBP || netUSD) {
-          // GBP/USD fiat managed by transactions: use net_invested
+        if (netGBP || netUSD) {
+          // Use net_invested — correctly excludes reinvested cash in transit
           costBasisGBP += netGBP;
           costBasisUSD += netUSD;
         } else {
-          // Fallback for legacy manual positions without net_invested (e.g. GBP_RECEIVABLE)
+          // Fallback for legacy manual positions without net_invested
           const qty = Number(pos.qty) || 0;
           if (pos.currency === 'GBP') {
             costBasisGBP += qty;
             costBasisUSD += qty / FX_RATE;
+          } else if (pos.currency === 'ARS') {
+            const avgUsd = Number(pos.avg_cost_usd) || 0;
+            costBasisUSD += avgUsd > 0 ? qty * avgUsd : 0;
+            costBasisGBP += avgUsd > 0 ? (qty * avgUsd) * FX_RATE : 0;
           } else {
             costBasisUSD += qty;
             costBasisGBP += qty * FX_RATE;
