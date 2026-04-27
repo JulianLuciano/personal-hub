@@ -125,6 +125,13 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `day_cashflow_*` no aparece en contexto AI | Es condicional: solo se emite cuando `netCFusd !== 0`. Si no hubo transacciones externas ese día, es correcto que no aparezca |
 | Inspeccionar system prompt del chat en consola | Mandar un mensaje al chat primero, luego: `console.log(window._cachedSystemPrompt)` (requiere `window._cachedSystemPrompt = _cachedSystemPrompt` después de línea `_cachedSystemPromptKey = _snapKey` en `ai.js`) |
 | Inspeccionar prompt del briefing con datos reales | `(async()=>{const r=await fetch('/api/briefing-context');const j=await r.json();j.systemPrompt.split('\n').forEach(l=>console.log(l))})()` |
+| PnL diario no muestra línea "Pesos" (ARS FX move) | `portfolio.js` → `renderPnlAttribution()` — `fxUsdArsToday` y `fxUsdArsYesterday` leídos de `_snaps[0].fx_usd_ars` / `_yesterdaySnap.fx_usd_ars`. Requiere `fx_usd_ars` en `_snapField` del fetch de snapshots |
+| Cost basis fiat incorrecto tras WITHDRAWAL is_reinvestment=true | `recalculator.js` → bloque WITHDRAWAL — solo descuenta `net_invested` cuando `!isReinvest`. Capital que se convierte (GBP→ARS) no sale del portfolio |
+| Cost basis de ARS_CASH inflado cuando net_invested=0 | `portfolio.js` → cost basis fiat — la condición `if (netGBP \|\| netUSD)` interpreta 0 como falsy y cae al fallback. Para posiciones `managed_by='transactions'`, 0 es valor correcto. Ver lógica en el bloque de fiat cost basis |
+| net_invested de posición GBP queda bajo tras conversión a ARS | `recalculator.js` — WITHDRAWAL `is_reinvestment=true` no debería descontar `net_invested`. Si ya ocurrió, corregir con UPDATE directo: `UPDATE positions SET net_invested_gbp=X, net_invested_usd=Y WHERE ticker='...'` + triggear recalculator |
+| net_invested de ARS_CASH queda en 0 tras recalcular desde cero | Deuda técnica: el recalculator no transfiere `net_invested` de la leg GBP a la leg ARS en conversiones. Requiere `conversion_pair_id` en transactions. Workaround: UPDATE manual en positions tras recalcular |
+| Briefing muestra fecha un día adelantada en el título | `routes/ai-server.js` → `today` — usar `new Date(londonToday + 'T12:00:00.000Z').toLocaleDateString('es-AR', { timeZone: 'UTC', ... })` en vez de `new Date()` con timezone London. El `toLocaleDateString` con `new Date()` en servidor Virginia da off-by-one |
+| Disparar briefing manualmente sin esperar cierre NYSE | Desde terminal Railway (notification-worker service): `curl -X POST http://localhost:3001/test-briefing` |
 
 ---
 
@@ -147,7 +154,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`, `/api/price-history`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
 | `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz: fetcha CF del día (London date) y resta `netCFusd` de `dayChangeUSD/GBP`; emite `day_return_*` (rendimiento puro) y `day_cashflow_*` (condicional, solo si hubo CF externo). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. También fetchea USD/ARS bolsa MEP desde DolarApi cada tick y lo guarda en `price_snapshots.fx_usd_ars`, `portfolio_snapshots.fx_usd_ars` y `portfolio_snapshots.total_ars`. |
-| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo ignorando transacciones con `is_reinvestment = true`. |
+| `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo: DEPOSIT/BUY con `is_reinvestment=true` no suman; WITHDRAWAL con `is_reinvestment=true` NO restan (capital convertido, no retirado); WITHDRAWAL con `is_reinvestment=false` sí resta. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
 | `notification-worker.js` | Proceso Node.js separado en Railway (segundo service). Corre cada 60s. Manda push de hábitos a las 22:30, agua cada ~90 min con lógica adaptativa, y briefing financiero 5 min después del cierre NYSE (lun-vie). |
 
@@ -1532,7 +1539,14 @@ fiatUSD = (b.fiat_gbp || 0) / fxR + (b.fiat_usd || 0) + arsUSD;
 
 ### Cost basis
 
-`portfolio.js` usa `net_invested_gbp` y `net_invested_usd` directamente para todos los fiat (incluyendo ARS). El recalculator garantiza que estos campos estén en GBP/USD correctos porque `amount_local` siempre entra como GBP.
+`portfolio.js` usa `net_invested_gbp` y `net_invested_usd` para todas las posiciones fiat. Para posiciones `managed_by='transactions'`, el valor 0 es intencional (todo fue reinversión) y NO cae al fallback `qty * avg_cost_usd`. El fallback solo aplica a posiciones `managed_by='manual'` sin recalculator.
+
+**Regla de acumulación en recalculator:**
+- DEPOSIT/BUY con `is_reinvestment=true` → NO suma a `net_invested`
+- WITHDRAWAL con `is_reinvestment=true` → NO resta de `net_invested` (capital no salió del portfolio, se convirtió a otro activo)
+- WITHDRAWAL con `is_reinvestment=false` → SÍ resta de `net_invested` (capital realmente retirado)
+
+**Deuda técnica:** si se recalcula desde cero, `ARS_CASH.net_invested` queda en 0 porque todos sus DEPOSITs son `is_reinvestment=true`. La solución correcta requiere un campo `conversion_pair_id` en transactions para transferir `net_invested` entre legs. Workaround actual: UPDATE manual en positions después de recalcular (`UPDATE positions SET net_invested_gbp=X, net_invested_usd=Y WHERE ticker='ARS_CASH'`).
 
 ### CEDEARs (futuro)
 
@@ -1560,3 +1574,12 @@ Si hubo intereses o diferencia de FX que generó un delta entre los dos montos, 
 | HISTORICAL_PERFORMANCE vacío en contexto AI | `portfolio.js` → `loadPortfolio()` | Agregar fetches de `snap7d`/`snap30d` y `cf7dUsd`/`cf30dUsd` al Promise.all |
 | Currency modal solo muestra 2 monedas | `analytics.js` → `computeHealthData()` + modal `type === 'currency'` | `arsPct` calculado separado, tercer grupo celeste `#22d3ee` en el modal |
 | Agente no ve ARS_CASH en su contexto | `ai.js` → `buildPortfolioContext()` | ARS_CASH en PROFILE (cash line) y ALLOCATION_TOTAL (cash_ars), excluido de POSITIONS |
+| PnL diario no muestra línea "Pesos" (ARS FX move) | `portfolio.js` → `renderPnlAttribution()` | `fxUsdArsToday` y `fxUsdArsYesterday` leídos de `_snaps[0].fx_usd_ars` / `_yesterdaySnap.fx_usd_ars`. Requiere `fx_usd_ars` en `_snapField` del fetch de snapshots |
+| Cost basis fiat incorrecto tras WITHDRAWAL is_reinvestment=true | `recalculator.js` → bloque WITHDRAWAL | Solo descuenta `net_invested` cuando `!isReinvest`. Capital convertido GBP→ARS no sale del portfolio |
+| Cost basis de ARS_CASH inflado cuando net_invested=0 | `portfolio.js` → cost basis fiat | La condición `if (netGBP || netUSD)` interpreta 0 como falsy y cae al fallback `qty*avg_cost_usd`. Para `managed_by='transactions'`, 0 es correcto — no usar fallback |
+| net_invested de posición GBP queda bajo tras conversión a ARS | `recalculator.js` — WITHDRAWAL `is_reinvestment=true` descontaba `net_invested` incorrectamente. Fix: solo descontar cuando `!isReinvest`. Si ya ocurrió: UPDATE manual + recalculate |
+| net_invested de ARS_CASH queda en 0 tras recalcular desde cero | Deuda técnica: recalculator no transfiere `net_invested` entre legs de conversión. Workaround: `UPDATE positions SET net_invested_gbp=365.46, net_invested_usd=494.68 WHERE ticker='ARS_CASH'` |
+| portfolio_snapshots inflados por transacción falsa de pesos | Corregir con: `UPDATE portfolio_snapshots SET total_usd=total_usd-799600/fx_usd_ars::numeric, total_gbp=total_gbp-799600/fx_usd_ars::numeric*fx_rate::numeric, total_ars=total_ars-799600, breakdown=jsonb_set(breakdown,'{fiat_ars}','700400') WHERE captured_at > 'TIMESTAMP' AND (breakdown->>'fiat_ars')::numeric=1500000` |
+| Briefing muestra fecha un día adelantada en el título | `routes/ai-server.js` → `today` — usar `new Date(londonToday + 'T12:00:00.000Z').toLocaleDateString('es-AR', { timeZone: 'UTC', ... })` en vez de `new Date()` con timezone London. Servidor en Virginia (UTC-4) produce off-by-one con `es-AR` locale |
+| Fechas en titles de daily_briefings desfasadas un día | Fix SQL: `UPDATE daily_briefings SET content = replace(content, 'DíaIncorrecto DD de mes de YYYY', 'DíaCorrecto DD de mes de YYYY') WHERE id = '...'` — usar IDs explícitos, no regex |
+| Disparar briefing manualmente sin esperar cierre NYSE | Desde terminal del service notification-worker en Railway: `curl -X POST http://localhost:3001/test-briefing`. El endpoint test-briefing corre en puerto 3001 (no expuesto públicamente, solo accesible desde dentro del service) |
