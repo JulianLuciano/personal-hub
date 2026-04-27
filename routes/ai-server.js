@@ -1133,8 +1133,10 @@ router.get('/briefing-context', async (req, res) => {
     txSection += `${y}-${String(mo).padStart(2, '0')} (corriente): ${fU(sumF(cmRows, 'amount_usd'))} / ${fG(sumF(cmRows, 'amount_local'))}\n`;
     txSection += `${prevY}-${String(prevMo).padStart(2, '0')} (anterior): ${fU(sumF(pmRows, 'amount_usd'))} / ${fG(sumF(pmRows, 'amount_local'))}`;
 
-    const today = new Date().toLocaleDateString('es-AR', {
-      timeZone: 'Europe/London', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    // Build today string from londonToday (YYYY-MM-DD) to avoid timezone/locale off-by-one.
+    // Append T12:00Z so the Date is unambiguously noon UTC on that date in all locales.
+    const today = new Date(londonToday + 'T12:00:00.000Z').toLocaleDateString('es-AR', {
+      timeZone: 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
 
     // Yesterday's briefing content
