@@ -313,8 +313,10 @@ async function loadPortfolio() {
       if (pos.category === 'fiat') {
         const netGBP = Number(pos.net_invested_gbp);
         const netUSD = Number(pos.net_invested_usd);
-        if (netGBP || netUSD) {
-          // Use net_invested — correctly excludes reinvested cash in transit
+        // managed_by='transactions': recalculator always sets net_invested correctly.
+        // net_invested=0 means all deposits were reinvestments — zero is correct, not missing.
+        // Only fall back to qty/avg_cost for legacy 'manual' positions without recalculator.
+        if (pos.managed_by === 'transactions' || netGBP || netUSD) {
           costBasisGBP += netGBP;
           costBasisUSD += netUSD;
         } else {
