@@ -263,7 +263,22 @@ function habitOpenDatePicker() {
   picker.max   = today.toISOString().slice(0, 10);
   picker.min   = jan1.toISOString().slice(0, 10);
   picker.value = habitDateStr(habitDayOffset);
-  picker.showPicker ? picker.showPicker() : picker.click();
+  // Mostrar el input visualmente para que el browser acepte el programmatic open
+  picker.style.display = 'block';
+  picker.style.opacity = '0';
+  picker.style.position = 'absolute';
+  picker.style.pointerEvents = 'none';
+  try {
+    picker.showPicker();
+  } catch(_) {
+    picker.click();
+  }
+  // Ocultar de nuevo después de un tick (ya abrió el native picker)
+  setTimeout(() => {
+    picker.style.display = 'none';
+    picker.style.opacity = '';
+    picker.style.pointerEvents = '';
+  }, 200);
 }
 
 function habitPickDate(dateStr) {
@@ -439,30 +454,47 @@ function habitFlashMissing(id) {
 }
 
 function habitFlashChips(containerId) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  el.classList.remove('h-chips-flash');
-  void el.offsetWidth; // reflow para reiniciar animación
-  el.classList.add('h-chips-flash');
-  setTimeout(() => el.classList.remove('h-chips-flash'), 700);
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  // Flashear cada chip individualmente para forzar reflow limpio
+  container.querySelectorAll('.h-scroll-chip').forEach(chip => {
+    chip.classList.remove('h-chip-flash');
+    void chip.offsetWidth;
+    chip.classList.add('h-chip-flash');
+    setTimeout(() => chip.classList.remove('h-chip-flash'), 700);
+  });
 }
 
-// fromCheck=true  → click en el círculo verde, desmarcar sin validación
-// fromCheck=false → click en la fila, cierra solo si campos completos
+// fromCheck=true  → click en el círculo verde: toggle libre sin validación
+// fromCheck=false → click en la fila:
+//   · si done=false → marcar (abrir drawer)
+//   · si done=true  → validar campos; si faltan, flash y NO cerrar ni desmarcar
 function habitToggle(id, fromCheck) {
   const h    = HABITS_LIST.find(h => h.id === id);
   const done = !!habitDayState[id];
 
-  if (done && h && h.hasDetail && !fromCheck) {
-    // Drawer abierto, intento de cerrar tocando la fila → validar
-    if (!habitDetailComplete(id)) {
-      habitFlashMissing(id);
-      return;
-    }
+  if (fromCheck) {
+    // Círculo verde: desmarcar directamente sin validación
+    habitDayState[id] = !done;
+    if (!done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    habitRenderHabits();
+    habitScheduleSave();
+    return;
   }
 
-  habitDayState[id] = !done;
-  if (!done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+  if (done && h && h.hasDetail) {
+    // Toque en la fila con drawer abierto → solo validar, NO desmarcar
+    if (!habitDetailComplete(id)) {
+      habitFlashMissing(id);
+    }
+    // Aunque esté completo, tocar la fila con done=true no hace nada
+    // (el cierre sin desmarcar no tiene sentido UX — el drawer se mantiene abierto mientras done=true)
+    return;
+  }
+
+  // done=false → marcar y abrir drawer
+  habitDayState[id] = true;
+  localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
   habitRenderHabits();
   habitScheduleSave();
 }

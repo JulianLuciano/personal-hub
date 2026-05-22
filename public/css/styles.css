@@ -3019,3 +3019,65 @@
   text-align: center;
   /* Each label is centered over its stop; flex space-between handles distribution */
 }
+
+/* ── HABITS: chip flash de validación ──────────────────────────────────────── */
+@keyframes chipFlashRed {
+  0%   { border-color: var(--border); box-shadow: none; }
+  25%  { border-color: rgba(255,70,70,0.9); box-shadow: 0 0 0 2px rgba(255,70,70,0.35); }
+  60%  { border-color: rgba(255,70,70,0.6); box-shadow: 0 0 0 2px rgba(255,70,70,0.15); }
+  100% { border-color: var(--border); box-shadow: none; }
+}
+.h-chip-flash {
+  animation: chipFlashRed 0.65s ease-out forwards !important;
+}
+
+/* ── HABITS: Analytics panel ───────────────────────────────────────────────── */
+.h-analytics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.h-analytics-range-btns {
+  display: flex;
+  gap: 6px;
+}
+.h-analytics-range-btn {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.h-analytics-range-btn.active,
+.h-analytics-range-btn:hover {
+  background: rgba(108,99,255,0.18);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.h-analytics-chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+  font-family: 'DM Sans', sans-serif;
+}
+.h-analytics-chart-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 10px 10px;
+  height: 200px;
+  position: relative;
+}
+.h-analytics-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
