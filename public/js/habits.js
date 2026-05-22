@@ -153,6 +153,7 @@ async function initHabits() {
   habitRenderOneshots();
   habitRenderYear();
   habitRenderConfig();
+  habitRenderAnalytics();
   habitInitNotifications();
   habitCheckWaterPrompt();
 }
@@ -210,13 +211,21 @@ function waterPromptRespond(tookWater) {
 
 // ── DATE NAV ───────────────────────────────────────────────────────────────────
 
+// Mínimo permitido: 1 de enero del año en curso
+function habitMinOffset() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const jan1  = new Date(today.getFullYear(), 0, 1);
+  return Math.round((jan1 - today) / 86400000); // negativo
+}
+
 function habitUpdateDateUI() {
   const d = habitGetDate(habitDayOffset);
   const topDate = document.getElementById('habitsTopbarDate');
   if (topDate) topDate.textContent = habitFormatDate(d);
 
-  const pill   = document.getElementById('habitDayPill');
-  const banner = document.getElementById('habitPastBanner');
+  const pill    = document.getElementById('habitDayPill');
+  const banner  = document.getElementById('habitPastBanner');
   const nextBtn = document.getElementById('habitNextDayBtn');
   const prevBtn = document.getElementById('habitPrevDayBtn');
 
@@ -234,12 +243,12 @@ function habitUpdateDateUI() {
     if (nextBtn) nextBtn.classList.remove('disabled');
   }
 
-  if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= -7);
+  if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= habitMinOffset());
 }
 
 function habitShiftDay(delta) {
   const next = habitDayOffset + delta;
-  if (next > 0 || next < -7) return;   // máximo 7 días atrás
+  if (next > 0 || next < habitMinOffset()) return;
   habitDayOffset = next;
   habitUpdateDateUI();
   habitLoadDay();
@@ -248,22 +257,23 @@ function habitShiftDay(delta) {
 function habitOpenDatePicker() {
   const picker = document.getElementById('habitDatePicker');
   if (!picker) return;
-  // Set max to today, min to 7 days ago
   const today = new Date();
-  const minDate = new Date(); minDate.setDate(today.getDate() - 7);
-  picker.max = today.toISOString().slice(0,10);
-  picker.min = minDate.toISOString().slice(0,10);
+  today.setHours(0, 0, 0, 0);
+  const jan1  = new Date(today.getFullYear(), 0, 1);
+  picker.max   = today.toISOString().slice(0, 10);
+  picker.min   = jan1.toISOString().slice(0, 10);
   picker.value = habitDateStr(habitDayOffset);
   picker.showPicker ? picker.showPicker() : picker.click();
 }
 
 function habitPickDate(dateStr) {
   const today = new Date();
-  today.setHours(0,0,0,0);
+  today.setHours(0, 0, 0, 0);
+  const jan1   = new Date(today.getFullYear(), 0, 1);
   const picked = new Date(dateStr + 'T00:00:00');
-  const diffMs = picked - today;
+  if (picked > today || picked < jan1) return;
+  const diffMs   = picked - today;
   const diffDays = Math.round(diffMs / 86400000);
-  if (diffDays > 0 || diffDays < -7) return;
   habitDayOffset = diffDays;
   habitUpdateDateUI();
   habitLoadDay();
@@ -311,13 +321,13 @@ function habitDrawerHTML(id) {
       return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainType(' + sq + t + sq + ')' + q + '>' + t + '</button>';
     }).join('');
     var durChips = [15,30,45,60,90,120].map(function(n) {
-      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + n + ')' + q + '>' + n + ' min</button>';
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + n + ')' + q + '>' + n + '</button>';
     }).join('') + '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + sq + 'custom' + sq + ')' + q + '>Otro</button>';
     return '<div class=' + q + 'h-detail-drawer' + q + ' id=' + q + 'h-drawer-trained' + q + '>' +
       '<div class=' + q + 'h-drawer-label' + q + '>Tipo de entrenamiento</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-type' + q + '>' + typeChips + '</div>' +
       '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-other' + q + ' placeholder=' + q + '¿Cuál?' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainOtherChange(this.value)' + q + '>' +
-      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración</div>' +
+      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración (min)</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-dur' + q + '>' + durChips + '</div>' +
       '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainDurCustomChange(this.value)' + q + '>' +
     '</div>';
@@ -327,12 +337,12 @@ function habitDrawerHTML(id) {
       return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitTogglePianoType(' + sq + t + sq + ')' + q + '>' + t + '</button>';
     }).join('');
     var durChips = [15,30,45,60,90,120].map(function(n) {
-      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectPianoDur(' + n + ')' + q + '>' + n + ' min</button>';
+      return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectPianoDur(' + n + ')' + q + '>' + n + '</button>';
     }).join('') + '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectPianoDur(' + sq + 'custom' + sq + ')' + q + '>Otro</button>';
     return '<div class=' + q + 'h-detail-drawer' + q + ' id=' + q + 'h-drawer-piano' + q + '>' +
       '<div class=' + q + 'h-drawer-label' + q + '>Qué practicaste</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-type' + q + '>' + typeChips + '</div>' +
-      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración</div>' +
+      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración (min)</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-dur' + q + '>' + durChips + '</div>' +
       '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-piano-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitPianoDurCustomChange(this.value)' + q + '>' +
     '</div>';
@@ -381,14 +391,18 @@ function habitRenderHabits() {
   el.innerHTML = HABITS_LIST.map(h => {
     if (h.isWater) return habitWaterItemHTML();
     const done = !!habitDayState[h.id];
+    // click en la fila: abre drawer o cierra con validación
+    // click en el círculo verde: desmarcar sin validación
+    const rowClick   = "habitToggle(\'" + h.id + "\', false)";
+    const checkClick = "event.stopPropagation();habitToggle(\'" + h.id + "\', true)";
     const itemHTML = (
-      '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="habitToggle(\'' + h.id + '\', this)" data-id="' + h.id + '">' +
+      '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="' + rowClick + '" data-id="' + h.id + '">' +
         '<div class="habit-icon" style="background:' + h.color + '">' + h.icon + '</div>' +
         '<div class="habit-info">' +
           '<div class="habit-name">' + h.name + '</div>' +
           '<div class="habit-streak">' + (h.streak > 0 ? '🔥 ' + h.streak + ' días seguidos' : 'Sin racha activa') + '</div>' +
         '</div>' +
-        '<div class="habit-check">' + (done ? '✓' : '') + '</div>' +
+        '<div class="habit-check" onclick="' + checkClick + '">' + (done ? '✓' : '') + '</div>' +
         (h.hasDetail ? '<span class="h-habit-chevron">›</span>' : '') +
       '</div>'
     );
@@ -401,12 +415,54 @@ function habitRenderHabits() {
   habitRestoreDrawerSelections();
 }
 
-function habitToggle(id, el) {
-  habitDayState[id] = !habitDayState[id];
-  const done = habitDayState[id];
-  // Mark activity for smart notification
-  if (done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
-  // Re-render the whole list so drawer appears inline in correct position
+// Valida si los campos obligatorios del drawer están completos
+function habitDetailComplete(id) {
+  if (id === 'trained') {
+    return !!(habitDayState.trainType && habitDayState.trainDur);
+  }
+  if (id === 'piano') {
+    return !!(habitDayState.pianoTypes && habitDayState.pianoTypes.length > 0 && habitDayState.pianoDur);
+  }
+  return true;
+}
+
+// Flash rojo en los chip-containers faltantes
+function habitFlashMissing(id) {
+  if (id === 'trained') {
+    if (!habitDayState.trainType) habitFlashChips('h-chips-trained-type');
+    if (!habitDayState.trainDur)  habitFlashChips('h-chips-trained-dur');
+  }
+  if (id === 'piano') {
+    if (!habitDayState.pianoTypes || !habitDayState.pianoTypes.length) habitFlashChips('h-chips-piano-type');
+    if (!habitDayState.pianoDur)  habitFlashChips('h-chips-piano-dur');
+  }
+}
+
+function habitFlashChips(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.classList.remove('h-chips-flash');
+  void el.offsetWidth; // reflow para reiniciar animación
+  el.classList.add('h-chips-flash');
+  setTimeout(() => el.classList.remove('h-chips-flash'), 700);
+}
+
+// fromCheck=true  → click en el círculo verde, desmarcar sin validación
+// fromCheck=false → click en la fila, cierra solo si campos completos
+function habitToggle(id, fromCheck) {
+  const h    = HABITS_LIST.find(h => h.id === id);
+  const done = !!habitDayState[id];
+
+  if (done && h && h.hasDetail && !fromCheck) {
+    // Drawer abierto, intento de cerrar tocando la fila → validar
+    if (!habitDetailComplete(id)) {
+      habitFlashMissing(id);
+      return;
+    }
+  }
+
+  habitDayState[id] = !done;
+  if (!done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
   habitRenderHabits();
   habitScheduleSave();
 }
@@ -807,7 +863,231 @@ function habitRenderYear() {
 // ── RENDER: CONFIG ─────────────────────────────────────────────────────────────
 
 function habitRenderConfig() {
-  // "Hábitos activos" section removed — no-op kept for compatibility
+  // no-op — panel Config reemplazado por Analytics
+}
+
+// ── ANALYTICS ─────────────────────────────────────────────────────────────────
+// Muestra 3 gráficos de seguimiento: entrenamiento (% días + min/semana),
+// tipos de entrenamiento (stacked bar), y piano (% días + min/semana).
+// Los datos vienen de loadAnalyticsFromDB() — stub por ahora, reemplazar
+// cuando esté la tabla habit_analytics en Supabase.
+
+let chartTraining  = null;
+let chartTrainTypes = null;
+let chartPiano     = null;
+
+// ── STUB: reemplazar con sbFetch cuando exista la tabla ───────────────────────
+async function loadAnalyticsFromDB(weeks) {
+  // Genera semanas dummy para mostrar el layout vacío hasta tener DB
+  // Retorna array de { weekLabel, trainDays, trainMins, pianoDays, pianoMins,
+  //                    trainTypes: { Rugby, Gym, Crossfit, ... } }
+  const data = [];
+  const today = new Date();
+  for (let i = weeks - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i * 7);
+    const weekNum = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
+    data.push({
+      weekLabel:  'S' + weekNum,
+      trainDays:  0,
+      trainMins:  0,
+      pianoDays:  0,
+      pianoMins:  0,
+      trainTypes: { Rugby: 0, Gym: 0, Crossfit: 0, Paddle: 0, Fútbol: 0, Correr: 0, Bici: 0, Otro: 0 },
+    });
+  }
+  return data;
+  // TODO cuando exista la tabla:
+  // const from = new Date(); from.setDate(from.getDate() - weeks * 7);
+  // return await sbFetch(`habit_analytics?week_start=gte.${from.toISOString().slice(0,10)}&order=week_start.asc`);
+}
+
+let analyticsRange = 8; // semanas visibles por default
+
+async function habitRenderAnalytics() {
+  const panel = document.getElementById('h-panel-analytics');
+  if (!panel) return;
+
+  const data = await loadAnalyticsFromDB(analyticsRange);
+  const labels = data.map(d => d.weekLabel);
+
+  // ── Colores consistentes por tipo ────────────────────────────────────────
+  const TYPE_COLORS = {
+    Rugby:    'rgba(108,99,255,0.85)',
+    Gym:      'rgba(67,233,123,0.85)',
+    Crossfit: 'rgba(247,183,49,0.85)',
+    Paddle:   'rgba(79,195,247,0.85)',
+    Fútbol:   'rgba(255,107,107,0.85)',
+    Correr:   'rgba(255,167,38,0.85)',
+    Bici:     'rgba(0,230,118,0.85)',
+    Otro:     'rgba(150,150,150,0.85)',
+  };
+
+  const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } } },
+      y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } } },
+    },
+  };
+
+  // ── Gráfico 1: Entrenamiento — % días + min/semana ────────────────────────
+  const ctx1 = document.getElementById('chartTraining');
+  if (ctx1) {
+    if (chartTraining) chartTraining.destroy();
+    chartTraining = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '% días entrenados',
+            data: data.map(d => Math.round((d.trainDays / 7) * 100)),
+            backgroundColor: 'rgba(108,99,255,0.25)',
+            borderColor:     'rgba(108,99,255,0.9)',
+            borderWidth: 1.5,
+            yAxisID: 'yPct',
+            order: 2,
+          },
+          {
+            label: 'Min/semana',
+            data: data.map(d => d.trainMins),
+            type: 'line',
+            borderColor:     'rgba(67,233,123,0.9)',
+            backgroundColor: 'rgba(67,233,123,0.15)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: true,
+            yAxisID: 'yMins',
+            tension: 0.3,
+            order: 1,
+          },
+        ],
+      },
+      options: {
+        ...chartDefaults,
+        scales: {
+          x: chartDefaults.scales.x,
+          yPct: {
+            type: 'linear', position: 'left',
+            min: 0, max: 100,
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: 'rgba(108,99,255,0.8)', font: { size: 10 }, callback: v => v + '%' },
+          },
+          yMins: {
+            type: 'linear', position: 'right',
+            min: 0,
+            grid: { drawOnChartArea: false },
+            ticks: { color: 'rgba(67,233,123,0.8)', font: { size: 10 }, callback: v => v + 'm' },
+          },
+        },
+        plugins: {
+          legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 }, boxWidth: 12 } },
+          tooltip: { mode: 'index', intersect: false },
+        },
+      },
+    });
+  }
+
+  // ── Gráfico 2: Tipos de entrenamiento — stacked bar ────────────────────────
+  const ctx2 = document.getElementById('chartTrainTypes');
+  if (ctx2) {
+    if (chartTrainTypes) chartTrainTypes.destroy();
+    const typeKeys = Object.keys(TYPE_COLORS);
+    chartTrainTypes = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: typeKeys.map(t => ({
+          label: t,
+          data: data.map(d => d.trainTypes[t] || 0),
+          backgroundColor: TYPE_COLORS[t],
+          stack: 'types',
+        })),
+      },
+      options: {
+        ...chartDefaults,
+        plugins: {
+          legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 10 }, boxWidth: 10 } },
+          tooltip: { mode: 'index', intersect: false },
+        },
+        scales: {
+          x: { ...chartDefaults.scales.x, stacked: true },
+          y: {
+            ...chartDefaults.scales.y, stacked: true,
+            ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 }, callback: v => v + 'm' },
+          },
+        },
+      },
+    });
+  }
+
+  // ── Gráfico 3: Piano — % días + min/semana ────────────────────────────────
+  const ctx3 = document.getElementById('chartPiano');
+  if (ctx3) {
+    if (chartPiano) chartPiano.destroy();
+    chartPiano = new Chart(ctx3, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '% días de piano',
+            data: data.map(d => Math.round((d.pianoDays / 7) * 100)),
+            backgroundColor: 'rgba(79,195,247,0.25)',
+            borderColor:     'rgba(79,195,247,0.9)',
+            borderWidth: 1.5,
+            yAxisID: 'yPct',
+            order: 2,
+          },
+          {
+            label: 'Min/semana',
+            data: data.map(d => d.pianoMins),
+            type: 'line',
+            borderColor:     'rgba(247,183,49,0.9)',
+            backgroundColor: 'rgba(247,183,49,0.12)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: true,
+            yAxisID: 'yMins',
+            tension: 0.3,
+            order: 1,
+          },
+        ],
+      },
+      options: {
+        ...chartDefaults,
+        scales: {
+          x: chartDefaults.scales.x,
+          yPct: {
+            type: 'linear', position: 'left',
+            min: 0, max: 100,
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: 'rgba(79,195,247,0.8)', font: { size: 10 }, callback: v => v + '%' },
+          },
+          yMins: {
+            type: 'linear', position: 'right',
+            min: 0,
+            grid: { drawOnChartArea: false },
+            ticks: { color: 'rgba(247,183,49,0.8)', font: { size: 10 }, callback: v => v + 'm' },
+          },
+        },
+        plugins: {
+          legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 }, boxWidth: 12 } },
+          tooltip: { mode: 'index', intersect: false },
+        },
+      },
+    });
+  }
+}
+
+function habitAnalyticsSetRange(weeks, btn) {
+  analyticsRange = weeks;
+  document.querySelectorAll('.h-analytics-range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  habitRenderAnalytics();
 }
 
 function habitToggleNotif(key) {
@@ -840,6 +1120,7 @@ function habitSwitchSubTab(id, el) {
   document.querySelectorAll('.h-panel').forEach(p => p.classList.remove('active'));
   const target = document.getElementById('h-panel-' + id);
   if (target) target.classList.add('active');
+  if (id === 'analytics') habitRenderAnalytics();
 }
 
 

@@ -130,6 +130,17 @@ async function sendPushToAll(payload) {
 const HABIT_NOTIF_HOUR   = 22;
 const HABIT_NOTIF_MINUTE = 30;
 
+// ── Recordatorio guardar hábitos — 23:00 diario ───────────────────────────────
+const HABITS_SAVE_HOUR   = 23;
+const HABITS_SAVE_MINUTE = 0;
+
+// ── Recordatorio quincenal de peso — lunes 8:00 ───────────────────────────────
+// Referencia de inicio: lunes 26/05/2025 (primer lunes quincenal)
+const BIWEEKLY_WEIGHT_HOUR   = 8;
+const BIWEEKLY_WEIGHT_MINUTE = 0;
+// Fecha de referencia para calcular semanas pares/impares (lunes 26/05/2025)
+const BIWEEKLY_REFERENCE_DATE = new Date('2025-05-26T00:00:00Z');
+
 async function checkAndSendHabitNotif() {
   const today = todayStr();
   let log;
@@ -212,6 +223,40 @@ async function updateWaterNotifState(patch) {
   } catch (e) {
     console.warn('[worker] water state update failed:', e.message);
   }
+}
+
+// ── Guardar hábitos — 23:00 diario ───────────────────────────────────────────
+async function checkAndSendHabitsSaveReminder() {
+  await sendPushToAll({
+    type:    'HABITS_SAVE_REMINDER',
+    title:   '📋 Hábitos del día',
+    body:    '¿Guardaste todos tus hábitos de hoy?',
+    tag:     'habits-save',
+    actions: [{ action: 'open', title: 'Guardar hábitos' }],
+  });
+}
+
+// ── Peso quincenal — lunes 8:00 ───────────────────────────────────────────────
+function isBiweeklyMonday() {
+  const now = new Date();
+  // ¿Es lunes?
+  if (now.getUTCDay() !== 1) return false;
+  // Calcular semanas desde la referencia
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const weeksSinceRef = Math.round((now - BIWEEKLY_REFERENCE_DATE) / msPerWeek);
+  // Quincenal = cada 2 semanas desde la referencia (semanas pares: 0, 2, 4, ...)
+  return weeksSinceRef >= 0 && weeksSinceRef % 2 === 0;
+}
+
+async function checkAndSendWeightReminder() {
+  if (!isBiweeklyMonday()) return;
+  await sendPushToAll({
+    type:    'WEIGHT_REMINDER',
+    title:   '⚖️ Registro de peso',
+    body:    'Recordatorio quincenal — ¿Cuánto pesás hoy?',
+    tag:     'weight-reminder',
+    actions: [{ action: 'open', title: 'Registrar peso' }],
+  });
 }
 
 async function checkAndSendWaterNotif() {
@@ -468,21 +513,20 @@ async function generateAndSendBriefing() {
 
 const CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
-let habitNotifSentToday = '';  // date string, reset each day
-
-let briefingSentToday = '';
+let habitNotifSentToday     = '';  // date string, reset each day
+let habitsSaveSentToday     = '';  // date string, reset each day
+let weightReminderSentToday = '';  // date string, reset each day
+let briefingSentToday       = '';
 
 async function tick() {
   const today = todayStr();
   const now   = nowHHMM();
 
   // Reset daily flags at midnight
-  if (habitNotifSentToday !== today) {
-    habitNotifSentToday = '';
-  }
-  if (briefingSentToday !== today) {
-    briefingSentToday = '';
-  }
+  if (habitNotifSentToday !== today)     habitNotifSentToday     = '';
+  if (habitsSaveSentToday !== today)     habitsSaveSentToday     = '';
+  if (weightReminderSentToday !== today) weightReminderSentToday = '';
+  if (briefingSentToday !== today)       briefingSentToday       = '';
 
   // Habit notif — once at 22:30
   if (
@@ -492,6 +536,26 @@ async function tick() {
   ) {
     habitNotifSentToday = today;
     await checkAndSendHabitNotif();
+  }
+
+  // Guardar hábitos — 23:00 diario
+  if (
+    now >= hhmm(HABITS_SAVE_HOUR, HABITS_SAVE_MINUTE) &&
+    now <  hhmm(HABITS_SAVE_HOUR, HABITS_SAVE_MINUTE + 2) &&
+    habitsSaveSentToday !== today
+  ) {
+    habitsSaveSentToday = today;
+    await checkAndSendHabitsSaveReminder();
+  }
+
+  // Peso quincenal — lunes 8:00
+  if (
+    now >= hhmm(BIWEEKLY_WEIGHT_HOUR, BIWEEKLY_WEIGHT_MINUTE) &&
+    now <  hhmm(BIWEEKLY_WEIGHT_HOUR, BIWEEKLY_WEIGHT_MINUTE + 2) &&
+    weightReminderSentToday !== today
+  ) {
+    weightReminderSentToday = today;
+    await checkAndSendWeightReminder();
   }
 
   // Daily briefing — 5 min after NYSE close (Mon–Fri only)

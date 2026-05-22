@@ -46,6 +46,16 @@ self.addEventListener('notificationclick', event => {
     return;
   }
 
+  if (type === 'HABITS_SAVE_REMINDER') {
+    event.waitUntil(focusOrOpenApp('/'));
+    return;
+  }
+
+  if (type === 'WEIGHT_REMINDER') {
+    event.waitUntil(focusOrOpenApp('/?tab=oneshots'));
+    return;
+  }
+
   if (type === 'WATER_CHECK') {
     if (action === 'water_yes') {
       event.waitUntil(

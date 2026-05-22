@@ -47,7 +47,7 @@
       <button class="h-sub-tab active" onclick="habitSwitchSubTab('hoy', this)">Hoy</button>
       <button class="h-sub-tab" onclick="habitSwitchSubTab('oneshots', this)">One-shots</button>
       <button class="h-sub-tab" onclick="habitSwitchSubTab('anio', this)">A&#241;o</button>
-      <button class="h-sub-tab" onclick="habitSwitchSubTab('config', this)">Config</button>
+      <button class="h-sub-tab" onclick="habitSwitchSubTab('analytics', this)">Analytics</button>
     </div>
 
     <!-- HOY -->
@@ -156,36 +156,33 @@
       <div id="habitYearCards"></div>
     </div>
 
-    <!-- CONFIG -->
-    <div class="h-panel" id="h-panel-config">
+    <!-- ANALYTICS -->
+    <div class="h-panel" id="h-panel-analytics">
 
-      <p class="section-label">Notificaciones</p>
-      <div class="h-config-card">
-        <div class="h-config-row">
-          <div class="habit-icon" style="background:rgba(108,99,255,0.12);flex-shrink:0">&#128276;</div>
-          <div style="flex:1">
-            <div class="h-config-label">Check diario</div>
-            <div class="h-config-sub">Usa la hora local del dispositivo (DST autom&#225;tico)</div>
-          </div>
-          <input class="h-time-input" type="time" value="22:30" id="habitNotifTimeDaily">
-          <div class="toggle on" id="h-tgl-daily" onclick="habitToggleNotif('daily')">
-            <div class="toggle-knob"></div>
-          </div>
-        </div>
-        <div class="h-config-row">
-          <div class="habit-icon" style="background:rgba(247,183,49,0.12);flex-shrink:0">&#9878;&#65039;</div>
-          <div style="flex:1">
-            <div class="h-config-label">Registro de peso</div>
-            <div class="h-config-sub">Lunes &#8212; recordatorio quincenal</div>
-          </div>
-          <input class="h-time-input" type="time" value="08:00" id="habitNotifTimeWeight">
-          <div class="toggle on" id="h-tgl-weight" onclick="habitToggleNotif('weight')">
-            <div class="toggle-knob"></div>
-          </div>
+      <div class="h-analytics-header">
+        <p class="section-label" style="margin-bottom:0">Analytics</p>
+        <div class="h-analytics-range-btns">
+          <button class="h-analytics-range-btn active" onclick="habitAnalyticsSetRange(8, this)">8 sem</button>
+          <button class="h-analytics-range-btn" onclick="habitAnalyticsSetRange(999, this)">YTD</button>
         </div>
       </div>
-      <button class="h-save-btn" id="habitNotifSaveBtn" onclick="habitSaveNotifTime()" style="margin-top:4px">Guardar hora</button>
 
+      <p class="h-analytics-chart-title">&#127947; Entrenamiento</p>
+      <div class="h-analytics-chart-wrap">
+        <canvas id="chartTraining"></canvas>
+      </div>
+
+      <p class="h-analytics-chart-title" style="margin-top:20px">&#127947; Tipos de entrenamiento</p>
+      <div class="h-analytics-chart-wrap">
+        <canvas id="chartTrainTypes"></canvas>
+      </div>
+
+      <p class="h-analytics-chart-title" style="margin-top:20px">&#127929; Piano</p>
+      <div class="h-analytics-chart-wrap">
+        <canvas id="chartPiano"></canvas>
+      </div>
+
+      <div style="height:24px"></div>
     </div>
 
   </div>
