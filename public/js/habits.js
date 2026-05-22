@@ -256,6 +256,7 @@ function habitShiftDay(delta) {
 
 function habitOpenDatePicker() {
   const picker = document.getElementById('habitDatePicker');
+  const pill   = document.getElementById('habitDayPill');
   if (!picker) return;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -263,22 +264,29 @@ function habitOpenDatePicker() {
   picker.max   = today.toISOString().slice(0, 10);
   picker.min   = jan1.toISOString().slice(0, 10);
   picker.value = habitDateStr(habitDayOffset);
-  // Mostrar el input visualmente para que el browser acepte el programmatic open
-  picker.style.display = 'block';
-  picker.style.opacity = '0';
-  picker.style.position = 'absolute';
+
+  // Posicionar el input exactamente sobre la pastilla para que esté en el viewport
+  if (pill) {
+    const rect = pill.getBoundingClientRect();
+    picker.style.position = 'fixed';
+    picker.style.left     = rect.left + 'px';
+    picker.style.top      = rect.top  + 'px';
+    picker.style.width    = rect.width  + 'px';
+    picker.style.height   = rect.height + 'px';
+  }
+  picker.style.display      = 'block';
+  picker.style.opacity      = '0';
   picker.style.pointerEvents = 'none';
+
   try {
     picker.showPicker();
   } catch(_) {
     picker.click();
   }
-  // Ocultar de nuevo después de un tick (ya abrió el native picker)
+
   setTimeout(() => {
     picker.style.display = 'none';
-    picker.style.opacity = '';
-    picker.style.pointerEvents = '';
-  }, 200);
+  }, 300);
 }
 
 function habitPickDate(dateStr) {
@@ -304,6 +312,7 @@ async function habitLoadDay() {
   ]);
   habitDayState = data ? { ...data } : {};
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
+  habitOpenDrawers.clear(); // resetear drawers al cambiar de día
   habitRenderHabits();
   habitRenderFood();
   habitRenderMood();
@@ -421,9 +430,10 @@ function habitRenderHabits() {
         (h.hasDetail ? '<span class="h-habit-chevron">›</span>' : '') +
       '</div>'
     );
+    const drawerOpen = habitOpenDrawers.has(h.id);
     const drawerHTML = h.hasDetail ? habitDrawerHTML(h.id).replace(
       'class="h-detail-drawer"',
-      'class="h-detail-drawer' + (done ? ' open' : '') + '"'
+      'class="h-detail-drawer' + (drawerOpen ? ' open' : '') + '"'
     ) : '';
     return itemHTML + drawerHTML;
   }).join('');
@@ -465,38 +475,55 @@ function habitFlashChips(containerId) {
   });
 }
 
-// fromCheck=true  → click en el círculo verde: toggle libre sin validación
+// Estado de drawers abiertos — independiente del estado done
+const habitOpenDrawers = new Set();
+
+// fromCheck=true  → click en el círculo verde:
+//   · desmarca siempre (done=false) y cierra el drawer
 // fromCheck=false → click en la fila:
-//   · si done=false → marcar (abrir drawer)
-//   · si done=true  → validar campos; si faltan, flash y NO cerrar ni desmarcar
+//   · si done=false → marca (done=true) y abre el drawer
+//   · si done=true y drawer abierto → intenta cerrar drawer (validar primero);
+//     si faltan campos flashea y no cierra. Estado done NO cambia.
+//   · si done=true y drawer cerrado → abre el drawer (sin cambiar done)
 function habitToggle(id, fromCheck) {
-  const h    = HABITS_LIST.find(h => h.id === id);
-  const done = !!habitDayState[id];
+  const h      = HABITS_LIST.find(h => h.id === id);
+  const done   = !!habitDayState[id];
+  const isOpen = habitOpenDrawers.has(id);
 
   if (fromCheck) {
-    // Círculo verde: desmarcar directamente sin validación
-    habitDayState[id] = !done;
-    if (!done) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    // Círculo verde: desmarcar + cerrar drawer
+    habitDayState[id] = false;
+    habitOpenDrawers.delete(id);
     habitRenderHabits();
     habitScheduleSave();
     return;
   }
 
-  if (done && h && h.hasDetail) {
-    // Toque en la fila con drawer abierto → solo validar, NO desmarcar
-    if (!habitDetailComplete(id)) {
-      habitFlashMissing(id);
-    }
-    // Aunque esté completo, tocar la fila con done=true no hace nada
-    // (el cierre sin desmarcar no tiene sentido UX — el drawer se mantiene abierto mientras done=true)
+  // Clic en la fila
+  if (!done) {
+    // Marcar y abrir drawer
+    habitDayState[id] = true;
+    if (h && h.hasDetail) habitOpenDrawers.add(id);
+    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    habitRenderHabits();
+    habitScheduleSave();
     return;
   }
 
-  // done=false → marcar y abrir drawer
-  habitDayState[id] = true;
-  localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
-  habitRenderHabits();
-  habitScheduleSave();
+  // done=true: toggle del drawer
+  if (h && h.hasDetail) {
+    if (isOpen) {
+      // Intentar cerrar: validar primero
+      if (!habitDetailComplete(id)) {
+        habitFlashMissing(id);
+        return; // no cierra
+      }
+      habitOpenDrawers.delete(id); // cierra drawer, done sigue true
+    } else {
+      habitOpenDrawers.add(id); // abre drawer, done sigue true
+    }
+    habitRenderHabits();
+  }
 }
 
 
