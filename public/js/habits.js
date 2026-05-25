@@ -1039,72 +1039,79 @@ async function loadAnalyticsFromDB(weeks) {
 
 let analyticsRange = 8; // semanas visibles por default
 
+// Colores por tipo — usados en gráfico 2
+const TYPE_COLORS_MAP = {
+  'Touch Rugby': 'rgba(108,99,255,0.85)',
+  Gym:           'rgba(67,233,123,0.85)',
+  Crossfit:      'rgba(247,183,49,0.85)',
+  Paddle:        'rgba(79,195,247,0.85)',
+  Fútbol:        'rgba(255,107,107,0.85)',
+  Correr:        'rgba(255,167,38,0.85)',
+  Bici:          'rgba(0,230,118,0.85)',
+  Otro:          'rgba(150,150,150,0.85)',
+};
+
+// Helper: formato de fecha DD/MM para el label de semana
+function fmtWeekLabel(isoDate) {
+  const d = new Date(isoDate + 'T00:00:00');
+  return d.getDate() + '/' + (d.getMonth() + 1);
+}
+
+// Escala X compartida
+const AXIS_X = {
+  grid: { color: 'rgba(255,255,255,0.05)' },
+  ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } },
+};
+
 async function habitRenderAnalytics() {
   const panel = document.getElementById('h-panel-analytics');
   if (!panel) return;
 
-  const data = await loadAnalyticsFromDB(analyticsRange);
-  const labels = data.map(d => d.weekLabel);
+  const data = await loadAnalyticsFromDB(analyticsRange === 999 ? 999 : analyticsRange);
 
-  // ── Colores consistentes por tipo ────────────────────────────────────────
-  const TYPE_COLORS = {
-    'Touch Rugby': 'rgba(108,99,255,0.85)',
-    Gym:           'rgba(67,233,123,0.85)',
-    Crossfit:      'rgba(247,183,49,0.85)',
-    Paddle:        'rgba(79,195,247,0.85)',
-    Fútbol:        'rgba(255,107,107,0.85)',
-    Correr:        'rgba(255,167,38,0.85)',
-    Bici:          'rgba(0,230,118,0.85)',
-    Otro:          'rgba(150,150,150,0.85)',
-  };
+  // Labels: fecha de inicio de semana (DD/MM)
+  const labels = data.map(d => fmtWeekLabel(d.weekStart));
 
-  const chartDefaults = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-    scales: {
-      x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } } },
-      y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } } },
-    },
-  };
-
-  // ── Gráfico 1: Entrenamiento — % días + min/semana ────────────────────────
+  // ── Gráfico 1: Entrenamiento — dos líneas: % días + min/semana ────────────
   const ctx1 = document.getElementById('chartTraining');
   if (ctx1) {
     if (chartTraining) chartTraining.destroy();
     chartTraining = new Chart(ctx1, {
-      type: 'bar',
+      type: 'line',
       data: {
         labels,
         datasets: [
           {
-            label: '% días entrenados',
+            label: 'Días entrenados (%)',
             data: data.map(d => Math.round((d.trainDays / 7) * 100)),
-            backgroundColor: 'rgba(108,99,255,0.25)',
             borderColor:     'rgba(108,99,255,0.9)',
-            borderWidth: 1.5,
+            backgroundColor: 'rgba(108,99,255,0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: true,
+            tension: 0.3,
             yAxisID: 'yPct',
-            order: 2,
+            order: 1,
           },
           {
             label: 'Min/semana',
             data: data.map(d => d.trainMins),
-            type: 'line',
             borderColor:     'rgba(67,233,123,0.9)',
-            backgroundColor: 'rgba(67,233,123,0.15)',
+            backgroundColor: 'rgba(67,233,123,0.08)',
             borderWidth: 2,
             pointRadius: 3,
             fill: true,
-            yAxisID: 'yMins',
             tension: 0.3,
-            order: 1,
+            yAxisID: 'yMins',
+            order: 2,
           },
         ],
       },
       options: {
-        ...chartDefaults,
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
-          x: chartDefaults.scales.x,
+          x: AXIS_X,
           yPct: {
             type: 'linear', position: 'left',
             min: 0, max: 100,
@@ -1120,82 +1127,128 @@ async function habitRenderAnalytics() {
         },
         plugins: {
           legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 }, boxWidth: 12 } },
-          tooltip: { mode: 'index', intersect: false },
-        },
-      },
-    });
-  }
-
-  // ── Gráfico 2: Tipos de entrenamiento — stacked bar ────────────────────────
-  const ctx2 = document.getElementById('chartTrainTypes');
-  if (ctx2) {
-    if (chartTrainTypes) chartTrainTypes.destroy();
-    const typeKeys = Object.keys(TYPE_COLORS);
-    chartTrainTypes = new Chart(ctx2, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: typeKeys.map(t => ({
-          label: t,
-          data: data.map(d => d.trainTypes[t] || 0),
-          backgroundColor: TYPE_COLORS[t],
-          stack: 'types',
-        })),
-      },
-      options: {
-        ...chartDefaults,
-        plugins: {
-          legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 10 }, boxWidth: 10 } },
-          tooltip: { mode: 'index', intersect: false },
-        },
-        scales: {
-          x: { ...chartDefaults.scales.x, stacked: true },
-          y: {
-            ...chartDefaults.scales.y, stacked: true,
-            ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 }, callback: v => v + 'm' },
+          tooltip: {
+            mode: 'index', intersect: false,
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (ctx.dataset.label === 'Días entrenados (%)') return 'Días entrenados: ' + v + '%';
+                return 'Min/semana: ' + v;
+              },
+            },
           },
         },
       },
     });
   }
 
-  // ── Gráfico 3: Piano — % días + min/semana ────────────────────────────────
+  // ── Gráfico 2: Tipos de entrenamiento — stacked 100% con % por segmento ──
+  const ctx2 = document.getElementById('chartTrainTypes');
+  if (ctx2) {
+    if (chartTrainTypes) chartTrainTypes.destroy();
+
+    // Tipos distintos que aparecen en el rango actual (punto 7)
+    const activeTypes = [...new Set(
+      data.flatMap(d => Object.entries(d.trainTypes)
+        .filter(([, v]) => v > 0)
+        .map(([k]) => k)
+      )
+    )];
+
+    // Normalizar a 100% por semana para stacked base-100
+    const pctByType = activeTypes.map(t => ({
+      label: t,
+      backgroundColor: TYPE_COLORS_MAP[t] || 'rgba(150,150,150,0.85)',
+      data: data.map(d => {
+        const total = Object.values(d.trainTypes).reduce((s, v) => s + v, 0);
+        if (!total) return 0;
+        return Math.round(((d.trainTypes[t] || 0) / total) * 100);
+      }),
+      stack: 'types',
+    }));
+
+    // Guardar los valores raw de minutos para el tooltip
+    const rawMins = activeTypes.map(t => data.map(d => d.trainTypes[t] || 0));
+
+    chartTrainTypes = new Chart(ctx2, {
+      type: 'bar',
+      data: { labels, datasets: pctByType },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { ...AXIS_X, stacked: true },
+          y: {
+            stacked: true,
+            min: 0, max: 100,
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 }, callback: v => v + '%' },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: 'rgba(255,255,255,0.6)', font: { size: 10 }, boxWidth: 10 },
+          },
+          tooltip: {
+            mode: 'index', intersect: false,
+            callbacks: {
+              // Mostrar solo categorías con valor > 0, con % redondeado
+              label: ctx => {
+                const pct = ctx.parsed.y;
+                if (!pct) return null; // ocultar categorías vacías
+                return ctx.dataset.label + ': ' + pct + '%';
+              },
+              // Filtrar nulls del array de items
+              afterBody: () => [],
+            },
+            filter: item => item.parsed.y > 0, // punto 6: ocultar vacíos
+          },
+        },
+      },
+    });
+  }
+
+  // ── Gráfico 3: Piano — dos líneas: % días + min/semana ────────────────────
   const ctx3 = document.getElementById('chartPiano');
   if (ctx3) {
     if (chartPiano) chartPiano.destroy();
     chartPiano = new Chart(ctx3, {
-      type: 'bar',
+      type: 'line',
       data: {
         labels,
         datasets: [
           {
-            label: '% días de piano',
+            label: 'Días de piano (%)',
             data: data.map(d => Math.round((d.pianoDays / 7) * 100)),
-            backgroundColor: 'rgba(79,195,247,0.25)',
             borderColor:     'rgba(79,195,247,0.9)',
-            borderWidth: 1.5,
+            backgroundColor: 'rgba(79,195,247,0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: true,
+            tension: 0.3,
             yAxisID: 'yPct',
-            order: 2,
+            order: 1,
           },
           {
             label: 'Min/semana',
             data: data.map(d => d.pianoMins),
-            type: 'line',
             borderColor:     'rgba(247,183,49,0.9)',
-            backgroundColor: 'rgba(247,183,49,0.12)',
+            backgroundColor: 'rgba(247,183,49,0.08)',
             borderWidth: 2,
             pointRadius: 3,
             fill: true,
-            yAxisID: 'yMins',
             tension: 0.3,
-            order: 1,
+            yAxisID: 'yMins',
+            order: 2,
           },
         ],
       },
       options: {
-        ...chartDefaults,
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
-          x: chartDefaults.scales.x,
+          x: AXIS_X,
           yPct: {
             type: 'linear', position: 'left',
             min: 0, max: 100,
@@ -1211,7 +1264,16 @@ async function habitRenderAnalytics() {
         },
         plugins: {
           legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 }, boxWidth: 12 } },
-          tooltip: { mode: 'index', intersect: false },
+          tooltip: {
+            mode: 'index', intersect: false,
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (ctx.dataset.label === 'Días de piano (%)') return 'Días de piano: ' + v + '%';
+                return 'Min/semana: ' + v;
+              },
+            },
+          },
         },
       },
     });
