@@ -37,8 +37,11 @@
     <!-- DATE NAV -->
     <div class="h-date-nav">
       <button class="h-nav-btn" id="habitPrevDayBtn" onclick="habitShiftDay(-1)">&#8249;</button>
-      <div class="day-pill" id="habitDayPill" onclick="habitOpenDatePicker()" title="Ir a fecha">Hoy</div>
-      <input type="date" id="habitDatePicker" style="display:none;position:absolute" onchange="habitPickDate(this.value)">
+      <div class="day-pill" id="habitDayPill" title="Ir a fecha">
+        <span id="habitDayPillText">Hoy</span>
+        <input type="date" id="habitDatePicker" onchange="habitPickDate(this.value)"
+          style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;background:none;">
+      </div>
       <button class="h-nav-btn disabled" id="habitNextDayBtn" onclick="habitShiftDay(1)">&#8250;</button>
     </div>
 

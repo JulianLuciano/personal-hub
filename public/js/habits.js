@@ -149,6 +149,7 @@ async function initHabits() {
   if (sub) sub.textContent = '';
   habitOneshotState = await loadOneshotsFromDB();
   habitUpdateDateUI();
+  habitInitDatePicker();
   await habitLoadDay();
   habitRenderOneshots();
   habitRenderYear();
@@ -231,19 +232,24 @@ function habitUpdateDateUI() {
 
   if (!pill) return;
 
+  const pillText = document.getElementById('habitDayPillText');
   if (habitDayOffset === 0) {
-    pill.textContent = 'Hoy';
+    if (pillText) pillText.textContent = 'Hoy';
     pill.classList.remove('past');
     if (banner)  banner.style.display = 'none';
     if (nextBtn) nextBtn.classList.add('disabled');
   } else {
-    pill.textContent = d.getDate() + ' ' + H_MONTHS[d.getMonth()];
+    if (pillText) pillText.textContent = d.getDate() + ' ' + H_MONTHS[d.getMonth()];
     pill.classList.add('past');
     if (banner)  banner.style.display = 'flex';
     if (nextBtn) nextBtn.classList.remove('disabled');
   }
 
   if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= habitMinOffset());
+
+  // Mantener el value del picker sincronizado
+  const picker = document.getElementById('habitDatePicker');
+  if (picker) picker.value = habitDateStr(habitDayOffset);
 }
 
 function habitShiftDay(delta) {
@@ -255,38 +261,19 @@ function habitShiftDay(delta) {
 }
 
 function habitOpenDatePicker() {
+  // No-op: el input está embebido dentro de la pastilla en el HTML,
+  // el browser lo abre directamente con el click del usuario.
+}
+
+function habitInitDatePicker() {
   const picker = document.getElementById('habitDatePicker');
-  const pill   = document.getElementById('habitDayPill');
   if (!picker) return;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const jan1  = new Date(today.getFullYear(), 0, 1);
   picker.max   = today.toISOString().slice(0, 10);
   picker.min   = jan1.toISOString().slice(0, 10);
-  picker.value = habitDateStr(habitDayOffset);
-
-  // Posicionar el input exactamente sobre la pastilla para que esté en el viewport
-  if (pill) {
-    const rect = pill.getBoundingClientRect();
-    picker.style.position = 'fixed';
-    picker.style.left     = rect.left + 'px';
-    picker.style.top      = rect.top  + 'px';
-    picker.style.width    = rect.width  + 'px';
-    picker.style.height   = rect.height + 'px';
-  }
-  picker.style.display      = 'block';
-  picker.style.opacity      = '0';
-  picker.style.pointerEvents = 'none';
-
-  try {
-    picker.showPicker();
-  } catch(_) {
-    picker.click();
-  }
-
-  setTimeout(() => {
-    picker.style.display = 'none';
-  }, 300);
+  picker.value = habitDateStr(0); // hoy
 }
 
 function habitPickDate(dateStr) {
@@ -510,19 +497,24 @@ function habitToggle(id, fromCheck) {
     return;
   }
 
-  // done=true: toggle del drawer
+  // done=true
   if (h && h.hasDetail) {
+    // Con drawer: toggle del drawer (validando al cerrar)
     if (isOpen) {
-      // Intentar cerrar: validar primero
       if (!habitDetailComplete(id)) {
         habitFlashMissing(id);
-        return; // no cierra
+        return;
       }
       habitOpenDrawers.delete(id); // cierra drawer, done sigue true
     } else {
       habitOpenDrawers.add(id); // abre drawer, done sigue true
     }
     habitRenderHabits();
+  } else {
+    // Sin drawer: desmarcar directamente
+    habitDayState[id] = false;
+    habitRenderHabits();
+    habitScheduleSave();
   }
 }
 

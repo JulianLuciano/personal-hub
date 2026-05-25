@@ -1739,6 +1739,9 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--text);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
 }
 .day-pill.past { border-color: rgba(247,183,49,0.4); color: var(--accent4); }
 
