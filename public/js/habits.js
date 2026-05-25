@@ -415,8 +415,7 @@ function habitRenderHabits() {
     const done = !!habitDayState[h.id];
     // click en la fila: abre drawer o cierra con validación
     // click en el círculo verde: desmarcar sin validación
-    const rowClick   = "habitToggle(\'" + h.id + "\', false)";
-    const checkClick = "habitCheckClick(event,\'" + h.id + "\')";
+    const rowClick = "habitToggle(\'" + h.id + "\', false)";
     const itemHTML = (
       '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="' + rowClick + '" data-id="' + h.id + '">' +
         '<div class="habit-icon" style="background:' + h.color + '">' + h.icon + '</div>' +
@@ -424,7 +423,7 @@ function habitRenderHabits() {
           '<div class="habit-name">' + h.name + '</div>' +
           '<div class="habit-streak">' + (h.streak > 0 ? '🔥 ' + h.streak + ' días seguidos' : 'Sin racha activa') + '</div>' +
         '</div>' +
-        '<div class="habit-check" onclick="' + checkClick + '">' + (done ? '✓' : '') + '</div>' +
+        '<div class="habit-check" data-checkid="' + h.id + '">' + (done ? '✓' : '') + '</div>' +
         (h.hasDetail ? '<span class="h-habit-chevron">›</span>' : '') +
       '</div>'
     );
@@ -436,6 +435,16 @@ function habitRenderHabits() {
     return itemHTML + drawerHTML;
   }).join('');
   habitRestoreDrawerSelections();
+
+  // Bindear los círculos verdes con capture para interceptar ANTES del burbujeo
+  document.querySelectorAll('[data-checkid]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      var id = btn.getAttribute('data-checkid');
+      habitCheckClick(id);
+    }, true); // capture=true: intercepta antes que el onclick del padre
+  });
 }
 
 // Valida si los campos obligatorios del drawer están completos
@@ -476,9 +485,8 @@ function habitFlashChips(containerId) {
 // Estado de drawers abiertos — independiente del estado done
 const habitOpenDrawers = new Set();
 
-// Wrapper para el click en el círculo verde — para pasar el evento real y stopPropagation
-function habitCheckClick(e, id) {
-  e.stopPropagation();
+// Click en el círculo verde — stopPropagation ya manejado por el listener con capture
+function habitCheckClick(id) {
   // Limpiar estado del drawer al desmarcar
   if (id === 'trained') {
     habitDayState.trainType = null;
