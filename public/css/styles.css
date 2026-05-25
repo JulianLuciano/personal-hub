@@ -3084,3 +3084,18 @@
   width: 100% !important;
   height: 100% !important;
 }
+
+/* ── HABITS: botón Hoy en date nav ─────────────────────────────────────────── */
+.h-today-btn {
+  background: rgba(108,99,255,0.15);
+  border: 1.5px solid rgba(108,99,255,0.4);
+  border-radius: 100px;
+  color: var(--accent);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.h-today-btn:hover { background: rgba(108,99,255,0.28); }

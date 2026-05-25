@@ -247,9 +247,20 @@ function habitUpdateDateUI() {
 
   if (prevBtn) prevBtn.classList.toggle('disabled', habitDayOffset <= habitMinOffset());
 
+  // Botón Hoy: solo visible cuando estás en fecha pasada
+  const todayBtn = document.getElementById('habitTodayBtn');
+  if (todayBtn) todayBtn.style.display = habitDayOffset < 0 ? 'inline-flex' : 'none';
+
   // Mantener el value del picker sincronizado
   const picker = document.getElementById('habitDatePicker');
   if (picker) picker.value = habitDateStr(habitDayOffset);
+}
+
+function habitGoToday() {
+  if (habitDayOffset === 0) return;
+  habitDayOffset = 0;
+  habitUpdateDateUI();
+  habitLoadDay();
 }
 
 function habitShiftDay(delta) {
@@ -405,7 +416,7 @@ function habitRenderHabits() {
     // click en la fila: abre drawer o cierra con validación
     // click en el círculo verde: desmarcar sin validación
     const rowClick   = "habitToggle(\'" + h.id + "\', false)";
-    const checkClick = "event.stopPropagation();habitToggle(\'" + h.id + "\', true)";
+    const checkClick = "habitCheckClick(event,\'" + h.id + "\')";
     const itemHTML = (
       '<div class="habit-item ' + (done ? 'done' : '') + '" onclick="' + rowClick + '" data-id="' + h.id + '">' +
         '<div class="habit-icon" style="background:' + h.color + '">' + h.icon + '</div>' +
@@ -464,6 +475,21 @@ function habitFlashChips(containerId) {
 
 // Estado de drawers abiertos — independiente del estado done
 const habitOpenDrawers = new Set();
+
+// Wrapper para el click en el círculo verde — para pasar el evento real y stopPropagation
+function habitCheckClick(e, id) {
+  e.stopPropagation();
+  // Limpiar estado del drawer al desmarcar
+  if (id === 'trained') {
+    habitDayState.trainType = null;
+    habitDayState.trainDur  = null;
+  }
+  if (id === 'piano') {
+    habitDayState.pianoTypes = [];
+    habitDayState.pianoDur   = null;
+  }
+  habitToggle(id, true);
+}
 
 // fromCheck=true  → click en el círculo verde:
 //   · desmarca siempre (done=false) y cierra el drawer
