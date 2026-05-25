@@ -961,30 +961,80 @@ let chartTraining  = null;
 let chartTrainTypes = null;
 let chartPiano     = null;
 
-// ── STUB: reemplazar con sbFetch cuando exista la tabla ───────────────────────
+// ── Carga y agrupa logs de habit_logs por semana ─────────────────────────────
+// Retorna array de { weekLabel, weekStart, trainDays, trainMins, pianoDays,
+//                    pianoMins, trainTypes: { Gym: N, ... } }
 async function loadAnalyticsFromDB(weeks) {
-  // Genera semanas dummy para mostrar el layout vacío hasta tener DB
-  // Retorna array de { weekLabel, trainDays, trainMins, pianoDays, pianoMins,
-  //                    trainTypes: { Rugby, Gym, Crossfit, ... } }
-  const data = [];
+  // Calcular fecha de inicio: lunes de la semana más antigua a mostrar
   const today = new Date();
-  for (let i = weeks - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i * 7);
-    const weekNum = Math.ceil(((d - new Date(d.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
-    data.push({
+  today.setHours(0, 0, 0, 0);
+
+  // Ir al lunes de esta semana
+  const dayOfWeek = (today.getDay() + 6) % 7; // lunes = 0
+  const thisMonday = new Date(today);
+  thisMonday.setDate(today.getDate() - dayOfWeek);
+
+  // Fecha de inicio = thisMonday - (weeks-1) semanas
+  const fromDate = new Date(thisMonday);
+  fromDate.setDate(thisMonday.getDate() - (weeks - 1) * 7);
+  const fromStr = fromDate.toISOString().slice(0, 10);
+
+  // Query a Supabase via proxy
+  let rows = [];
+  try {
+    rows = await sbFetch(`/rest/v1/habit_logs?habit_date=gte.${fromStr}&order=habit_date.asc`);
+  } catch(e) {
+    console.error('[analytics] Error cargando habit_logs:', e);
+    rows = [];
+  }
+
+  // Construir array de semanas (lunes → domingo)
+  const result = [];
+  for (let i = 0; i < weeks; i++) {
+    const weekStart = new Date(fromDate);
+    weekStart.setDate(fromDate.getDate() + i * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+
+    const weekNum = Math.ceil(((weekStart - new Date(weekStart.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
+
+    // Filtrar rows de esta semana
+    const weekRows = rows.filter(r => {
+      const d = new Date(r.habit_date + 'T00:00:00');
+      return d >= weekStart && d <= weekEnd;
+    });
+
+    // Workout
+    const workoutRows = weekRows.filter(r => r.habit === 'Workout');
+    const trainDays   = new Set(workoutRows.map(r => r.habit_date)).size;
+    const trainMins   = workoutRows.reduce((s, r) => s + (r.duration_min || 0), 0);
+
+    // Tipos de entrenamiento — aplanar arrays y contar
+    const trainTypes  = { Gym: 0, Crossfit: 0, Paddle: 0, Fútbol: 0, Correr: 0, Bici: 0, 'Touch Rugby': 0, Otro: 0 };
+    workoutRows.forEach(r => {
+      (r.type || []).forEach(t => {
+        if (t in trainTypes) trainTypes[t] += r.duration_min || 0;
+        else trainTypes['Otro'] += r.duration_min || 0;
+      });
+    });
+
+    // Piano
+    const pianoRows = weekRows.filter(r => r.habit === 'piano');
+    const pianoDays = new Set(pianoRows.map(r => r.habit_date)).size;
+    const pianoMins = pianoRows.reduce((s, r) => s + (r.duration_min || 0), 0);
+
+    result.push({
       weekLabel:  'S' + weekNum,
-      trainDays:  0,
-      trainMins:  0,
-      pianoDays:  0,
-      pianoMins:  0,
-      trainTypes: { Rugby: 0, Gym: 0, Crossfit: 0, Paddle: 0, Fútbol: 0, Correr: 0, Bici: 0, Otro: 0 },
+      weekStart:  weekStart.toISOString().slice(0, 10),
+      trainDays,
+      trainMins,
+      pianoDays,
+      pianoMins,
+      trainTypes,
     });
   }
-  return data;
-  // TODO cuando exista la tabla:
-  // const from = new Date(); from.setDate(from.getDate() - weeks * 7);
-  // return await sbFetch(`habit_analytics?week_start=gte.${from.toISOString().slice(0,10)}&order=week_start.asc`);
+
+  return result;
 }
 
 let analyticsRange = 8; // semanas visibles por default
@@ -998,14 +1048,14 @@ async function habitRenderAnalytics() {
 
   // ── Colores consistentes por tipo ────────────────────────────────────────
   const TYPE_COLORS = {
-    Rugby:    'rgba(108,99,255,0.85)',
-    Gym:      'rgba(67,233,123,0.85)',
-    Crossfit: 'rgba(247,183,49,0.85)',
-    Paddle:   'rgba(79,195,247,0.85)',
-    Fútbol:   'rgba(255,107,107,0.85)',
-    Correr:   'rgba(255,167,38,0.85)',
-    Bici:     'rgba(0,230,118,0.85)',
-    Otro:     'rgba(150,150,150,0.85)',
+    'Touch Rugby': 'rgba(108,99,255,0.85)',
+    Gym:           'rgba(67,233,123,0.85)',
+    Crossfit:      'rgba(247,183,49,0.85)',
+    Paddle:        'rgba(79,195,247,0.85)',
+    Fútbol:        'rgba(255,107,107,0.85)',
+    Correr:        'rgba(255,167,38,0.85)',
+    Bici:          'rgba(0,230,118,0.85)',
+    Otro:          'rgba(150,150,150,0.85)',
   };
 
   const chartDefaults = {
