@@ -1072,7 +1072,10 @@ async function habitRenderAnalytics() {
   // Labels: fecha de inicio de semana (DD/MM)
   const labels = data.map(d => fmtWeekLabel(d.weekStart));
 
-  // ── Gráfico 1: Entrenamiento — dos líneas: % días + min/semana ────────────
+  // Objetivo semanal: 3/7 días = 42.857% → redondeado a 43
+  const TRAIN_TARGET_PCT = Math.round((3 / 7) * 100); // 43
+
+  // ── Gráfico 1: Entrenamiento — dos líneas + objetivo punteado ────────────
   const ctx1 = document.getElementById('chartTraining');
   if (ctx1) {
     if (chartTraining) chartTraining.destroy();
@@ -1105,6 +1108,19 @@ async function habitRenderAnalytics() {
             yAxisID: 'yMins',
             order: 2,
           },
+          {
+            // Línea objetivo punteada — misma altura en todos los puntos
+            label: 'Objetivo (3/7 días)',
+            data: labels.map(() => TRAIN_TARGET_PCT),
+            borderColor:     'rgba(247,183,49,0.7)',
+            borderWidth: 1.5,
+            borderDash: [5, 4],
+            pointRadius: 0,
+            fill: false,
+            tension: 0,
+            yAxisID: 'yPct',
+            order: 3,
+          },
         ],
       },
       options: {
@@ -1133,9 +1149,11 @@ async function habitRenderAnalytics() {
               label: ctx => {
                 const v = ctx.parsed.y;
                 if (ctx.dataset.label === 'Días entrenados (%)') return 'Días entrenados: ' + v + '%';
+                if (ctx.dataset.label === 'Objetivo (3/7 días)') return null; // no mostrar en tooltip
                 return 'Min/semana: ' + v;
               },
             },
+            filter: item => item.dataset.label !== 'Objetivo (3/7 días)',
           },
         },
       },
@@ -1170,9 +1188,34 @@ async function habitRenderAnalytics() {
     // Guardar los valores raw de minutos para el tooltip
     const rawMins = activeTypes.map(t => data.map(d => d.trainTypes[t] || 0));
 
+    // Plugin inline: dibuja el % centrado en cada segmento de barra
+    const stackedLabelsPlugin = {
+      id: 'stackedLabels',
+      afterDatasetsDraw(chart) {
+        const ctx2d = chart.ctx;
+        chart.data.datasets.forEach((dataset, datasetIdx) => {
+          const meta = chart.getDatasetMeta(datasetIdx);
+          if (meta.hidden) return;
+          meta.data.forEach((bar, idx) => {
+            const pct = dataset.data[idx];
+            if (!pct || pct < 8) return; // no dibujar si el segmento es demasiado chico
+            const { x, y, width, height } = bar.getProps(['x', 'y', 'width', 'height'], true);
+            ctx2d.save();
+            ctx2d.fillStyle = 'rgba(255,255,255,0.92)';
+            ctx2d.font = 'bold 10px DM Sans, sans-serif';
+            ctx2d.textAlign = 'center';
+            ctx2d.textBaseline = 'middle';
+            ctx2d.fillText(pct + '%', x, y + height / 2);
+            ctx2d.restore();
+          });
+        });
+      },
+    };
+
     chartTrainTypes = new Chart(ctx2, {
       type: 'bar',
       data: { labels, datasets: pctByType },
+      plugins: [stackedLabelsPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -1193,16 +1236,13 @@ async function habitRenderAnalytics() {
           tooltip: {
             mode: 'index', intersect: false,
             callbacks: {
-              // Mostrar solo categorías con valor > 0, con % redondeado
               label: ctx => {
                 const pct = ctx.parsed.y;
-                if (!pct) return null; // ocultar categorías vacías
+                if (!pct) return null;
                 return ctx.dataset.label + ': ' + pct + '%';
               },
-              // Filtrar nulls del array de items
-              afterBody: () => [],
             },
-            filter: item => item.parsed.y > 0, // punto 6: ocultar vacíos
+            filter: item => item.parsed.y > 0,
           },
         },
       },
