@@ -392,6 +392,10 @@ document.addEventListener('DOMContentLoaded', function() {
   loadPortfolio();
   loadRSUVests();
 
+  // Inicializar portfolio como tab activa (título + FABs)
+  const portfolioNavItem = document.querySelector('.nav-item[onclick*="portfolio"]');
+  if (portfolioNavItem) switchNav(portfolioNavItem, 'portfolio');
+
   // Apply APP_LABEL from server config (e.g. "DEMO")
   fetch('/api/config')
     .then(r => r.json())
