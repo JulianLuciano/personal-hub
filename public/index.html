@@ -24,7 +24,7 @@
   <!-- TOP BAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1 id="topbarTitle">Hábitos</h1>
+      <h1 id="topbarTitle">Portfolio</h1>
       <p id="topbarSub">&#160;</p>
     </div>
     <div class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
@@ -32,7 +32,7 @@
 
   <!-- TABS -->
   <!-- HABITS PANEL -->
-  <div class="panel active" id="panel-today">
+  <div class="panel" id="panel-today">
 
     <!-- DATE NAV -->
     <div class="h-date-nav">
@@ -267,7 +267,7 @@
   </div>
 
   <!-- PORTFOLIO PANEL -->
-  <div class="panel" id="panel-portfolio">
+  <div class="panel active" id="panel-portfolio">
     <!-- MAIN RIBBON: Portfolio (left) ↔ Pie por tipo (right) -->
     <div id="mainRibbonOuter" style="overflow:hidden;width:100%;position:relative;border-radius:var(--card-radius);margin-bottom:16px">
       <div id="mainRibbonTrack" style="display:flex;flex-direction:row;gap:10px;will-change:transform;transition:none;touch-action:pan-y;width:calc(200% + 10px)">
@@ -1459,7 +1459,7 @@
 
   <!-- BOTTOM NAV -->
   <div class="bottom-nav">
-    <div class="nav-item active" onclick="switchNav(this, 'today')">
+    <div class="nav-item" onclick="switchNav(this, 'today')">
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
       <span class="nav-label">Hábitos</span>
     </div>
@@ -1467,7 +1467,7 @@
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
       <span class="nav-label">Tools</span>
     </div>
-    <div class="nav-item" onclick="switchNav(this, 'portfolio')">
+    <div class="nav-item active" onclick="switchNav(this, 'portfolio')">
       <span class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span>
       <span class="nav-label">Portfolio</span>
     </div>

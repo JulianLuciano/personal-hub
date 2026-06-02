@@ -31,6 +31,7 @@ app.get('/api/config', (req, res) => {
     mcMonthlySaving:   process.env.MC_MONTHLY_SAVING      || '',
     mcAnnualBonus:     process.env.MC_ANNUAL_BONUS        || '',
     mcRsuPerVest:      process.env.MC_RSU_PER_VEST        || '',
+    appLabel:          process.env.APP_LABEL               || '',
   });
 });
 

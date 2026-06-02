@@ -391,6 +391,22 @@ document.addEventListener('DOMContentLoaded', function() {
   renderHeatmap();
   loadPortfolio();
   loadRSUVests();
+
+  // Apply APP_LABEL from server config (e.g. "DEMO")
+  fetch('/api/config')
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg.appLabel) {
+        navTitles.today[0]     = `Hábitos (${cfg.appLabel})`;
+        navTitles.portfolio[0] = `Portfolio (${cfg.appLabel})`;
+        // Update topbar title since portfolio is the default tab
+        const titleEl = document.querySelector('.topbar-left h1');
+        if (titleEl && document.getElementById('panel-portfolio').classList.contains('active')) {
+          titleEl.textContent = navTitles.portfolio[0];
+        }
+      }
+    })
+    .catch(() => {}); // fail silently — label is cosmético
 });
 
 
