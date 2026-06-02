@@ -33,7 +33,7 @@ function switchNav(el, name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
   const t = navTitles[name] || navTitles.today;
-  document.querySelector('.topbar-left h1').textContent = t[0];
+  document.querySelector('.topbar-left h1').innerHTML = t[0];
   document.querySelector('.topbar-left p').textContent = t[1];
 
   // FABs only visible on portfolio + analytics
@@ -401,12 +401,12 @@ document.addEventListener('DOMContentLoaded', function() {
     .then(r => r.json())
     .then(cfg => {
       if (cfg.appLabel) {
-        navTitles.today[0]     = `Hábitos (${cfg.appLabel})`;
-        navTitles.portfolio[0] = `Portfolio (${cfg.appLabel})`;
+        navTitles.today[0]     = `Hábitos <span style="font-size:0.6em;opacity:0.6;font-weight:500">(${cfg.appLabel})</span>`;
+        navTitles.portfolio[0] = `Portfolio <span style="font-size:0.6em;opacity:0.6;font-weight:500">(${cfg.appLabel})</span>`;
         // Update topbar title since portfolio is the default tab
         const titleEl = document.querySelector('.topbar-left h1');
         if (titleEl && document.getElementById('panel-portfolio').classList.contains('active')) {
-          titleEl.textContent = navTitles.portfolio[0];
+          titleEl.innerHTML = navTitles.portfolio[0];
         }
       }
     })
