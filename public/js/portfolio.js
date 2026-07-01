@@ -869,6 +869,7 @@ function renderPnlAttribution() {
   const fxUsdArsYesterday = _yesterdaySnap && _yesterdaySnap.fx_usd_ars ? Number(_yesterdaySnap.fx_usd_ars) : 0;
 
   const contribs = [];
+  let fiatGBPContribGBP = 0;
   let fiatGBPContribUSD = 0;     // hist mode: GBP cash FX P&L vs initial investment
   let fiatGBPDayContribUSD = 0;  // day mode: GBP cash daily FX move in USD terms
   let hasFiatGBP = false;
@@ -884,11 +885,17 @@ function renderPnlAttribution() {
       // GBP cash: FX P&L in USD only (GBP qty is fixed, value in GBP doesn't change)
       if (pos.currency === 'GBP' && valueUSD >= 1) {
         if (pnlAttrMode === 'hist') {
-          if (isGBP) return;
-          const inv = Number(pos.net_invested_usd);
-          if (!inv) return;
-          fiatGBPContribUSD += valueUSD - inv;
-          hasFiatGBP = true;
+          if (isGBP) {
+            const invGBP = Number(pos.net_invested_gbp);
+            if (!invGBP) return;
+            fiatGBPContribGBP = (fiatGBPContribGBP || 0) + (Number(pos.qty) - invGBP);
+            hasFiatGBP = true;
+          } else {
+            const inv = Number(pos.net_invested_usd);
+            if (!inv) return;
+            fiatGBPContribUSD += valueUSD - inv;
+            hasFiatGBP = true;
+          }
         } else {
           if (isGBP) return;
           const gbpQty = Number(pos.qty);
@@ -961,8 +968,12 @@ function renderPnlAttribution() {
   });
 
   // Libras line — hist mode USD: FX P&L on GBP cash vs initial investment
-  if (hasFiatGBP && Math.abs(fiatGBPContribUSD) >= 0.01) {
-    contribs.push({ ticker: 'Libras', contribUSD: fiatGBPContribUSD, contribDisplay: fiatGBPContribUSD });
+  if (hasFiatGBP) {
+    const librasDisplay = isGBP ? (fiatGBPContribGBP || 0) : fiatGBPContribUSD;
+    const librasUSD = isGBP ? (fiatGBPContribGBP || 0) / FX_RATE : fiatGBPContribUSD;
+    if (Math.abs(librasDisplay) >= 0.01) {
+      contribs.push({ ticker: 'Libras', contribUSD: librasUSD, contribDisplay: librasDisplay });
+    }
   }
   // Libras line — day mode USD: daily FX move on GBP cash holdings
   if (hasFiatGBPDay && Math.abs(fiatGBPDayContribUSD) >= 0.01) {
