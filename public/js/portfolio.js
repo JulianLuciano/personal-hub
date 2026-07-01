@@ -903,8 +903,8 @@ function renderPnlAttribution() {
         const arsQty = Number(pos.qty);
         if (!arsQty) return;
         if (pnlAttrMode === 'hist') {
-          const invUSD = Number(pos.initial_investment_usd);
-          const invGBP = Number(pos.initial_investment_gbp);
+          const invUSD = Number(pos.net_invested_usd);
+          const invGBP = Number(pos.net_invested_gbp);
           if (!invUSD && !invGBP) return;
           fiatARSContribUSD += valueUSD - invUSD;
           fiatARSContribGBP += (valueUSD * FX_RATE) - invGBP;
@@ -941,7 +941,7 @@ function renderPnlAttribution() {
     } else {
       // Historic P&L contribution — use native currency to match cost basis
       if (isGBP) {
-        const invGBP = Number(pos.initial_investment_gbp);
+        const invGBP = Number(pos.net_invested_gbp);
         const avgGBP = Number(pos.avg_cost_gbp);
         const qty = Number(pos.qty);
         const basisGBP = invGBP ? invGBP : (avgGBP ? avgGBP * qty : 0);
@@ -949,7 +949,7 @@ function renderPnlAttribution() {
         if (!basisGBP && valueGBP < 1) return;
         contribs.push({ ticker: pos.ticker, contribUSD: valueUSD - (basisGBP / FX_RATE), contribDisplay: valueGBP - basisGBP });
       } else {
-        const inv = Number(pos.initial_investment_usd);
+        const inv = Number(pos.net_invested_usd);
         const avg = Number(pos.avg_cost_usd);
         const qty = Number(pos.qty);
         const basis = inv ? inv : (avg ? avg * qty : 0);
