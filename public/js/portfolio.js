@@ -885,7 +885,7 @@ function renderPnlAttribution() {
       if (pos.currency === 'GBP' && valueUSD >= 1) {
         if (pnlAttrMode === 'hist') {
           if (isGBP) return;
-          const inv = Number(pos.initial_investment_usd);
+          const inv = Number(pos.net_invested_usd);
           if (!inv) return;
           fiatGBPContribUSD += valueUSD - inv;
           hasFiatGBP = true;
