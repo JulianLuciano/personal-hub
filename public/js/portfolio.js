@@ -379,7 +379,10 @@ async function loadPortfolio() {
     if (lseOpened) {
       // Normal: today vs last market day
       if (todaySnap && yesterdaySnap) {
-        changeUSD = totalUSD - Number(yesterdaySnap.total_usd) - netCFusd;
+        // Usar todaySnap.total_usd (worker, fx live para ARS) en vez de totalUSD (frontend,
+        // que valoriza ARS_CASH a avg_cost) — mismo criterio que changeGBP, para que ambas
+        // monedas salgan de la misma fuente y el PnL diario matchee en USD y GBP.
+        changeUSD = Number(todaySnap.total_usd) - Number(yesterdaySnap.total_usd) - netCFusd;
         const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
         const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
         changeGBP = todayGBP - prevGBP - netCFusd * FX_RATE;
@@ -393,7 +396,7 @@ async function loadPortfolio() {
         changeGBP = yGBP - d2GBP - netCFusd * FX_RATE;
       } else if (todaySnap && yesterdaySnap) {
         // Fallback: no day-before snapshot available
-        changeUSD = totalUSD - Number(yesterdaySnap.total_usd) - netCFusd;
+        changeUSD = Number(todaySnap.total_usd) - Number(yesterdaySnap.total_usd) - netCFusd;
         const todayGBP = Number(todaySnap.total_gbp) || (Number(todaySnap.total_usd) * (Number(todaySnap.fx_rate) || FX_RATE));
         const prevGBP  = Number(yesterdaySnap.total_gbp) || (Number(yesterdaySnap.total_usd) * (Number(yesterdaySnap.fx_rate) || FX_RATE));
         changeGBP = todayGBP - prevGBP - netCFusd * FX_RATE;
