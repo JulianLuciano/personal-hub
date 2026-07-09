@@ -214,6 +214,10 @@ async function loadPortfolio() {
       lastSnapshotAt = new Date(todaySnap.captured_at);
       updateLastUpdatedLabel();
     }
+    // ARS live FX (dolarapi via worker) — used to compute ARS_CASH's daily variation
+    // the same way as any priced asset (price ayer vs hoy), never from avg_cost.
+    const fxUsdArsToday     = todaySnap     && todaySnap.fx_usd_ars     ? Number(todaySnap.fx_usd_ars)     : 0;
+    const fxUsdArsYesterday = yesterdaySnap && yesterdaySnap.fx_usd_ars ? Number(yesterdaySnap.fx_usd_ars) : 0;
 
     // Calculate values
     let totalUSD = 0;
@@ -297,6 +301,17 @@ async function loadPortfolio() {
           const d2PriceGBP   = d2Price   * fxD2;
           dayPctGBP = ((prevPriceGBP - d2PriceGBP) / d2PriceGBP) * 100;
         }
+      }
+
+      // ARS_CASH: mismo tratamiento que un papel — "precio" = valor de 1 peso en USD (1/fx_usd_ars).
+      // qty fijo, comparamos el fx de hoy vs el de ayer, nunca el avg_cost (ese solo vale para el total).
+      if (pos.category === 'fiat' && pos.currency === 'ARS' && fxUsdArsToday > 0 && fxUsdArsYesterday > 0) {
+        const priceARS     = 1 / fxUsdArsToday;
+        const prevPriceARS = 1 / fxUsdArsYesterday;
+        dayPct = ((priceARS - prevPriceARS) / prevPriceARS) * 100;
+        const priceARSGBP     = priceARS     * fxToday;
+        const prevPriceARSGBP = prevPriceARS * fxYest;
+        dayPctGBP = ((priceARSGBP - prevPriceARSGBP) / prevPriceARSGBP) * 100;
       }
 
       assets.push({ pos, valueUSD, priceUSD, pctUSD, pctGBP, dayPct, dayPctGBP });
@@ -918,9 +933,12 @@ function renderPnlAttribution() {
           hasFiatARS = true;
         } else {
           if (!fxUsdArsYesterday || !fxUsdArsToday) return;
+          // Igual que un papel: precio (1/fx) de hoy vs ayer × qty. Nunca avg_cost acá,
+          // eso solo se usa para el total (valueUSD), no para la variación diaria.
+          const valueUSDToday     = arsQty / fxUsdArsToday;
           const valueUSDYesterday = arsQty / fxUsdArsYesterday;
-          fiatARSDayContribUSD += valueUSD - valueUSDYesterday;
-          fiatARSDayContribGBP += (valueUSD * FX_RATE) - (valueUSDYesterday * fxYesterday);
+          fiatARSDayContribUSD += valueUSDToday - valueUSDYesterday;
+          fiatARSDayContribGBP += (valueUSDToday * FX_RATE) - (valueUSDYesterday * fxYesterday);
           hasFiatARSDay = true;
         }
         return;
