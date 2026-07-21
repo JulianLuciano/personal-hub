@@ -1286,8 +1286,16 @@ router.get('/briefing-context', async (req, res) => {
       const qty      = parseFloat(p.qty) || 0;
       const isGBP    = p.pricing_currency === 'GBP';
       const valueUSD = isGBP ? price * qty / fxRate : price * qty;
-      const invUSD   = parseFloat(p.initial_investment_usd) || 0;
-      const invGBP   = parseFloat(p.initial_investment_gbp) || invUSD * fxRate;
+      let invUSD = parseFloat(p.net_invested_usd) || 0;
+      if (!invUSD) {
+        invUSD = parseFloat(p.initial_investment_usd) || 0;
+        if (!invUSD) invUSD = (parseFloat(p.avg_cost_usd) || 0) * qty;
+      }
+      let invGBP = parseFloat(p.net_invested_gbp) || 0;
+      if (!invGBP) {
+        invGBP = parseFloat(p.initial_investment_gbp) || 0;
+        if (!invGBP) invGBP = (parseFloat(p.avg_cost_gbp) || 0) * qty;
+      }
       const cat      = p.category;
       if (!byCategory[cat]) byCategory[cat] = { valueUSD: 0, investedUSD: 0, investedGBP: 0 };
       byCategory[cat].valueUSD    += valueUSD;
