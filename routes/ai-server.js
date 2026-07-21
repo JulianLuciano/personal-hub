@@ -832,7 +832,7 @@ router.get('/briefing-context', async (req, res) => {
     const t30d = iso(new Date(now0 - 29 * 86400000));
 
     const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows, cfRows] = await Promise.all([
-      sb('positions?select=ticker,qty,avg_cost_usd,initial_investment_usd,initial_investment_gbp,category,pricing_currency,currency&order=ticker.asc'),
+      sb('positions?select=ticker,qty,avg_cost_usd,avg_cost_gbp,initial_investment_usd,initial_investment_gbp,net_invested_usd,net_invested_gbp,managed_by,category,pricing_currency,currency&order=ticker.asc'),
       sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1'),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t7d}&order=captured_at.desc&limit=1`),
@@ -987,8 +987,18 @@ router.get('/briefing-context', async (req, res) => {
       const isGBP     = p.pricing_currency === 'GBP';
       const valueUSD  = isGBP ? price * qty / fxRate : price * qty;
       const valueGBP  = valueUSD * fxRate;
-      const invUSD    = parseFloat(p.initial_investment_usd) || 0;
-      const invGBP    = parseFloat(p.initial_investment_gbp) || invUSD * fxRate;
+      // Cost basis: net_invested_usd/gbp (excluye reinversiones, mismo criterio que portfolio.js)
+      // con fallback a initial_investment y por último avg_cost × qty.
+      let invUSD = parseFloat(p.net_invested_usd) || 0;
+      if (!invUSD) {
+        invUSD = parseFloat(p.initial_investment_usd) || 0;
+        if (!invUSD) invUSD = (parseFloat(p.avg_cost_usd) || 0) * qty;
+      }
+      let invGBP = parseFloat(p.net_invested_gbp) || 0;
+      if (!invGBP) {
+        invGBP = parseFloat(p.initial_investment_gbp) || 0;
+        if (!invGBP) invGBP = (parseFloat(p.avg_cost_gbp) || 0) * qty;
+      }
       const pnlUSD    = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
 
@@ -1064,10 +1074,18 @@ router.get('/briefing-context', async (req, res) => {
     const cashPositions = positions.filter(p => p.category === 'fiat');
     // Cash basis: fiat positions use current value as cost (no P&L on cash)
     // ARS: use avg_cost_usd * qty (= 1/fx_usd_ars_avg * qty_ars = USD value). Never treat qty as USD.
+    // Cash basis: net_invested_gbp/usd (recalculator, excluye reinversiones) como fuente
+    // primaria — mismo criterio que portfolio.js. Fallback legacy: qty (GBP/otros) o
+    // avg_cost_usd × qty (ARS) solo si no hay net_invested.
     let cashBasisUSD = 0, cashBasisGBP = 0;
     cashPositions.forEach(p => {
       const qty = parseFloat(p.qty) || 0;
-      if (p.currency === 'GBP') {
+      const netGBP = parseFloat(p.net_invested_gbp) || 0;
+      const netUSD = parseFloat(p.net_invested_usd) || 0;
+      if (p.managed_by === 'transactions' || netGBP || netUSD) {
+        cashBasisGBP += netGBP;
+        cashBasisUSD += netUSD;
+      } else if (p.currency === 'GBP') {
         cashBasisGBP += qty;
         cashBasisUSD += qty / fxRate;
       } else if (p.currency === 'ARS') {
