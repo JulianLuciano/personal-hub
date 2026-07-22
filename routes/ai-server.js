@@ -1102,10 +1102,36 @@ router.get('/briefing-context', async (req, res) => {
     const costBasisUSD = totalInvUSD + cashBasisUSD;
     const costBasisGBP = totalInvGBP + cashBasisGBP;
 
-    // portfolio total comes from snapshot — already includes cash, native FX per snapshot
-    // P&L = snapshot total - cost basis (both sides include cash, so it nets out)
-    const totalPnlUSD    = totalUSD - costBasisUSD;
-    const totalPnlGBP    = totalGBP - costBasisGBP;
+    // Total EN VIVO (equity a precios actuales + cash) — mismo criterio que la app, que
+    // recalcula el total con el precio más fresco por ticker en vez de leer un campo
+    // pre-agregado. latestSnap.total_usd/gbp es el último tick del worker (~15 min) y puede
+    // quedar unos dólares atrás si se movió algún precio o hubo un flujo desde entonces;
+    // esa diferencia se filtraba directo al total_pnl. cashValueUSD/GBP usa el mismo criterio
+    // de valorización que cashBasisUSD/GBP (face value para GBP/USD, avg_cost_usd × qty para ARS).
+    let cashValueUSD = 0, cashValueGBP = 0;
+    cashPositions.forEach(p => {
+      const qty = parseFloat(p.qty) || 0;
+      if (p.currency === 'GBP') {
+        cashValueGBP += qty;
+        cashValueUSD += qty / fxRate;
+      } else if (p.currency === 'ARS') {
+        const avgCostUsd = parseFloat(p.avg_cost_usd) || 0;
+        const v = avgCostUsd > 0 ? qty * avgCostUsd : 0;
+        cashValueUSD += v;
+        cashValueGBP += v * fxRate;
+      } else {
+        cashValueUSD += qty;
+        cashValueGBP += qty * fxRate;
+      }
+    });
+    const liveTotalUSD = totalValUSD + cashValueUSD;
+    const liveTotalGBP = totalValUSD * fxRate + cashValueGBP;
+
+    // P&L = total en vivo - cost basis. day/7d/30d change siguen usando totalUSD/totalGBP
+    // (snapshot a snapshot) más abajo — ahí sí conviene quedarse anclado al worker para que
+    // USD y GBP salgan consistentes entre sí, igual que en portfolio.js.
+    const totalPnlUSD    = liveTotalUSD - costBasisUSD;
+    const totalPnlGBP    = liveTotalGBP - costBasisGBP;
     const totalPnlPctUSD = costBasisUSD > 0 ? (totalPnlUSD / costBasisUSD * 100) : 0;
     const totalPnlPctGBP = costBasisGBP > 0 ? (totalPnlGBP / costBasisGBP * 100) : 0;
 
@@ -1248,10 +1274,11 @@ router.get('/briefing-context', async (req, res) => {
       });
     }
 
-    // totalUSD/totalGBP from snapshot already includes cash (worker saves full portfolio total)
+    // total: en vivo (equity a precio actual + cash) — coincide con lo que muestra la app.
+    // day_return_usd/gbp sigue usando totalUSD/totalGBP (snapshot a snapshot) más abajo.
     const portfolioSummary =
       `PORTFOLIO\n` +
-      `total: ${fU(totalUSD)} / ${fG(totalGBP)} (equity + cash)\n` +
+      `total: ${fU(liveTotalUSD)} / ${fG(liveTotalGBP)} (equity + cash)\n` +
       `equity_only: ${fU(totalValUSD)} / ${fG(totalValUSD * fxRate)}\n` +
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
       (dayChangeUSD != null ? `day_return_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)}) [rendimiento, excluye cashflows]\n` : '') +
