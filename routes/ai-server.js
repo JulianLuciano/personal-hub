@@ -982,7 +982,14 @@ router.get('/briefing-context', async (req, res) => {
     investedPositions.forEach(p => {
       const yticker   = p.ticker === 'RSU_META' ? 'META' : p.ticker;
       const md        = marketData[yticker] || {};
-      const price     = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+      const psNow     = priceLatestMap[p.ticker];
+      // Precio: price_snapshots (misma fuente que usa la app) primero, fetch directo a
+      // Yahoo (marketData) como fallback si el ticker no tiene snapshot todavía, avg_cost
+      // como último recurso. Antes usaba marketData siempre, que es un fetch en vivo
+      // aparte del que llena price_snapshots — podía diferir del total que muestra la app.
+      const price     = (psNow && psNow.price_usd != null && psNow.price_usd !== '')
+        ? parseFloat(psNow.price_usd)
+        : (md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0);
       const qty       = parseFloat(p.qty) || 0;
       const isGBP     = p.pricing_currency === 'GBP';
       const valueUSD  = isGBP ? price * qty / fxRate : price * qty;
@@ -1002,7 +1009,6 @@ router.get('/briefing-context', async (req, res) => {
       const pnlUSD    = invUSD > 0 ? ((valueUSD - invUSD) / invUSD * 100) : null;
       const pnlGBP    = invGBP > 0 ? ((valueGBP - invGBP) / invGBP * 100) : null;
 
-      const psNow  = priceLatestMap[p.ticker];
       const ps24h  = price24hMap[p.ticker];
       const ps7d   = price7dMap[p.ticker];
       const ps30d  = price30dMap[p.ticker];
@@ -1263,7 +1269,10 @@ router.get('/briefing-context', async (req, res) => {
       const posWeights = investedPositions.map(p => {
         const yticker = p.ticker === 'RSU_META' ? 'META' : p.ticker;
         const md = marketData[yticker] || {};
-        const price = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+        const psNow = priceLatestMap[p.ticker];
+        const price = (psNow && psNow.price_usd != null && psNow.price_usd !== '')
+          ? parseFloat(psNow.price_usd)
+          : (md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0);
         const qty = parseFloat(p.qty) || 0;
         const isGBP = p.pricing_currency === 'GBP';
         const valueUSD = isGBP ? price * qty / fxRate : price * qty;
@@ -1309,7 +1318,10 @@ router.get('/briefing-context', async (req, res) => {
     investedPositions.forEach(p => {
       const yticker  = p.ticker === 'RSU_META' ? 'META' : p.ticker;
       const md       = marketData[yticker] || {};
-      const price    = md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0;
+      const psNow    = priceLatestMap[p.ticker];
+      const price    = (psNow && psNow.price_usd != null && psNow.price_usd !== '')
+        ? parseFloat(psNow.price_usd)
+        : (md.regularMarketPrice || parseFloat(p.avg_cost_usd) || 0);
       const qty      = parseFloat(p.qty) || 0;
       const isGBP    = p.pricing_currency === 'GBP';
       const valueUSD = isGBP ? price * qty / fxRate : price * qty;
