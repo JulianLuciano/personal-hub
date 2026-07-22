@@ -14,7 +14,6 @@ let isDark = true;
 function toggleTheme() {
   isDark = !isDark;
   document.getElementById('app').classList.toggle('light', !isDark);
-  document.getElementById('themeBtn').innerHTML = isDark ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>` : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
   const dt = document.getElementById('darkToggle');
   if (dt) dt.classList.toggle('on', isDark);
 }
@@ -43,6 +42,12 @@ function switchNav(el, name) {
   const txFab    = document.getElementById('txFab');
   if (aiBubble) aiBubble.style.display = showFabs ? 'flex' : 'none';
   if (txFab)    txFab.style.display    = showFabs ? 'flex' : 'none';
+
+  // Widget NYSE/LSE en el topbar: solo visible en Portfolio (reemplaza ahí al toggle de tema,
+  // que sigue disponible en Settings)
+  const marketStatusEl = document.getElementById('marketStatusWidget');
+  if (marketStatusEl) marketStatusEl.style.display = (name === 'portfolio') ? 'flex' : 'none';
+
   // h-sub-tabs live inside panel-today, no top-level show/hide needed
   if (name === 'portfolio') {
     requestAnimationFrame(() => requestAnimationFrame(drawChart));
@@ -54,6 +59,15 @@ function switchNav(el, name) {
       if (document.getElementById('panel-portfolio').classList.contains('active')) updateLastUpdatedLabel();
       else { clearInterval(_lastUpdatedTimer); _lastUpdatedTimer = null; }
     }, 30000);
+
+    // Estado NYSE/LSE: fetch inmediato + refresco cada 60s mientras la tab esté activa
+    if (typeof loadMarketStatus === 'function') loadMarketStatus();
+    if (_marketStatusTimer) clearInterval(_marketStatusTimer);
+    _marketStatusTimer = setInterval(() => {
+      if (document.getElementById('panel-portfolio').classList.contains('active')) {
+        if (typeof loadMarketStatus === 'function') loadMarketStatus();
+      } else { clearInterval(_marketStatusTimer); _marketStatusTimer = null; }
+    }, 60000);
   }
   if (name === 'analytics') {
     // Seed portfolio values from liveData if available
@@ -177,6 +191,7 @@ async function sbFetch(path) {
 let liveData = null;
 let lastSnapshotAt = null;
 let _lastUpdatedTimer = null;
+let _marketStatusTimer = null;
 
 function updateLastUpdatedLabel() {
   if (!lastSnapshotAt) return;

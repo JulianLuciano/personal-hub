@@ -618,35 +618,56 @@ function renderChgHtml(pct, dayPct) {
 })();
 
 
-// Market open/closed detection
+// Market open/closed detection.
+// Fuente de verdad: /api/market-status (backend consulta marketState real de Yahoo para
+// ^GSPC y ^FTSE, con fallback a horario calculado si Yahoo falla). Ya no hay meses ni
+// offsets UTC hardcodeados acá — eso vivía en el frontend y se corrigió del lado del server.
 function getMarketStatus(ticker, category) {
   if (category === 'cripto') return 'open'; // 24/7
   if (category === 'fiat') return null; // no dot
 
-  const now = new Date();
-  // Use UTC offsets: NYSE = UTC-5 (EST) / UTC-4 (EDT), LSE = UTC+0 (GMT) / UTC+1 (BST)
-  const utcH = now.getUTCHours(), utcM = now.getUTCMinutes(), utcD = now.getUTCDay();
-  if (utcD === 0 || utcD === 6) return 'closed'; // weekend
+  const ms = window._marketStatusData;
+  if (!ms) return null; // todavía no llegó el primer fetch — sin dot en vez de adivinar
 
-  const totalUtcMins = utcH * 60 + utcM;
+  const key = ticker.endsWith('.L') ? 'lse' : 'nyse';
+  const m = ms[key];
+  return m ? (m.isOpen ? 'open' : 'closed') : null;
+}
 
-  // LSE: tickers ending in .L (ARKK.L, VWRP.L) — 08:00–16:30 London time
-  // BST (last Sun Mar → last Sun Oct): UTC+1, otherwise UTC+0
-  if (ticker.endsWith('.L')) {
-    const month = now.getUTCMonth(); // 0=Jan
-    const isBST = month >= 2 && month <= 9; // approx Mar–Oct
-    const offsetMins = isBST ? 60 : 0;
-    const localMins = totalUtcMins + offsetMins;
-    return (localMins >= 480 && localMins < 990) ? 'open' : 'closed'; // 8:00–16:30
+// Fetch de /api/market-status: guarda en window._marketStatusData, repinta el widget del
+// topbar y, si el portfolio ya estaba renderizado, re-renderiza para actualizar los dots
+// de las tarjetas individuales (que usan la misma data vía getMarketStatus).
+async function loadMarketStatus() {
+  try {
+    const json = await fetch('/api/market-status').then(r => r.json());
+    if (json && json.data) {
+      window._marketStatusData = json.data;
+      renderMarketStatusWidget();
+      if (liveData) renderPortfolio();
+    }
+  } catch (e) {
+    console.warn('Error cargando market status:', e.message);
   }
+}
 
-  // NYSE: SPY, BRK.B, MELI, NU — 09:30–16:00 ET
-  // EDT (2nd Sun Mar → 1st Sun Nov): UTC-4, otherwise EST UTC-5
-  const month = now.getUTCMonth();
-  const isEDT = month >= 2 && month <= 9; // approx Mar–Oct
-  const offsetMins = isEDT ? -240 : -300;
-  const localMins = totalUtcMins + offsetMins;
-  return (localMins >= 570 && localMins < 960) ? 'open' : 'closed'; // 9:30–16:00
+// Pinta las dos líneas NYSE / LSE en el topbar (arriba a la derecha, donde antes estaba
+// el toggle de tema). Horarios ya vienen traducidos a hora de Londres desde el backend.
+function renderMarketStatusWidget() {
+  const el = document.getElementById('marketStatusWidget');
+  const ms = window._marketStatusData;
+  if (!el || !ms) return;
+
+  const row = (label, m) => {
+    if (!m) return '';
+    const status = m.isOpen ? 'open' : 'closed';
+    return '<div class="market-status-row">' +
+      '<span class="market-status-label">' + label + '</span>' +
+      '<span class="market-status-hours">' + m.openLondon + ' / ' + m.closeLondon + '</span>' +
+      '<span class="market-dot ' + status + '" title="Mercado ' + (m.isOpen ? 'abierto' : 'cerrado') + '"></span>' +
+      '</div>';
+  };
+
+  el.innerHTML = row('NYSE', ms.nyse) + row('LSE', ms.lse);
 }
 
 function renderPortfolio() {

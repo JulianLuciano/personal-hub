@@ -146,6 +146,90 @@ async function fetchMacro(yahooTicker) {
   return { yahooTicker, current, ago7d, ago30d, chg7d, chg30d, trend };
 }
 
+// ── Market status (NYSE / LSE open-closed, horarios traducidos a hora de Londres) ──
+//
+// No hardcodeamos offsets UTC ni rangos de meses para DST (a diferencia del viejo
+// getMarketStatus del frontend). En cambio:
+//   1. Calculamos el instante UTC exacto de apertura/cierre de cada sesión usando
+//      Intl.DateTimeFormat para leer el offset real de cada timezone hoy (tzOffsetMinutes).
+//      Esto absorbe el cambio de horario de verano de EEUU y UK automáticamente,
+//      incluida la ventana de ~1-3 semanas donde están desfasados entre sí.
+//   2. Ese mismo instante UTC se formatea en Europe/London para mostrarlo (formatLondonTime),
+//      así Julián siempre ve el horario en su propia zona sin importar dónde esté.
+//   3. Para el estado abierto/cerrado (el dot) consultamos `marketState` directo de Yahoo
+//      sobre un índice de referencia de cada plaza, que contempla feriados de mercado
+//      (Thanksgiving, Christmas Day, etc.) — el cálculo de horario por sí solo no los conoce.
+
+const MARKET_STATUS_TTL = 60 * 1000; // 1 min — el estado (abierto/cerrado) debe estar fresco
+
+const SESSION_HOURS = {
+  nyse: { open: { h: 9, m: 30 }, close: { h: 16, m: 0  }, timeZone: 'America/New_York', quoteTicker: '^GSPC' },
+  lse:  { open: { h: 8, m: 0  }, close: { h: 16, m: 30 }, timeZone: 'Europe/London',    quoteTicker: '^FTSE' },
+};
+
+let marketStatusCache = null, marketStatusCachedAt = 0;
+
+// Offset (en minutos) de `timeZone` respecto a UTC, en el instante `date`.
+function tzOffsetMinutes(timeZone, date) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = dtf.formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const asIfUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return Math.round((asIfUTC - date.getTime()) / 60000);
+}
+
+// Formatea un instante UTC como "HH:MM" hora de Londres.
+function formatLondonTime(date) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(date);
+}
+
+// Dado un horario "hh:mm" en la timezone local de la plaza (ej. 9:30 America/New_York),
+// devuelve el instante UTC correspondiente a HOY. offsetMin ya refleja si esa plaza está
+// en horario de verano o no en este momento, sin tablas de fechas hardcodeadas.
+function sessionBoundaryUTC(timeZone, hh, mm) {
+  const now = new Date();
+  const offsetMin = tzOffsetMinutes(timeZone, now);
+  const todayUTCMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return new Date(todayUTCMidnight + (hh * 60 + mm - offsetMin) * 60000);
+}
+
+async function computeMarketStatus() {
+  const results = {};
+  await Promise.all(Object.entries(SESSION_HOURS).map(async ([key, cfg]) => {
+    const openUTC  = sessionBoundaryUTC(cfg.timeZone, cfg.open.h,  cfg.open.m);
+    const closeUTC = sessionBoundaryUTC(cfg.timeZone, cfg.close.h, cfg.close.m);
+
+    let marketState = null, isOpen = null;
+    try {
+      const q = await yf.quote(cfg.quoteTicker);
+      marketState = q?.marketState || null;
+      isOpen = marketState === 'REGULAR';
+    } catch (e) {
+      console.warn(`[market-status] ${key}:`, e.message);
+    }
+
+    // Fallback si falla la consulta a Yahoo: derivar del horario calculado (sin feriados)
+    if (isOpen === null) {
+      const now = new Date();
+      const dow = now.getUTCDay();
+      isOpen = dow !== 0 && dow !== 6 && now >= openUTC && now < closeUTC;
+    }
+
+    results[key] = {
+      openLondon:  formatLondonTime(openUTC),
+      closeLondon: formatLondonTime(closeUTC),
+      marketState,
+      isOpen,
+    };
+  }));
+  return results;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 router.get('/market-data', async (req, res) => {
@@ -176,6 +260,24 @@ router.get('/market-data', async (req, res) => {
   }
 
   res.json({ data: results, errors, cached: false, cachedAt: portfolioCachedAt });
+});
+
+router.get('/market-status', async (req, res) => {
+  if (marketStatusCache && (Date.now() - marketStatusCachedAt) < MARKET_STATUS_TTL) {
+    return res.json({ data: marketStatusCache, cached: true, cachedAt: marketStatusCachedAt });
+  }
+
+  try {
+    const data = await computeMarketStatus();
+    marketStatusCache    = data;
+    marketStatusCachedAt = Date.now();
+    res.json({ data, cached: false, cachedAt: marketStatusCachedAt });
+  } catch (e) {
+    console.warn('[market-status] fetch error:', e.message);
+    // Si hay cache vieja, mejor devolver eso que un error
+    if (marketStatusCache) return res.json({ data: marketStatusCache, cached: true, cachedAt: marketStatusCachedAt, stale: true });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.get('/macro-data', async (req, res) => {
