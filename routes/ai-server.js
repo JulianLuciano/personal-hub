@@ -1302,7 +1302,7 @@ router.get('/briefing-context', async (req, res) => {
       `cost_basis: ${fU(costBasisUSD)} / ${fG(costBasisGBP)} (invested + cash)\n` +
       `total_pnl_usd: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} (${sgn(totalPnlPctUSD)})\n` +
       `total_pnl_gbp: ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPctGBP)})\n` +
-      `note_pnl: pnl_gbp uses initial_investment_gbp (locked-in FX at purchase); USD positions converted at today's FX\n`;
+      `note_pnl: pnl_gbp uses net_invested_gbp (fallback initial_investment_gbp, locked-in FX at purchase); USD positions converted at today's FX\n`;
 
     // HISTORICAL_PERFORMANCE
     let histSection = '';
