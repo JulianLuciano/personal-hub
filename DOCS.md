@@ -695,7 +695,7 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
   - Earnings próximos 30 días desde `nextEarningsDate` de `marketData`
   
   **Secciones del system prompt generado:**
-  - `PORTFOLIO` — total (equity+cash desde snapshot), equity_only, fx, day_change USD+GBP (nominal+%), cost_basis (invested+cash), total_pnl USD+GBP (nominal+%), note_pnl
+  - `PORTFOLIO` — total (equity a precio actual desde `price_snapshots` + cash en vivo — ya no del snapshot agregado del worker), equity_only, fx, day_change USD+GBP (nominal+%, snapshot a snapshot), cost_basis (invested+cash, vía `net_invested_usd/gbp`), total_pnl USD+GBP (nominal+%), note_pnl
   - `HISTORICAL_PERFORMANCE` — tabla 8 columnas: `period|total_chg_usd|total_chg_gbp|total_chg%|return_usd|return_gbp|return%|cf_usd`. `total_chg` = variación bruta del portfolio. `return` = variación neta de cashflows externos (Modified Dietz). `cf_usd` = capital nuevo neto en la ventana (`is_reinvestment=false`, tipos BUY/DEPOSIT/SELL/WITHDRAWAL)
   - `POSITIONS` — tabla con 15 columnas: ticker, category, value, weight%, invested, pnl_usd%, pnl_gbp%, day%_usd, day%_gbp, 7d%_usd, 7d%_gbp, 30d%_usd, 30d%_gbp. 7d/30d usan precio unitario (no valor de posición). Fallback a Yahoo (`fetchMacro`) para tickers sin historial en `price_snapshots`.
   - `CASH` — posiciones fiat con `value_usd` y `value_gbp`. ARS_CASH usa `avg_cost_usd * qty` para convertir a USD/GBP — nunca `qty` directo (que son pesos)
@@ -707,9 +707,10 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
   - `MACRO` — VIX, 10Y/3M UST, GBP/USD, EUR/USD, Nasdaq, FTSE
   - Briefing de ayer (completo) con instrucción explícita de no repetir la observación concreta
   
-  **Decisiones de diseño del cálculo:**
-  - Cost basis = invested (non-fiat, FX locked-in) + cash actual (face value). Cash en denominador → P&L neto cero en fiat.
-  - totalGBP del portfolio viene del snapshot nativo (no totalUSD × fxRate de hoy) para evitar distorsión FX.
+  **Decisiones de diseño del cálculo (julio 2026, ver sección "Fix de consistencia..." más abajo):**
+  - Cost basis = invested (non-fiat) + cash — ambos vía `net_invested_usd/gbp` primero (excluye reinversiones), con fallback a `initial_investment` y por último `avg_cost × qty`. Mismo criterio que `portfolio.js`.
+  - `total` (PORTFOLIO) es EN VIVO: equity a precio actual (`price_snapshots`, no `latestSnap.total_usd/gbp`) + cash valorizado en vivo. `latestSnap.total_usd/gbp` quedó reservado solo para `day_return_*` y los deltas de 7d/30d (snapshot a snapshot), donde conviene quedarse anclado al worker para que USD y GBP salgan consistentes entre sí — igual que `changeUSD`/`changeGBP` en `portfolio.js`.
+  - Precio por posición: `price_snapshots.price_usd` primero (misma fuente que usa la app), fallback a `marketData.regularMarketPrice` (fetch directo a Yahoo) solo si el ticker no tiene snapshot todavía. **`price_snapshots.price_usd` ya viene convertido a USD por el worker, incluso para tickers `pricing_currency='GBP'`** — no hay que volver a dividir por `fxRate`. Esa conversión sólo aplica al fallback de Yahoo (que sí trae el precio en moneda nativa).
   - day% anchor = medianoche London (fin del día anterior), no offset fijo de 20h.
   - RSU_META mapea a META para Yahoo pero se busca en price_snapshots con ticker original RSU_META.
   
@@ -1583,3 +1584,61 @@ Si hubo intereses o diferencia de FX que generó un delta entre los dos montos, 
 | Briefing muestra fecha un día adelantada en el título | `routes/ai-server.js` → `today` — usar `new Date(londonToday + 'T12:00:00.000Z').toLocaleDateString('es-AR', { timeZone: 'UTC', ... })` en vez de `new Date()` con timezone London. Servidor en Virginia (UTC-4) produce off-by-one con `es-AR` locale |
 | Fechas en titles de daily_briefings desfasadas un día | Fix SQL: `UPDATE daily_briefings SET content = replace(content, 'DíaIncorrecto DD de mes de YYYY', 'DíaCorrecto DD de mes de YYYY') WHERE id = '...'` — usar IDs explícitos, no regex |
 | Disparar briefing manualmente sin esperar cierre NYSE | Desde terminal del service notification-worker en Railway: `curl -X POST http://localhost:3001/test-briefing`. El endpoint test-briefing corre en puerto 3001 (no expuesto públicamente, solo accesible desde dentro del service) |
+
+---
+
+## Fix de consistencia PnL: portfolio.js vs briefing (julio 2026)
+
+### Contexto
+
+El header de `portfolio.js` (variación diaria) y el PnL diario (`renderPnlAttribution`, modo `day`) daban números distintos en GBP, y el briefing diario (`ai-server.js` → `/api/briefing-context`) reportaba un PnL histórico acumulado muy distinto al que mostraba la app. Se corrigió en cuatro pasadas.
+
+### 1. `portfolio.js` — variación diaria de ARS_CASH usaba avg_cost en vez de fx live
+
+`renderPnlAttribution()` en modo `day` calculaba la línea "Pesos" comparando el `valueUSD` de hoy (valorizado a `avg_cost_usd`, que casi no se mueve día a día) contra el valor de ayer a fx live — daba un número parecido casi todos los días, sin relación con el movimiento real del dólar blue/MEP.
+
+**Fix:** tratar ARS_CASH como un activo más (mismo criterio que un papel: precio ayer vs hoy × qty, nunca avg_cost). Se agrega `dayPct`/`dayPctGBP` para ARS_CASH en el loop principal de `loadPortfolio()`, usando `1/fx_usd_ars` como "precio", y `renderPnlAttribution()` los consume igual que al resto de los activos.
+
+### 2. `portfolio.js` — changeUSD del header no salía de la misma fuente que changeGBP
+
+`changeGBP` ya comparaba `todaySnap.total_gbp` vs `yesterdaySnap.total_gbp` (ambos snapshots del worker, fx live para ARS). `changeUSD` en cambio usaba `totalUSD` (recalculado en el frontend, con ARS_CASH valorizado a avg_cost) vs `yesterdaySnap.total_usd` — quedaba desalineado con cualquier otro cálculo que ya usara fx live para ARS.
+
+**Fix:** `changeUSD` ahora usa `Number(todaySnap.total_usd)` en vez de `totalUSD`, misma fuente que `changeGBP`. Nota: los precios de acciones/cripto en el frontend YA salían de `price_snapshots` (worker, ~15 min de cadencia) — este cambio no introduce latencia nueva, solo lo alinea con lo que ya pasaba para el resto del portfolio.
+
+### 3. `ai-server.js` (`/api/briefing-context`) — cost basis usaba `initial_investment`/`avg_cost` en vez de `net_invested`
+
+La query de `positions` no traía `net_invested_usd`, `net_invested_gbp` ni `managed_by`, así que el cost basis (tanto el lump `costBasisUSD/GBP` como el `PNL_ATTRIBUTION` por categoría) caía siempre al fallback legacy: `initial_investment` para acciones/cripto, `avg_cost_usd × qty` para cash. Eso ignora reinversiones — ver sección "Arquitectura de reinversión y cost basis" más arriba — y generaba una diferencia grande contra el PnL que muestra la app.
+
+**Fix:** se agregó `net_invested_usd, net_invested_gbp, managed_by, avg_cost_gbp` al select de `positions`. Los tres bloques que calculan cost basis (`POSITIONS`, cash basis, `PNL_ATTRIBUTION`) ahora usan `net_invested_*` primero, con el mismo orden de fallback que `portfolio.js` (`initial_investment` → `avg_cost × qty`).
+
+### 4. `ai-server.js` — total y precios por posición no coincidían con la app
+
+Dos bugs relacionados, encontrados en la misma sesión de debugging:
+
+- **Total desactualizado:** el `total` del briefing (y por lo tanto `total_pnl`) salía de `latestSnap.total_usd/gbp` — el último tick agregado por el worker — en vez de recalcularse en vivo con el precio más fresco por ticker, como hace la app. **Fix:** se agregó `liveTotalUSD/GBP = totalValUSD (equity, precio actual) + cashValueUSD/GBP (cash en vivo)`, usado solo para la línea `total:` y `total_pnl`. `totalUSD/totalGBP` (snapshot) se dejaron intactos para `day_return_*` y los deltas de 7d/30d, que sí necesitan quedar anclados snapshot-a-snapshot.
+- **Doble conversión GBP→USD:** al priorizar `price_snapshots.price_usd` sobre el fetch directo a Yahoo (`marketData.regularMarketPrice`), se aplicó por error la fórmula vieja `isGBP ? price/fxRate : price` sobre un precio que **ya venía convertido a USD** — el worker convierte GBP→USD antes de guardar en `price_snapshots` para tickers `pricing_currency='GBP'` (ver sección `worker.js`). Esto infló temporalmente el valor de VWRP.L/ARKK.L/NDIA.L en ~34% (1/fxRate). **Fix:** cuando el precio sale de `price_snapshots`, se usa directo (`price_usd × qty`, sin dividir por fxRate); la conversión `isGBP ? price/fxRate : price` solo aplica al fallback de Yahoo (que sí está en moneda nativa).
+
+### Verificación
+
+`GET /api/briefing-context` no llama a Claude ni escribe en la DB — solo devuelve `{ systemPrompt }`. Sirve para chequear los números sin gastar una llamada a la API ni generar push de prueba:
+
+```bash
+curl -s https://TU-URL-RAILWAY.up.railway.app/api/briefing-context \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['systemPrompt'])" | less
+```
+
+Para probar el flujo completo (llama a Claude, hace upsert en `daily_briefings`, manda push):
+
+```bash
+curl -s -X POST https://notifications-worker-production.up.railway.app/test-briefing
+```
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| Header GBP y PnL diario GBP no coinciden sin cashflows | `portfolio.js` → `renderPnlAttribution()` modo `day` | Línea "Pesos" usaba `avg_cost_usd` en vez de fx live para el día. Ver punto 1 |
+| PnL diario coincide en GBP pero no en USD (o viceversa) | `portfolio.js` → `changeUSD`/`changeGBP` | Ambos deben salir de `todaySnap`/`yesterdaySnap`, nunca mezclar con `totalUSD` recalculado en el frontend. Ver punto 2 |
+| PnL histórico del briefing muy distinto al de la app | `routes/ai-server.js` → cost basis (3 bloques) | Faltaba `net_invested_usd/gbp` y `managed_by` en el select de `positions`. Ver punto 3 |
+| `total`/`total_pnl` del briefing con lag de unos dólares/libras vs la app | `routes/ai-server.js` → `liveTotalUSD/GBP` | `latestSnap.total_usd/gbp` puede estar unos minutos atrás del precio más fresco. Ver punto 4 |
+| `total`/`total_pnl` del briefing dispara a números absurdos (~30% más alto) | `routes/ai-server.js` → precio de tickers GBP (VWRP.L, ARKK.L, NDIA.L) | No dividir `price_snapshots.price_usd` por `fxRate` — ya viene convertido. Ver punto 4 |
