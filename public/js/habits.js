@@ -352,7 +352,7 @@ function habitDrawerHTML(id) {
       '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-other' + q + ' placeholder=' + q + '¿Cuál?' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainOtherChange(this.value)' + q + '>' +
       '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración (min)</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-dur' + q + '>' + durChips + '</div>' +
-      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainDurCustomChange(this.value)' + q + '>' +
+      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-dur-custom' + q + ' type=' + q + 'text' + q + ' inputmode=' + q + 'numeric' + q + ' pattern=' + q + '[0-9]*' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainDurCustomChange(this.value)' + q + '>' +
       '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Comentario o notas</div>' +
       '<div style=' + q + 'display:flex;gap:8px;margin-top:6px;align-items:center' + q + '>' +
         '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-notes' + q + ' placeholder=' + q + 'Opcional...' + q + ' style=' + q + 'display:block;flex:1;margin:0' + q + '>' +
@@ -372,7 +372,7 @@ function habitDrawerHTML(id) {
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-type' + q + '>' + typeChips + '</div>' +
       '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración (min)</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-piano-dur' + q + '>' + durChips + '</div>' +
-      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-piano-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitPianoDurCustomChange(this.value)' + q + '>' +
+      '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-piano-dur-custom' + q + ' type=' + q + 'text' + q + ' inputmode=' + q + 'numeric' + q + ' pattern=' + q + '[0-9]*' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitPianoDurCustomChange(this.value)' + q + '>' +
     '</div>';
   }
   return '';
@@ -1415,6 +1415,22 @@ async function loadHabitHistory() {
   }
 }
 
+// Abre un overlay simple con el texto completo de una nota truncada
+function habitShowFullNote(text) {
+  const existing = document.getElementById('habitNoteOverlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'habitNoteOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:24px';
+  overlay.onclick = () => overlay.remove();
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--surface2,#1e1e2a);border-radius:12px;padding:16px;max-width:340px;max-height:70vh;overflow-y:auto;color:var(--text);font-size:13px;line-height:1.5;white-space:pre-wrap';
+  box.textContent = text;
+  box.onclick = e => e.stopPropagation();
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
 function renderHabitHistory() {
   const container = document.getElementById('habitHistoryContent');
   if (!_habitHistRows.length) {
@@ -1432,12 +1448,16 @@ function renderHabitHistory() {
     : _habitHistRows.filter(r => r.habit === _habitHistFilter);
 
   const fmtDate = d => d ? d.slice(5).replace('-', '/') : '—';
+  const fmtType = r => (r.type && r.type.length) ? r.type.join(', ') : '—';
 
   const optionsHtml = ['<option value="all">Todos</option>']
     .concat(distinctHabits.map(h =>
       `<option value="${h}" ${h === _habitHistFilter ? 'selected' : ''}>${HABIT_HIST_LABEL[h] || h}</option>`
     )).join('');
 
+  // table-layout fijo + colgroup con % => nunca se pasa del ancho de pantalla,
+  // así que no hace falta scroll horizontal. La nota se banca el resto del ancho
+  // y se clampea a 2 líneas con CSS (line-clamp ya agrega el "...").
   container.innerHTML = `
     <div style="margin-bottom:10px;text-align:right">
       <select id="habitHistFilter" onchange="renderHabitHistory()"
@@ -1445,21 +1465,34 @@ function renderHabitHistory() {
         ${optionsHtml}
       </select>
     </div>
-    <div style="overflow-x:auto">
-      <table class="tx-hist-table">
-        <thead><tr>
-          <th>Fecha</th><th>Hábito</th><th>Tiempo</th><th>Comentario</th>
-        </tr></thead>
-        <tbody>
-          ${filtered.map(r => `<tr>
-            <td>${fmtDate(r.habit_date)}</td>
-            <td style="font-weight:700">${HABIT_HIST_LABEL[r.habit] || r.habit}</td>
-            <td>${r.duration_min != null ? r.duration_min + 'm' : '—'}</td>
-            <td style="color:var(--muted)">${r.notes ? r.notes : '—'}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+    <table class="tx-hist-table" style="width:100%;table-layout:fixed">
+      <colgroup>
+        <col style="width:14%"><col style="width:20%"><col style="width:20%"><col style="width:12%"><col style="width:34%">
+      </colgroup>
+      <thead><tr>
+        <th>Fecha</th><th>Hábito</th><th>Tipo</th><th>Tiempo</th><th>Comentario</th>
+      </tr></thead>
+      <tbody>
+        ${filtered.map(r => `<tr>
+          <td>${fmtDate(r.habit_date)}</td>
+          <td style="font-weight:700">${HABIT_HIST_LABEL[r.habit] || r.habit}</td>
+          <td style="color:var(--muted);word-break:break-word">${fmtType(r)}</td>
+          <td>${r.duration_min != null ? r.duration_min + 'm' : '—'}</td>
+          <td class="habit-note-cell" data-full-note="${(r.notes || '').replace(/"/g, '&quot;')}"
+            style="color:var(--muted);word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${r.notes ? r.notes : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  // Segunda pasada: solo las notas que realmente se cortaron (scrollHeight >
+  // clientHeight) se marcan como clickeables para ver el texto completo.
+  container.querySelectorAll('.habit-note-cell').forEach(cell => {
+    if (cell.dataset.fullNote && cell.scrollHeight > cell.clientHeight + 1) {
+      cell.style.cursor = 'pointer';
+      cell.title = 'Tocar para ver completo';
+      cell.onclick = () => habitShowFullNote(cell.dataset.fullNote);
+    }
+  });
 }
 
 function habitAnalyticsSetRange(weeks, btn) {
