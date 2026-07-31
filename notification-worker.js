@@ -286,6 +286,13 @@ async function checkAndSendWaterNotif() {
 
   // Get notif state
   const state = await getWaterNotifState();
+
+  // User turned off water notifications from Settings — respect it
+  if (state?.enabled === false) {
+    console.log('[worker] water notifs disabled by user, skipping');
+    return;
+  }
+
   const lastSentAt     = state?.last_sent_at ? new Date(state.last_sent_at) : null;
   const intervalMin    = state?.interval_minutes || WATER_BASE_INTERVAL_MIN;
   let   consecutiveYes = state?.consecutive_yes  || 0;

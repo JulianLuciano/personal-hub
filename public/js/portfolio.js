@@ -2283,6 +2283,16 @@ function fmtY(v) {
   return sym + Math.round(v);
 }
 
+// Formatter for the position-detail chart's y-axis (posModalCurrency, not currentCurrency —
+// the popup can show a different currency than the main portfolio toggle).
+// Adds decimal precision for low-priced assets, where fmtY's Math.round would flatten everything.
+function fmtPosY(v) {
+  const sym = posModalCurrency === 'GBP' ? '£' : '$';
+  if (v >= 1000) return sym + (v/1000).toFixed(1) + 'k';
+  if (v >= 10)   return sym + Math.round(v);
+  return sym + v.toFixed(2);
+}
+
 function setYAxis(min, max) {
   const mid = (min + max) / 2;
   const elTop = document.getElementById('yTop');
@@ -3437,12 +3447,15 @@ async function drawPosChart(ticker, meta) {
       const dpr = window.devicePixelRatio || 1;
       const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
       canvas.width = Math.floor(W0 * dpr);
-      canvas.height = 60 * dpr;
+      canvas.height = 69 * dpr;
       ctx.scale(dpr, dpr);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
       ctx.font = '11px DM Sans';
       ctx.textAlign = 'center';
-      ctx.fillText('Sin datos suficientes', canvas.parentElement.offsetWidth / 2, 30);
+      ctx.fillText('Sin datos suficientes', W0 / 2, 34.5);
+      const posYTopEl = document.getElementById('posYTop'), posYBotEl = document.getElementById('posYBot');
+      if (posYTopEl) posYTopEl.textContent = '';
+      if (posYBotEl) posYBotEl.textContent = '';
       return;
     }
 
@@ -3458,12 +3471,15 @@ async function drawPosChart(ticker, meta) {
       const dpr = window.devicePixelRatio || 1;
       const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
       canvas.width = Math.floor(W0 * dpr);
-      canvas.height = 60 * dpr;
+      canvas.height = 69 * dpr;
       ctx.scale(dpr, dpr);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
       ctx.font = '11px DM Sans';
       ctx.textAlign = 'center';
-      ctx.fillText('Sin datos suficientes', canvas.parentElement.offsetWidth / 2, 30);
+      ctx.fillText('Sin datos suficientes', W0 / 2, 34.5);
+      const posYTopEl = document.getElementById('posYTop'), posYBotEl = document.getElementById('posYBot');
+      if (posYTopEl) posYTopEl.textContent = '';
+      if (posYBotEl) posYBotEl.textContent = '';
       return;
     }
 
@@ -3478,7 +3494,7 @@ async function drawPosChart(ticker, meta) {
 
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
-    const H = 60;
+    const H = 69; // 60 + 15%
     canvas.width = Math.floor(W * dpr);
     canvas.height = H * dpr;
     canvas.style.width = W + 'px';
@@ -3489,6 +3505,11 @@ async function drawPosChart(ticker, meta) {
 
     const min = Math.min(...prices), max = Math.max(...prices), range = max - min || 1;
     const padT = 4, padB = 4;
+
+    // Y-axis labels — top/bottom only (no middle tick), mirrors the evolución chart's setYAxis()
+    const posYTopEl = document.getElementById('posYTop'), posYBotEl = document.getElementById('posYBot');
+    if (posYTopEl) posYTopEl.textContent = fmtPosY(max);
+    if (posYBotEl) posYBotEl.textContent = fmtPosY(min);
     const step = W / (prices.length - 1);
     const coords = prices.map((v, i) => ({
       x: i * step,

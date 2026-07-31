@@ -461,6 +461,37 @@ app.post('/api/water/respond', async (req, res) => {
   }
 });
 
+// Notificaciones de agua on/off — guardado en water_notif_state (misma fila id=1
+// que ya usa el worker para el intervalo adaptativo). enabled=true por default
+// si la columna todavía no existe / la fila no tiene el campo seteado.
+app.get('/api/water/notif-settings', async (req, res) => {
+  if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
+  try {
+    const rows = await sb('water_notif_state?id=eq.1&select=enabled');
+    const enabled = Array.isArray(rows) && rows.length > 0 && rows[0].enabled === false ? false : true;
+    res.json({ enabled });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.post('/api/water/notif-settings', async (req, res) => {
+  if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) requerido' });
+  try {
+    const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/water_notif_state`, {
+      method: 'POST',
+      headers: headers({ 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+      body: JSON.stringify({ id: 1, enabled, updated_at: new Date().toISOString() }),
+    });
+    if (!sbRes.ok) return res.status(sbRes.status).json({ error: await sbRes.text() });
+    res.json({ ok: true, enabled });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 async function updateWaterNotifConsecutive(response) {
   try {
     const rows = await sb('water_notif_state?id=eq.1');

@@ -157,6 +157,7 @@ async function initHabits() {
   habitRenderAnalytics();
   habitInitNotifications();
   habitCheckWaterPrompt();
+  loadWaterNotifSetting();
 }
 
 // ── WATER PROMPT (iOS fallback) ───────────────────────────────────────────────
@@ -1444,6 +1445,41 @@ function urlBase64ToUint8Array(base64String) {
 // habitSaveNotifTime — now just persists preference; actual scheduling done server-side
 function habitScheduleNotification() {
   console.log('[habits] scheduling done server-side via notification-worker.js');
+}
+
+// ─── Notificaciones de agua (Settings → Hábitos) ───
+// Estado guardado en Supabase (water_notif_state, misma fila id=1 que usa
+// el worker para el intervalo adaptativo), así el notification-worker
+// (proceso separado, corre 24/7) puede leer la preferencia sin depender del browser.
+
+async function loadWaterNotifSetting() {
+  const el = document.getElementById('waterNotifToggle');
+  if (!el) return;
+  try {
+    const { enabled } = await fetch('/api/water/notif-settings').then(r => r.json());
+    el.classList.toggle('on', enabled !== false);
+  } catch (e) {
+    console.warn('[water] no se pudo cargar el estado de notificaciones:', e.message);
+  }
+}
+
+async function toggleWaterNotif() {
+  const el = document.getElementById('waterNotifToggle');
+  if (!el) return;
+  const nextEnabled = !el.classList.contains('on');
+  el.classList.toggle('on', nextEnabled); // optimistic UI
+
+  try {
+    const res = await fetch('/api/water/notif-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: nextEnabled }),
+    });
+    if (!res.ok) throw new Error('save failed');
+  } catch (e) {
+    el.classList.toggle('on', !nextEnabled); // revert on failure
+    console.warn('[water] no se pudo guardar la preferencia:', e.message);
+  }
 }
 
 // ── BOOT ───────────────────────────────────────────────────────────────────────
