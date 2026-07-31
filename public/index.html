@@ -1106,7 +1106,11 @@
             <span id="posYTop" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
             <span id="posYBot" style="font-size:9px;color:var(--muted);line-height:1;text-align:right"></span>
           </div>
-          <canvas id="posModalChart" style="flex:1;min-width:0;height:69px;display:block"></canvas>
+          <div style="flex:1;min-width:0;position:relative" id="posChartWrap">
+            <canvas id="posModalChart" style="width:100%;height:79px;display:block"></canvas>
+            <canvas id="posModalDotOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+            <div id="posChartTooltip"><div class="tt-date" id="posTtDate"></div><div class="tt-val" id="posTtVal"></div></div>
+          </div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:3px">
           <span id="posModalChartStart">30d atrás</span><span>hoy</span>

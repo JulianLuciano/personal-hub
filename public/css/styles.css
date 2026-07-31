@@ -1180,6 +1180,24 @@
 #chartTooltip .tt-date { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
 #chartTooltip .tt-val  { font-weight: 700; font-size: 13px; }
 
+#posChartTooltip {
+  position: absolute;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+  white-space: nowrap;
+  min-width: 80px;
+}
+#posChartTooltip.visible { opacity: 1; }
+#posChartTooltip .tt-date { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+#posChartTooltip .tt-val  { font-weight: 700; font-size: 13px; }
+
 /* ── Analytics / Monte Carlo ─────────────────────────────────── */
 .analytics-hero { padding: 24px 24px 16px; }
 .analytics-hero-title { font-family:'Outfit',sans-serif; font-size:22px; font-weight:800; letter-spacing:-0.5px; }

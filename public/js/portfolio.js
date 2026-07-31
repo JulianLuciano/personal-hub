@@ -2442,6 +2442,9 @@ async function loadChartData() {
 let chartSnapDates = [];  // populated by loadChartData
 let chartLastCoords = [];  // last drawn line coords for hover dot (totalMode)
 let chartAllCatCoords = {};  // individual mode: cat -> coords array
+let posChartCoords = [];  // drawPosChart: coords of the currently drawn line, for the drag marker
+let posChartDates = [];   // drawPosChart: dates aligned to posChartCoords, for the tooltip
+let posChartPrices = [];  // drawPosChart: raw prices aligned to posChartCoords, for the tooltip value
 
 function clearDotOverlay() {
   const ov = document.getElementById('chartDotOverlay');
@@ -2512,6 +2515,65 @@ function drawDotAt(idx) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
   });
+}
+
+// ─── Drag marker for the position-detail popup chart (drawPosChart) ───
+// Same pattern as clearDotOverlay/drawDotAt above, but scoped to a single
+// line (no per-category coord sets) since the popup only ever shows one price series.
+function clearPosDotOverlay() {
+  const ov = document.getElementById('posModalDotOverlay');
+  if (!ov) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = ov.parentElement.offsetWidth;
+  const H = 79;
+  ov.width = W * dpr;
+  ov.height = H * dpr;
+  ov.style.width = W + 'px';
+  ov.style.height = H + 'px';
+  ov.getContext('2d').clearRect(0, 0, W * dpr, H * dpr);
+}
+
+function drawPosDotAt(idx) {
+  const ov = document.getElementById('posModalDotOverlay');
+  if (!ov || !posChartCoords.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = ov.parentElement.offsetWidth;
+  const H = 79;
+  ov.width = W * dpr;
+  ov.height = H * dpr;
+  ov.style.width = W + 'px';
+  ov.style.height = H + 'px';
+  const ctx = ov.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pt = posChartCoords[Math.min(idx, posChartCoords.length - 1)];
+  if (!pt) return;
+
+  // Vertical crosshair
+  ctx.beginPath();
+  ctx.moveTo(pt.x, 0);
+  ctx.lineTo(pt.x, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const color = pt.color || '#43e97b';
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+  ctx.fillStyle = color + '33';
+  ctx.fill();
+  // Inner dot
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
 function drawChart() {
@@ -3421,6 +3483,9 @@ async function openPosDetail(ticker) {
 
 function closePosDetail() {
   document.getElementById('posModal').classList.remove('open');
+  const t = document.getElementById('posChartTooltip');
+  if (t) t.classList.remove('visible');
+  clearPosDotOverlay();
 }
 
 async function drawPosChart(ticker, meta) {
@@ -3447,15 +3512,17 @@ async function drawPosChart(ticker, meta) {
       const dpr = window.devicePixelRatio || 1;
       const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
       canvas.width = Math.floor(W0 * dpr);
-      canvas.height = 69 * dpr;
+      canvas.height = 79 * dpr;
       ctx.scale(dpr, dpr);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
       ctx.font = '11px DM Sans';
       ctx.textAlign = 'center';
-      ctx.fillText('Sin datos suficientes', W0 / 2, 34.5);
+      ctx.fillText('Sin datos suficientes', W0 / 2, 39.5);
       const posYTopEl = document.getElementById('posYTop'), posYBotEl = document.getElementById('posYBot');
       if (posYTopEl) posYTopEl.textContent = '';
       if (posYBotEl) posYBotEl.textContent = '';
+      posChartCoords = []; posChartDates = []; posChartPrices = [];
+      clearPosDotOverlay();
       return;
     }
 
@@ -3471,15 +3538,17 @@ async function drawPosChart(ticker, meta) {
       const dpr = window.devicePixelRatio || 1;
       const W0 = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
       canvas.width = Math.floor(W0 * dpr);
-      canvas.height = 69 * dpr;
+      canvas.height = 79 * dpr;
       ctx.scale(dpr, dpr);
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
       ctx.font = '11px DM Sans';
       ctx.textAlign = 'center';
-      ctx.fillText('Sin datos suficientes', W0 / 2, 34.5);
+      ctx.fillText('Sin datos suficientes', W0 / 2, 39.5);
       const posYTopEl = document.getElementById('posYTop'), posYBotEl = document.getElementById('posYBot');
       if (posYTopEl) posYTopEl.textContent = '';
       if (posYBotEl) posYBotEl.textContent = '';
+      posChartCoords = []; posChartDates = []; posChartPrices = [];
+      clearPosDotOverlay();
       return;
     }
 
@@ -3494,7 +3563,7 @@ async function drawPosChart(ticker, meta) {
 
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.getBoundingClientRect().width || canvas.parentElement.clientWidth;
-    const H = 69; // 60 + 15%
+    const H = 79; // 60 + 15% (69) + 10px, tope pedido a 79
     canvas.width = Math.floor(W * dpr);
     canvas.height = H * dpr;
     canvas.style.width = W + 'px';
@@ -3511,13 +3580,18 @@ async function drawPosChart(ticker, meta) {
     if (posYTopEl) posYTopEl.textContent = fmtPosY(max);
     if (posYBotEl) posYBotEl.textContent = fmtPosY(min);
     const step = W / (prices.length - 1);
-    const coords = prices.map((v, i) => ({
-      x: i * step,
-      y: padT + (1 - (v - min) / range) * (H - padT - padB)
-    }));
-
     const isUp = prices[prices.length-1] >= prices[0];
     const lineColor = isUp ? '#43e97b' : '#ff6584';
+    const coords = prices.map((v, i) => ({
+      x: i * step,
+      y: padT + (1 - (v - min) / range) * (H - padT - padB),
+      color: lineColor
+    }));
+
+    // Save for the drag marker (drawPosDotAt) and its tooltip
+    posChartCoords = coords;
+    posChartDates = weekdayRows.map(r => new Date(r.captured_at));
+    posChartPrices = prices;
 
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(0, lineColor + '30');
@@ -3533,6 +3607,8 @@ async function drawPosChart(ticker, meta) {
     coords.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
     ctx.strokeStyle = lineColor; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
 
+    clearPosDotOverlay();
+
     // Date label — use first weekday row after weekend stripping
     if (weekdayRows.length > 0) {
       const startDate = new Date(weekdayRows[0].captured_at);
@@ -3543,6 +3619,71 @@ async function drawPosChart(ticker, meta) {
     console.error('Error loading price history:', e);
   }
 }
+
+// ─── Position-detail popup chart tooltip/marker (drag-to-scrub) ───
+// Same interaction pattern as the evolución chart's tooltip IIFE above:
+// global mousemove/touchmove listeners, bounds-checked against the canvas'
+// own rect so they're inert whenever posModal is closed (rect collapses to 0).
+(function() {
+  function showPosTip(clientX, clientY) {
+    const canvas = document.getElementById('posModalChart');
+    const tooltip = document.getElementById('posChartTooltip');
+    if (!canvas || !tooltip || !posChartCoords.length) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return false; // modal closed / not rendered
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top - 20 || clientY > rect.bottom + 20) return false;
+
+    const idx = Math.max(0, Math.min(posChartCoords.length - 1, Math.round(((clientX - rect.left) / rect.width) * (posChartCoords.length - 1))));
+    const date = posChartDates[idx];
+    if (date) document.getElementById('posTtDate').textContent = date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+
+    const price = posChartPrices[idx];
+    document.getElementById('posTtVal').textContent = price !== undefined ? fmtPosY(price) : '';
+
+    drawPosDotAt(idx);
+    const wrap = document.getElementById('posChartWrap');
+    const wRect = wrap.getBoundingClientRect();
+    let left = clientX - wRect.left + 10;
+    if (left + 140 > wRect.width) left = clientX - wRect.left - 145;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = '4px';
+    tooltip.classList.add('visible');
+    return true;
+  }
+
+  document.addEventListener('mousemove', function(e) {
+    if (!showPosTip(e.clientX, e.clientY)) {
+      const t = document.getElementById('posChartTooltip');
+      if (t) t.classList.remove('visible');
+      clearPosDotOverlay();
+    }
+  });
+  document.addEventListener('touchmove', function(e) {
+    if (e.touches[0]) showPosTip(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    const t = document.getElementById('posChartTooltip');
+    if (!t) return;
+    const canvas = document.getElementById('posModalChart');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const tipRect = t.getBoundingClientRect();
+    const tx = e.changedTouches[0].clientX, ty = e.changedTouches[0].clientY;
+    const onTip = tx >= tipRect.left && tx <= tipRect.right && ty >= tipRect.top && ty <= tipRect.bottom;
+    const onChart = tx >= rect.left && tx <= rect.right && ty >= rect.top - 20 && ty <= rect.bottom + 20;
+
+    if (onTip && t.classList.contains('visible')) {
+      t.classList.remove('visible');
+      clearPosDotOverlay();
+    } else if (onChart && !onTip) {
+      showPosTip(tx, ty);
+    } else if (!onChart) {
+      t.classList.remove('visible');
+      clearPosDotOverlay();
+    }
+  });
+})();
 
 
 
