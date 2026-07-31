@@ -1456,8 +1456,9 @@ function renderHabitHistory() {
     )).join('');
 
   // table-layout fijo + colgroup con % => nunca se pasa del ancho de pantalla,
-  // así que no hace falta scroll horizontal. La nota se banca el resto del ancho
-  // y se clampea a 2 líneas con CSS (line-clamp ya agrega el "...").
+  // así que no hace falta scroll horizontal. El clamp de 2 líneas va en un
+  // <div> interno (no directo en el <td>: -webkit-box en una celda de tabla
+  // rompe el cálculo de alto de fila en algunos navegadores y superpone filas).
   container.innerHTML = `
     <div style="margin-bottom:10px;text-align:right">
       <select id="habitHistFilter" onchange="renderHabitHistory()"
@@ -1465,21 +1466,23 @@ function renderHabitHistory() {
         ${optionsHtml}
       </select>
     </div>
-    <table class="tx-hist-table" style="width:100%;table-layout:fixed">
+    <table class="tx-hist-table" style="width:100%;table-layout:fixed;font-size:11.5px">
       <colgroup>
-        <col style="width:14%"><col style="width:20%"><col style="width:20%"><col style="width:12%"><col style="width:34%">
+        <col style="width:15%"><col style="width:22%"><col style="width:22%"><col style="width:13%"><col style="width:28%">
       </colgroup>
       <thead><tr>
         <th>Fecha</th><th>Hábito</th><th>Tipo</th><th>Tiempo</th><th>Comentario</th>
       </tr></thead>
       <tbody>
         ${filtered.map(r => `<tr>
-          <td>${fmtDate(r.habit_date)}</td>
-          <td style="font-weight:700">${HABIT_HIST_LABEL[r.habit] || r.habit}</td>
-          <td style="color:var(--muted);word-break:break-word">${fmtType(r)}</td>
-          <td>${r.duration_min != null ? r.duration_min + 'm' : '—'}</td>
-          <td class="habit-note-cell" data-full-note="${(r.notes || '').replace(/"/g, '&quot;')}"
-            style="color:var(--muted);word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${r.notes ? r.notes : '—'}</td>
+          <td style="vertical-align:top;padding:6px 4px">${fmtDate(r.habit_date)}</td>
+          <td style="vertical-align:top;padding:6px 4px;font-weight:700;word-break:break-word">${HABIT_HIST_LABEL[r.habit] || r.habit}</td>
+          <td style="vertical-align:top;padding:6px 4px;color:var(--muted);word-break:break-word">${fmtType(r)}</td>
+          <td style="vertical-align:top;padding:6px 4px">${r.duration_min != null ? r.duration_min + 'm' : '—'}</td>
+          <td style="vertical-align:top;padding:6px 4px">
+            <div class="habit-note-cell" data-full-note="${(r.notes || '').replace(/"/g, '&quot;')}"
+              style="color:var(--muted);word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${r.notes ? r.notes : '—'}</div>
+          </td>
         </tr>`).join('')}
       </tbody>
     </table>`;
