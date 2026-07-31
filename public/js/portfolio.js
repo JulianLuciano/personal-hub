@@ -2283,14 +2283,22 @@ function fmtY(v) {
   return sym + Math.round(v);
 }
 
-// Formatter for the position-detail chart's y-axis (posModalCurrency, not currentCurrency —
-// the popup can show a different currency than the main portfolio toggle).
-// Adds decimal precision for low-priced assets, where fmtY's Math.round would flatten everything.
+// Formatter for the position-detail chart's y-axis and drag-tooltip (posModalCurrency,
+// not currentCurrency — the popup can show a different currency than the main portfolio
+// toggle). Unlike fmtY (portfolio totals, always big numbers → 'k' abbreviation makes sense),
+// individual share/crypto prices need the full number with a decimal count that scales
+// with magnitude, or a $1400 stock reads as a useless "$1.4k" and a $9 stock loses the
+// only decimal that matters. Same en-US locale as posModalPrice above, for consistency
+// within this modal.
 function fmtPosY(v) {
   const sym = posModalCurrency === 'GBP' ? '£' : '$';
-  if (v >= 1000) return sym + (v/1000).toFixed(1) + 'k';
-  if (v >= 10)   return sym + Math.round(v);
-  return sym + v.toFixed(2);
+  const abs = Math.abs(v);
+  let decimals;
+  if      (abs >= 100) decimals = 0; // e.g. 1400 -> $1,400
+  else if (abs > 15)   decimals = 1; // e.g. 45.3 -> $45.3
+  else if (abs >= 1)   decimals = 2; // e.g. 9.27, 2.15 -> $9.27, $2.15
+  else                 decimals = 3; // e.g. ADA 0.452 -> $0.452
+  return sym + v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function setYAxis(min, max) {
