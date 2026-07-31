@@ -186,6 +186,17 @@
         <canvas id="chartPiano"></canvas>
       </div>
 
+      <!-- HABIT HISTORY -->
+      <div id="habitHistorySection" style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 20px;">
+        <button class="tx-history-toggle" id="habitHistToggle" onclick="toggleHabitHistory()">
+          <span>Historial</span>
+          <span class="tx-hist-arrow">▼</span>
+        </button>
+        <div class="tx-history-body" id="habitHistoryBody">
+          <div id="habitHistoryContent" style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0">Cargando...</div>
+        </div>
+      </div>
+
       <div style="height:24px"></div>
     </div>
 

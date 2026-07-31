@@ -343,7 +343,7 @@ function habitDrawerHTML(id) {
     var typeChips = ['Rugby','Gym','Crossfit','Paddle','Fútbol','Correr','Bici','Otro'].map(function(t) {
       return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainType(' + sq + t + sq + ')' + q + '>' + t + '</button>';
     }).join('');
-    var durChips = [15,30,45,60,90,120].map(function(n) {
+    var durChips = [30,45,60,90].map(function(n) {
       return '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + n + ')' + q + '>' + n + '</button>';
     }).join('') + '<button class=' + q + 'h-scroll-chip' + q + ' onclick=' + q + 'habitSelectTrainDur(' + sq + 'custom' + sq + ')' + q + '>Otro</button>';
     return '<div class=' + q + 'h-detail-drawer' + q + ' id=' + q + 'h-drawer-trained' + q + '>' +
@@ -353,6 +353,11 @@ function habitDrawerHTML(id) {
       '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Duración (min)</div>' +
       '<div class=' + q + 'h-scroll-chips' + q + ' id=' + q + 'h-chips-trained-dur' + q + '>' + durChips + '</div>' +
       '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-dur-custom' + q + ' type=' + q + 'number' + q + ' placeholder=' + q + 'min' + q + ' style=' + q + 'display:none' + q + ' oninput=' + q + 'habitTrainDurCustomChange(this.value)' + q + '>' +
+      '<div class=' + q + 'h-drawer-label' + q + ' style=' + q + 'margin-top:12px' + q + '>Comentario o notas</div>' +
+      '<div style=' + q + 'display:flex;gap:8px;margin-top:6px;align-items:center' + q + '>' +
+        '<input class=' + q + 'h-drawer-other-input' + q + ' id=' + q + 'h-train-notes' + q + ' placeholder=' + q + 'Opcional...' + q + ' style=' + q + 'display:block;flex:1;margin:0' + q + '>' +
+        '<button id=' + q + 'h-train-register-btn' + q + ' onclick=' + q + 'habitRegisterTrainLog()' + q + ' style=' + q + 'padding:0 14px;height:38px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0' + q + '>Registrar</button>' +
+      '</div>' +
     '</div>';
   }
   if (id === 'piano') {
@@ -764,6 +769,66 @@ function habitSelectTrainDur(val) {
 function habitTrainDurCustomChange(val) {
   habitDayState.trainDur = parseInt(val) || null;
   habitScheduleSave();
+}
+
+// Mapeo entre el label que se muestra en la UI y el valor que se guarda en DB.
+// Los tipos no listados acá se guardan tal cual (ej. 'Gym' -> 'Gym').
+const HABIT_TRAIN_TYPE_DB_MAP = { Rugby: 'Touch Rugby' };
+
+function habitResolveTrainType() {
+  const t = habitDayState.trainType;
+  if (!t) return null;
+  const raw = t === 'Otro' ? (habitDayState.trainTypeOther || '').trim() : t;
+  if (!raw) return null;
+  return HABIT_TRAIN_TYPE_DB_MAP[raw] || raw;
+}
+
+// Inserta un registro de entrenamiento en habit_logs (independiente del check
+// diario / habitScheduleSave, que todavía es mock). Usa el mismo proxy
+// genérico /api/db/:table que transactions.js usa para POST.
+async function habitRegisterTrainLog() {
+  const dbType = habitResolveTrainType();
+  const dur    = habitDayState.trainDur;
+
+  if (!dbType || !dur) {
+    habitFlashMissing('trained');
+    return;
+  }
+
+  const btn      = document.getElementById('h-train-register-btn');
+  const notesInp = document.getElementById('h-train-notes');
+  const notes    = notesInp && notesInp.value.trim() ? notesInp.value.trim() : null;
+
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  try {
+    const res = await fetch('/api/db/habit_logs', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        habit_date:   habitDateStr(habitDayOffset),
+        habit:        'Workout',
+        type:         [dbType],
+        duration_min: dur,
+        notes,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err.slice(0, 120));
+    }
+
+    if (notesInp) notesInp.value = '';
+    if (btn) btn.textContent = '✓';
+    setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = 'Registrar'; } }, 2000);
+
+    // Si el historial de Analytics está abierto, refrescarlo con el nuevo registro
+    if (document.getElementById('habitHistoryBody')?.classList.contains('open')) loadHabitHistory();
+
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Registrar'; }
+    alert('Error al registrar: ' + e.message);
+  }
 }
 
 function habitTogglePianoType(type) {
@@ -1319,6 +1384,82 @@ async function habitRenderAnalytics() {
       },
     });
   }
+}
+
+// ── HISTORIAL DE HÁBITOS (Analytics) ────────────────────────────────────────
+// Mismo patrón que toggleTxHistory/loadTxHistory en transactions.js.
+
+let _habitHistRows   = [];
+let _habitHistFilter = 'all';
+
+const HABIT_HIST_LABEL = { Workout: 'Entrenamiento', piano: 'Piano' };
+
+function toggleHabitHistory() {
+  const toggle = document.getElementById('habitHistToggle');
+  const body   = document.getElementById('habitHistoryBody');
+  const isOpen = body.classList.contains('open');
+  toggle.classList.toggle('open', !isOpen);
+  body.classList.toggle('open', !isOpen);
+  if (!isOpen) loadHabitHistory();
+}
+
+async function loadHabitHistory() {
+  const container = document.getElementById('habitHistoryContent');
+  container.innerHTML = '<span style="color:var(--muted)">Cargando...</span>';
+  try {
+    const rows = await sbFetch('/rest/v1/habit_logs?order=habit_date.desc&limit=100');
+    _habitHistRows = rows || [];
+    renderHabitHistory();
+  } catch(e) {
+    container.innerHTML = '<span style="color:var(--accent2)">Error al cargar historial</span>';
+  }
+}
+
+function renderHabitHistory() {
+  const container = document.getElementById('habitHistoryContent');
+  if (!_habitHistRows.length) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:13px">Sin registros</span>';
+    return;
+  }
+
+  // Leer el filtro elegido (si el <select> ya existe de un render previo)
+  const filterSel = document.getElementById('habitHistFilter');
+  if (filterSel) _habitHistFilter = filterSel.value;
+
+  const distinctHabits = [...new Set(_habitHistRows.map(r => r.habit))];
+  const filtered = _habitHistFilter === 'all'
+    ? _habitHistRows
+    : _habitHistRows.filter(r => r.habit === _habitHistFilter);
+
+  const fmtDate = d => d ? d.slice(5).replace('-', '/') : '—';
+
+  const optionsHtml = ['<option value="all">Todos</option>']
+    .concat(distinctHabits.map(h =>
+      `<option value="${h}" ${h === _habitHistFilter ? 'selected' : ''}>${HABIT_HIST_LABEL[h] || h}</option>`
+    )).join('');
+
+  container.innerHTML = `
+    <div style="margin-bottom:10px;text-align:right">
+      <select id="habitHistFilter" onchange="renderHabitHistory()"
+        style="font-size:12px;padding:5px 8px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg);color:var(--text)">
+        ${optionsHtml}
+      </select>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tx-hist-table">
+        <thead><tr>
+          <th>Fecha</th><th>Hábito</th><th>Tiempo</th><th>Comentario</th>
+        </tr></thead>
+        <tbody>
+          ${filtered.map(r => `<tr>
+            <td>${fmtDate(r.habit_date)}</td>
+            <td style="font-weight:700">${HABIT_HIST_LABEL[r.habit] || r.habit}</td>
+            <td>${r.duration_min != null ? r.duration_min + 'm' : '—'}</td>
+            <td style="color:var(--muted)">${r.notes ? r.notes : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function habitAnalyticsSetRange(weeks, btn) {
