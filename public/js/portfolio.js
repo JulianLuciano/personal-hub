@@ -3651,6 +3651,17 @@ async function drawPosChart(ticker, meta) {
     return true;
   }
 
+  let posTouchActive = false;
+
+  document.addEventListener('touchstart', function(e) {
+    const canvas = document.getElementById('posModalChart');
+    if (!canvas) { posTouchActive = false; return; }
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) { posTouchActive = false; return; } // modal closed
+    const t = e.touches[0];
+    posTouchActive = t.clientX >= rect.left && t.clientX <= rect.right && t.clientY >= rect.top - 20 && t.clientY <= rect.bottom + 20;
+  }, { passive: true });
+
   document.addEventListener('mousemove', function(e) {
     if (!showPosTip(e.clientX, e.clientY)) {
       const t = document.getElementById('posChartTooltip');
@@ -3659,9 +3670,14 @@ async function drawPosChart(ticker, meta) {
     }
   });
   document.addEventListener('touchmove', function(e) {
+    if (!posTouchActive) return;
+    // Finger started on the popup chart — block the page from scrolling
+    // underneath while dragging the marker.
+    e.preventDefault();
     if (e.touches[0]) showPosTip(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: true });
+  }, { passive: false });
   document.addEventListener('touchend', function(e) {
+    posTouchActive = false;
     const t = document.getElementById('posChartTooltip');
     if (!t) return;
     const canvas = document.getElementById('posModalChart');
@@ -3683,6 +3699,9 @@ async function drawPosChart(ticker, meta) {
       clearPosDotOverlay();
     }
   });
+  document.addEventListener('touchcancel', function() {
+    posTouchActive = false;
+  }, { passive: true });
 })();
 
 
