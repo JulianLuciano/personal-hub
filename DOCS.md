@@ -95,6 +95,10 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug en notificaciones push (hábitos o agua) | `notification-worker.js` + `sw-habits.js` |
 | Bug en tracker de agua (UI, botones, barra) | `habits.js` |
 | Bug en endpoints de agua o push | `server.js` |
+| Toggle "Notificaciones de agua" no guarda / no sincroniza al abrir | `habits.js` (`loadWaterNotifSetting`/`toggleWaterNotif`) + `server.js` (`/api/water/notif-settings`) |
+| Worker sigue mandando push de agua con el toggle apagado | `notification-worker.js` → `checkAndSendWaterNotif()` — chequear que lea `water_notif_state.enabled` |
+| Bug en gráfico del popup de posición (eje Y, marker, colores, decimales) | `portfolio.js` → `drawPosChart()`, `fmtPosY()`, `drawPosDotAt()` |
+| Página scrollea al arrastrar el dedo sobre el marker del popup | `portfolio.js` → IIFE del tooltip del popup (`posTouchActive` + `preventDefault()` en `touchmove`) |
 | Bug en recálculo de posiciones | `recalculator.js` |
 | ARS_CASH no aparece en saldos / valor incorrecto | `transactions.js` → `loadSaldos()` + `renderSaldos()` + `server.js` → `/api/positions/manual` |
 | HISTORICAL_PERFORMANCE vacío en contexto AI | `portfolio.js` → `loadPortfolio()` no fetcheaba snapshots 7d/30d. Ahora usa `snap7d` y `snap30d` en `liveData`. `ai.js` → `buildPortfolioContext()` los lee directamente en vez de buscar en el array de 3 snapshots |
@@ -255,6 +259,8 @@ Lógica completa del tab Hábitos. Incluye checks diarios, tracker de agua, one-
 - `habitSelectMood(val)` — registra estado de ánimo (1-5).
 - `habitInitNotifications()` — registra SW, solicita permiso, suscribe con VAPID, guarda suscripción en `/api/push/subscribe`.
 - `habitSaveNotifTime()` — persiste hora configurada en localStorage y llama `/api/push/subscribe` para que el worker use la preferencia.
+- `loadWaterNotifSetting()` — llamada desde `initHabits()`. Trae `GET /api/water/notif-settings` y sincroniza el toggle `#waterNotifToggle` (Settings → Hábitos) con el estado real guardado en Supabase.
+- `toggleWaterNotif()` — handler del click en el toggle de notificaciones de agua. UI optimista (togglea la clase `.on` al toque) + `POST /api/water/notif-settings`; revierte la clase si el POST falla.
 
 **Drawers de detalle (entrenamiento / piano):**
 - `habitDrawerHTML(id)` — genera HTML del drawer inline (chips de tipo + duración).
@@ -333,7 +339,20 @@ El módulo más grande (~2745 líneas). Maneja toda la tab Portfolio.
 **Modal Position Detail:**
 - `openPosDetail(ticker)` — abre el modal con métricas de una posición específica
 - `renderPosModalValues(ticker)` — calcula y muestra P&L, avg cost, rendimiento
-- `drawPosChart(ticker, meta)` — gráfico de precio histórico de la posición
+- `closePosDetail()` — cierra el modal; también limpia el tooltip/marker del gráfico (`posChartTooltip` + `clearPosDotOverlay()`) para que no quede un marker fantasma la próxima vez que se abre
+- `drawPosChart(ticker, meta)` — gráfico de precio histórico (30d) de la posición. Detalles:
+  - Strip de fines de semana igual que `applySnapsToCatData()` del gráfico de evolución (filtra `getUTCDay()` 0/6)
+  - Canvas de 79px de alto (subido desde 60px original)
+  - Eje Y con dos valores (max/min, sin tick del medio) — `posYTop`/`posYBot` en `index.html`, poblados por `fmtPosY()`
+  - Marker interactivo (drag/hover): igual patrón que el gráfico de evolución (`chartDotOverlay`/`chartTooltip`) pero para una sola línea — canvas overlay `posModalDotOverlay`, tooltip `posChartTooltip`, funciones `clearPosDotOverlay()`/`drawPosDotAt(idx)`. Estado en `posChartCoords`/`posChartDates`/`posChartPrices` (module-level)
+  - IIFE al final de `portfolio.js` maneja `mousemove`/`touchmove`/`touchend`/`touchcancel` para el drag. `touchmove` es `passive:false` con `preventDefault()` (solo si el touch arrancó sobre el canvas del popup, flag `posTouchActive`) para que el fondo (la página de Portfolio) no scrollee mientras se arrastra el dedo sobre el marker
+  - `fmtPosY(v)` — formatea el precio para el eje Y y el tooltip del marker según `posModalCurrency` (no `currentCurrency` — el popup puede estar en una moneda distinta al toggle principal). A diferencia de `fmtY()` (totales de portfolio, abrevia a 'k'), acá se necesita el número completo con decimales escalonados por magnitud, porque un papel a ~$1400 no sirve mostrado como "$1.4k" y uno a ~$9 pierde precisión si se redondea a entero:
+    - `>= 100` → 0 decimales (ej. $1,400)
+    - `> 15` y `< 100` → 1 decimal (ej. $45.3)
+    - `1` a `15` → 2 decimales (ej. $9.27, $2.15)
+    - `< 1` → 3 decimales (ej. ADA $0.452)
+    - Locale `en-US` (mismo que usa `posModalPrice` en este modal, para consistencia visual)
+    - Los thresholds se aplican sobre el valor numérico ya convertido a la moneda del popup, no sobre el valor en USD — si se togglea GBP/USD dentro del popup, la cantidad de decimales de un mismo ticker puede cambiar si el precio convertido cruza uno de los límites
 - `setPosModalCurrency(cur)` — cambia moneda dentro del modal
 
 ---
@@ -725,6 +744,8 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
 - `GET /api/water/today` — suma todos los `amount_ml` de `water_logs` del día actual (incluye negativos).
 - `POST /api/water/log` — inserta una transacción de agua. `amount_ml` puede ser positivo (+250, +500) o negativo (−100). `source`: `'manual'` | `'notification'`.
 - `POST /api/water/respond` — registra respuesta "no tomé" en `water_notif_responses` y actualiza contadores consecutivos en `water_notif_state` para la lógica adaptativa del worker.
+- `GET /api/water/notif-settings` — devuelve `{ enabled }` leyendo `water_notif_state.enabled` (fila id=1). `true` por default si la columna es null o no existe la fila.
+- `POST /api/water/notif-settings` — body `{ enabled: boolean }`. Upsert (`resolution=merge-duplicates`) sobre `water_notif_state` id=1. Usado por el toggle "Notificaciones de agua" en Settings → Hábitos.
 
 ---
 
@@ -827,6 +848,7 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 
 **Notificaciones de agua (09:40–22:40):**
 - Consulta `water_notif_state` para saber cuándo fue el último push y cuál es el intervalo actual.
+- **Toggle on/off:** si `water_notif_state.enabled === false` → no manda nada (chequeado antes que cualquier otra condición). Se setea desde Settings → Hábitos en la app (toggle "Notificaciones de agua", `habits.js` → `toggleWaterNotif()` → `POST /api/water/notif-settings`). Default `true` si la columna es null.
 - Si ya se llegó al objetivo del día → no manda más.
 - Intervalo adaptativo: base 90 min. Si respondiste "no tomé" 2 veces seguidas → acorta a 60 min. Si respondiste "sí tomé" 3 veces seguidas → alarga a 120 min.
 - Actualiza `water_notif_state` después de cada envío.
@@ -968,7 +990,7 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `habit_weight_logs` | Historial de registros de peso quincenal. |
 | `push_subscriptions` | Suscripciones Web Push de cada dispositivo/browser. UNIQUE(endpoint). |
 | `water_logs` | Transacciones de agua del día. Acepta `amount_ml` negativos (correcciones). El total del día es la suma de todas las filas. |
-| `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. |
+| `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. `enabled` (boolean, default true, migración manual `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — on/off del toggle "Notificaciones de agua" en Settings → Hábitos; leído/escrito vía `GET`/`POST /api/water/notif-settings`. |
 | `water_notif_responses` | Historial de respuestas a notificaciones de agua (yes/no). Para análisis futuro de comportamiento. |
 | `correlation_matrix` | Matriz de correlación de retornos entre activos. Una fila por par ordenado (ticker_a, ticker_b) por período. PK: `(ticker_a, ticker_b, period_days)`. |
 | `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count` (actualizado automáticamente por trigger). |
