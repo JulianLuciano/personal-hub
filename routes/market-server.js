@@ -52,6 +52,23 @@ const TICKER_MAP = {
   'BRK.B': 'BRK-B',
 };
 
+// Manual earnings-timing lookup — Yahoo's calendarEvents module (used below) only gives a
+// date, not a reliable hour, so BMO/AMC can't be derived from the API response. Confirmed
+// via yfinance's get_earnings_dates() (scrapes Yahoo's earnings-calendar page, which does
+// carry real timestamps) that these tickers report consistently at the same time each
+// quarter going back 5+ years — so a manual table is more robust than fragile scraping for
+// a fixed, small portfolio. 'BMO' = before market open (~pre-9:30 ET), 'AMC' = after market
+// close (~post-16:00 ET). Update if a ticker changes its pattern, or add new ones as needed —
+// check via: yf.Ticker(TICKER).get_earnings_dates(limit=8) in Python (needs lxml installed).
+const EARNINGS_TIMING = {
+  MELI:    'AMC',
+  META:    'AMC',
+  GOOGL:   'AMC',
+  MSFT:    'AMC',
+  'BRK-B': 'BMO', // Berkshire reporta temprano el sábado a la mañana
+  NU:      'AMC', // TODO: verificar con get_earnings_dates, no confirmado con datos reales aún
+};
+
 async function fetchFundamentals(ticker) {
   if (!yf) throw new Error('yahoo-finance2 not loaded');
   const yticker = TICKER_MAP[ticker] || ticker;
@@ -96,6 +113,7 @@ async function fetchFundamentals(ticker) {
     nextEarningsDate:   nextEarnings instanceof Date
       ? nextEarnings.toISOString().slice(0, 10)
       : typeof nextEarnings === 'string' ? nextEarnings.slice(0, 10) : null,
+    earningsTiming:     EARNINGS_TIMING[ticker] || EARNINGS_TIMING[yticker] || 'unknown',
     sector:             ap.sector   || null,
     industry:           ap.industry || null,
   };

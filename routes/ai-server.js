@@ -1217,14 +1217,14 @@ router.get('/briefing-context', async (req, res) => {
         const ed = new Date(md.nextEarningsDate);
         if (ed >= now7 && ed <= in7d) {
           const displayTicker = p.ticker === 'RSU_META' ? 'META (RSU)' : p.ticker;
-          earningsList.push({ ticker: displayTicker, date: md.nextEarningsDate });
+          earningsList.push({ ticker: displayTicker, date: md.nextEarningsDate, timing: md.earningsTiming || 'unknown' });
         }
       }
     });
     if (earningsList.length > 0) {
       earningsList.sort((a, b) => a.date.localeCompare(b.date));
-      earningsSection = 'UPCOMING_EARNINGS (next 7 days)\nticker|date\n';
-      earningsList.forEach(e => { earningsSection += e.ticker + '|' + e.date + '\n'; });
+      earningsSection = 'UPCOMING_EARNINGS (next 7 days)\nticker|date|timing\n';
+      earningsList.forEach(e => { earningsSection += e.ticker + '|' + e.date + '|' + e.timing + '\n'; });
     }
 
     // Next RSU vest section
@@ -1390,6 +1390,11 @@ router.get('/briefing-context', async (req, res) => {
       `Expandila a uno o dos párrafos SOLO si hay algo realmente accionable o a monitorear: deployable_cash > $0 con destino claro, concentración de una sola posición > 30% del equity, vest a menos de 30 días, earnings en UPCOMING_EARNINGS (ya viene filtrado a 7 días — si la sección no aparece en los datos, es porque no hay ninguno, no lo menciones), o cualquier otra observación puntual sobre una posición o el mercado que valga la pena señalar hoy. ` +
       `Es UNA sola sección: si mencionás un ticker o dato al expandir, no lo repitas con otro ángulo más abajo — elegí el mejor punto y desarrollalo una vez. Si no se cumple ninguna condición, dejala en la línea de una sola oración y cerrá ahí.\n\n` +
       `Sé directo. No repitas el mismo dato en dos secciones (ej: no expliques el gap USD/GBP en la sección 1 y de nuevo en la 2, ni el mismo ticker con el mismo argumento en la sección 2 y la 3).\n` +
+      `Earnings — IMPORTANTE: UPCOMING_EARNINGS trae una columna timing (BMO=antes de la apertura, AMC=después del cierre, unknown=no confirmado). Usala así: ` +
+      `si timing=AMC y la fecha es HOY, el precio de hoy NO refleja la reacción todavía (se reportó después del cierre) — no atribuyas el movimiento de hoy a ese earnings, a lo sumo mencioná que se espera la reacción en la apertura de mañana. ` +
+      `Si timing=AMC y la fecha es AYER, recién hoy se ve la reacción real — ahí sí podés atribuir el movimiento de hoy a ese earnings. ` +
+      `Si timing=BMO y la fecha es HOY, el precio de hoy ya refleja la reacción (se reportó antes de abrir) — podés atribuirlo con confianza. ` +
+      `Si timing=unknown, no asumas nada: describí el movimiento del día solo en base al precio, sin mencionar earnings como causa, salvo certeza explícita.\n` +
       (yesterdayBriefing ? `Así cerró el briefing de ayer:\n${yesterdayBriefing}\nNo repitas la misma observación o recomendación hoy — buscá un ángulo distinto.\n` : '') +
       `\n` +
       portfolioSummary + '\n' +
