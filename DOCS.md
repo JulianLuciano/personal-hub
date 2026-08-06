@@ -582,7 +582,7 @@ Helper centralizado de credenciales Supabase. Exporta:
 
 ### `routes/market-server.js`
 Yahoo Finance y caches de market data. Puntos clave:
-- `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC y BRK.B.
+- `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC y BRK.B. Devuelve además `earningsTiming` (`'BMO'|'AMC'|'unknown'`), lookup manual en `EARNINGS_TIMING` (Yahoo no da hora confiable de reporte vía `calendarEvents`, solo la fecha estimada — confirmado con `yfinance.get_earnings_dates()` en Python, que sí trae timestamp con hora pero por un endpoint distinto/frágil de scrapear en Node). Cubre MELI/META/GOOGL/MSFT/NU (AMC) y BRK-B (BMO); tickers no listados caen en `'unknown'`.
 - `fetchMacro(yahooTicker)` — 35 días de historial diario, calcula chg7d/chg30d/trend.
 - Tres caches independientes en memoria: `portfolioCache`, `watchlistCache`, `macroCache` — TTL 1 hora.
 - Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchFundamentals/fetchMacro/MACRO_TICKERS/CACHE_TTL_MS` para que `ai-server.js` llame directamente a Yahoo sin HTTP round-trip.
@@ -711,7 +711,7 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
   - `rsu_vests` para el próximo vest pendiente
   - `daily_briefings` para el briefing del día anterior (instrucción anti-repetición de observación)
   - Transacciones recientes + totales de mes corriente y anterior
-  - Earnings próximos 30 días desde `nextEarningsDate` de `marketData`
+  - Earnings próximos 7 días desde `nextEarningsDate` de `marketData` (con `earningsTiming` BMO/AMC/unknown)
   
   **Secciones del system prompt generado:**
   - `PORTFOLIO` — total (equity a precio actual desde `price_snapshots` + cash en vivo — ya no del snapshot agregado del worker), equity_only, fx, day_change USD+GBP (nominal+%, snapshot a snapshot), cost_basis (invested+cash, vía `net_invested_usd/gbp`), total_pnl USD+GBP (nominal+%), note_pnl
@@ -719,12 +719,13 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
   - `POSITIONS` — tabla con 15 columnas: ticker, category, value, weight%, invested, pnl_usd%, pnl_gbp%, day%_usd, day%_gbp, 7d%_usd, 7d%_gbp, 30d%_usd, 30d%_gbp. 7d/30d usan precio unitario (no valor de posición). Fallback a Yahoo (`fetchMacro`) para tickers sin historial en `price_snapshots`.
   - `CASH` — posiciones fiat con `value_usd` y `value_gbp`. ARS_CASH usa `avg_cost_usd * qty` para convertir a USD/GBP — nunca `qty` directo (que son pesos)
   - `PNL_ATTRIBUTION` — por categoría (cripto/acciones/rsu): invested, current, pnl USD+GBP+%
-  - `UPCOMING_EARNINGS` — tickers del portfolio con earnings en los próximos 30 días. RSU_META aparece como `META (RSU)`.
-  - `NEXT_RSU_VEST` — próximo vest: fecha, días_hasta, unidades, gross_usd, net_usd (×53%), net_gbp
+  - `UPCOMING_EARNINGS` — tickers del portfolio con earnings en los próximos **7 días** (no 30 — filtrado a la ventana corta a propósito, earnings a 3-4 semanas no cambian ninguna decisión hoy y se vuelven a mostrar cuando entren en la ventana). RSU_META aparece como `META (RSU)`. Trae columna `timing` (`BMO`/`AMC`/`unknown`, desde `earningsTiming` de `fetchFundamentals`) — el prompt la usa para no atribuir movimiento de precio a un earnings que reportó after-market el mismo día (el precio de ese día todavía no puede reflejar la reacción), y aun cuando el timing indica que la reacción ya podría verse, se le instruye a no asumir causalidad automática (earnings es una explicación posible entre varias, salvo movimiento claramente atípico).
+  - `NEXT_RSU_VEST` — próximo vest: fecha, días_hasta, unidades, gross_usd, net_usd (×53%), net_gbp. Precio de META: prioriza `price_snapshots` (en vivo, actualizado cada 15 min por el worker) igual que el resto del archivo, con fallback a `marketData.regularMarketPrice` solo si no hay snapshot — antes usaba directo el fallback (fundamentals cache, con su propio TTL), por lo que el monto del vest no se movía con la valuación real.
   - `ALLOCATION` — pesos sobre equity + cash líquido (excl. RENT_DEPOSIT y GBP_RECEIVABLE). `deployable_cash` (GBP_LIQUID + USD_CASH), `emergency_fund` y `ARS_CASH` como líneas separadas. ARS_CASH etiquetado `(liquid, ARS)`, incluido en el denominador. Todos los valores en USD/GBP, nunca en ARS.
   - `RECENT_TRANSACTIONS` — últimas 5 + MONTH_INVESTED mes corriente y anterior
   - `MACRO` — VIX, 10Y/3M UST, GBP/USD, EUR/USD, Nasdaq, FTSE
   - Briefing de ayer (completo) con instrucción explícita de no repetir la observación concreta
+  - **Estructura del output** (instrucción de formato en el prompt, no un dato): 3 secciones fijas — `Resumen del día` (tabla USD/GBP + prosa condicional por gap FX), `Qué importa hoy` (posiciones por impacto nominal, sin aclarar el criterio en el texto; macro solo si es relevante), `Contexto y oportunidades` (una sola sección fusionada — antes eran dos, "Contexto" y "Observación concreta", que se pisaban repitiendo el mismo ticker; ahora se instruye explícitamente a no repetir el mismo argumento dentro de la sección). `deployable_cash` solo se menciona si es > $0 y hay algo concreto que hacer con eso — antes aparecía siempre, incluso en $0.
   
   **Decisiones de diseño del cálculo (julio 2026, ver sección "Fix de consistencia..." más abajo):**
   - Cost basis = invested (non-fiat) + cash — ambos vía `net_invested_usd/gbp` primero (excluye reinversiones), con fallback a `initial_investment` y por último `avg_cost × qty`. Mismo criterio que `portfolio.js`.
@@ -1664,3 +1665,5 @@ curl -s -X POST https://notifications-worker-production.up.railway.app/test-brie
 | PnL histórico del briefing muy distinto al de la app | `routes/ai-server.js` → cost basis (3 bloques) | Faltaba `net_invested_usd/gbp` y `managed_by` en el select de `positions`. Ver punto 3 |
 | `total`/`total_pnl` del briefing con lag de unos dólares/libras vs la app | `routes/ai-server.js` → `liveTotalUSD/GBP` | `latestSnap.total_usd/gbp` puede estar unos minutos atrás del precio más fresco. Ver punto 4 |
 | `total`/`total_pnl` del briefing dispara a números absurdos (~30% más alto) | `routes/ai-server.js` → precio de tickers GBP (VWRP.L, ARKK.L, NDIA.L) | No dividir `price_snapshots.price_usd` por `fxRate` — ya viene convertido. Ver punto 4 |
+| Monto del próximo vest RSU no se mueve aunque cambie el precio de META | `routes/ai-server.js` → `NEXT_RSU_VEST` | Usaba `marketData['META'].regularMarketPrice` directo (fundamentals cache) en vez de priorizar `price_snapshots` como el resto del archivo. Fix agosto 2026. |
+| Briefing atribuye un movimiento de precio a un earnings que reportó after-market ese mismo día (el precio de ese día no puede reflejarlo todavía) | `routes/ai-server.js` → `UPCOMING_EARNINGS` / `routes/market-server.js` → `EARNINGS_TIMING` | `calendarEvents` de Yahoo no trae hora confiable de reporte. Se agregó tabla manual `EARNINGS_TIMING` (BMO/AMC por ticker, confirmada con `yfinance.get_earnings_dates()`) + instrucción de prompt para no asumir causalidad aun cuando el timing indica que la reacción ya podría verse. Fix agosto 2026. |
