@@ -65,8 +65,8 @@ const EARNINGS_TIMING = {
   META:    'AMC',
   GOOGL:   'AMC',
   MSFT:    'AMC',
-  'BRK-B': 'BMO', // Berkshire reporta temprano el sábado a la mañana
-  NU:      'AMC', // TODO: verificar con get_earnings_dates, no confirmado con datos reales aún
+  'BRK-B': 'BMO', // confirmado: reporta 07:00-08:00 ET
+  NU:      'AMC', // confirmado: reporta 16:00-18:00 ET
 };
 
 async function fetchFundamentals(ticker) {
