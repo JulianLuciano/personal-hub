@@ -1232,7 +1232,13 @@ router.get('/briefing-context', async (req, res) => {
     const nextVest = Array.isArray(nextVestRows) && nextVestRows[0] ? nextVestRows[0] : null;
     if (nextVest) {
       const metaMD  = marketData['META'] || {};
-      const metaPrice = metaMD.regularMarketPrice || 0;
+      const psMetaNow = priceLatestMap['RSU_META'];
+      // Same priority as the rest of the file: live price_snapshots first (worker updates
+      // every 15 min), fundamentals cache only as fallback — this was previously skipped
+      // here, so the vest amount didn't move with the actual META price.
+      const metaPrice = (psMetaNow && psMetaNow.price_usd != null && psMetaNow.price_usd !== '')
+        ? parseFloat(psMetaNow.price_usd)
+        : (metaMD.regularMarketPrice || 0);
       const units   = parseFloat(nextVest.units) || 0;
       const grossUSD = units * metaPrice;
       const netUSD   = grossUSD * 0.53;
@@ -1373,17 +1379,18 @@ router.get('/briefing-context', async (req, res) => {
     const systemPrompt =
       `Sos el asesor financiero personal de Julián. Vive en Londres. Hoy es ${today}. La bolsa de Nueva York acaba de cerrar.\n\n` +
       `Generá un briefing financiero diario conciso en español. Máximo 600 palabras. Usá markdown (negrita, bullets).\n\n` +
-      `Estructura (4 secciones, todas se generan siempre — lo que cambia es cuánto espacio ocupa cada una):\n\n` +
+      `Formato: nunca dejes más de un salto de línea en blanco entre bloques (tabla → texto, sección → sección). Un solo \\n en blanco, nunca dos o más.\n\n` +
+      `Estructura (3 secciones, todas se generan siempre — lo que cambia es cuánto espacio ocupa cada una):\n\n` +
       `1. **Resumen del día** — Abrí con una tabla markdown de 2 columnas (USD | GBP), 3 filas: Valor total, Rendimiento del día (nominal + %), P&L acumulado (nominal + %). ` +
       `Después de la tabla, 1-2 líneas de prosa SOLO si hay algo que valga la pena señalar — ej: el gap USD/GBP (day%_usd vs day%_gbp del portfolio) SOLO si la diferencia supera ~0.3 puntos porcentuales. Si no hay nada relevante, no agregues prosa, la tabla sola alcanza.\n\n` +
       `2. **Qué importa hoy** — ` +
-      `Posiciones destacadas: rankealas por day_$_usd (impacto real en plata), NO por day%_usd — una posición chica con +4% puede pesar menos en dólares que RSU_META con +0.5%. Mostrá 3-5 como máximo. ` +
+      `Posiciones destacadas: rankealas por day_$_usd (impacto real en plata), NO por day%_usd — una posición chica con +4% puede pesar menos en dólares que RSU_META con +0.5%. Mostrá 3-5 como máximo. No aclares el criterio de orden entre paréntesis (nada de "(por impacto nominal)" ni similar) — el orden se entiende solo. ` +
       `Macro: NO listes VIX/índices/tasas/FX como rutina. Mencioná un dato macro puntual solo si (a) VIX está por encima de 20, (b) algún índice o el VIX se movió más de ±2% en el día o ±5% en 7d, o (c) explica directamente el movimiento del portfolio de hoy. Si nada de eso pasa, omitila por completo — no hace falta ni una línea.\n\n` +
-      `3. **Contexto** — 1 línea de estado siempre (deployable cash actual, % de RSU_META u otra posición sobre el equity total, próximo vest si existe). ` +
-      `Expandila a un párrafo con recomendación SOLO si hay algo realmente accionable: deployable_cash > $0, concentración de una sola posición > 30% del equity, vest a menos de 30 días, o earnings en UPCOMING_EARNINGS (ya viene filtrado a 7 días — si la sección no aparece en los datos, es porque no hay ninguno, no lo menciones). Si no se cumple ninguna condición, dejala en la línea de una sola oración y seguí — earnings/vest NO son secciones propias, son motivos para expandir esta línea cuando corresponda.\n\n` +
-      `4. **Una observación concreta** — algo accionable o a monitorear, distinto de lo que ya dijiste en las secciones 1-3.\n\n` +
-      `Sé directo. No repitas el mismo dato en dos secciones (ej: no expliques el gap USD/GBP en la sección 1 y de nuevo en la 2).\n` +
-      (yesterdayBriefing ? `La observación concreta de ayer fue:\n${yesterdayBriefing}\nNo repitas esa observación hoy — buscá un ángulo distinto.\n` : '') +
+      `3. **Contexto y oportunidades** — 1 línea de estado siempre (% de RSU_META u otra posición sobre el equity total, próximo vest si existe). Mencioná deployable cash SOLO si es > $0 y hay algo concreto para hacer con eso — si es $0, no la menciones en absoluto. ` +
+      `Expandila a uno o dos párrafos SOLO si hay algo realmente accionable o a monitorear: deployable_cash > $0 con destino claro, concentración de una sola posición > 30% del equity, vest a menos de 30 días, earnings en UPCOMING_EARNINGS (ya viene filtrado a 7 días — si la sección no aparece en los datos, es porque no hay ninguno, no lo menciones), o cualquier otra observación puntual sobre una posición o el mercado que valga la pena señalar hoy. ` +
+      `Es UNA sola sección: si mencionás un ticker o dato al expandir, no lo repitas con otro ángulo más abajo — elegí el mejor punto y desarrollalo una vez. Si no se cumple ninguna condición, dejala en la línea de una sola oración y cerrá ahí.\n\n` +
+      `Sé directo. No repitas el mismo dato en dos secciones (ej: no expliques el gap USD/GBP en la sección 1 y de nuevo en la 2, ni el mismo ticker con el mismo argumento en la sección 2 y la 3).\n` +
+      (yesterdayBriefing ? `Así cerró el briefing de ayer:\n${yesterdayBriefing}\nNo repitas la misma observación o recomendación hoy — buscá un ángulo distinto.\n` : '') +
       `\n` +
       portfolioSummary + '\n' +
       (histSection      ? histSection      + '\n' : '') +
