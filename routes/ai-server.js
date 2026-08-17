@@ -1578,7 +1578,8 @@ router.post('/ai-chat', async (req, res) => {
         },
       }, (streamRes) => {
         let buffer = '';
-        let inputTokens = null, outputTokens = null;
+        let inputTokens = null, outputTokens = null, stopReason = null, thinkingTokens = null;
+        let thinkingPreview = ''; // resumen del razonamiento (summarized thinking), solo para logs
 
         streamRes.on('data', chunk => {
           buffer += chunk.toString();
@@ -1593,15 +1594,40 @@ router.post('/ai-chat', async (req, res) => {
               const evt = JSON.parse(raw);
               if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
                 send({ type: 'delta', text: evt.delta.text });
+              } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
+                // Nunca se manda al cliente (por diseño, ver DOCS.md "Thinking blocks") —
+                // solo se acumula acá para loggear un preview server-side.
+                if (thinkingPreview.length < 500) thinkingPreview += evt.delta.thinking || '';
               } else if (evt.type === 'message_start' && evt.message?.usage) {
                 inputTokens  = evt.message.usage.input_tokens  ?? null;
                 outputTokens = evt.message.usage.output_tokens ?? null;
-              } else if (evt.type === 'message_delta' && evt.usage) {
-                outputTokens = evt.usage.output_tokens ?? outputTokens;
+              } else if (evt.type === 'message_delta') {
+                if (evt.usage) {
+                  outputTokens   = evt.usage.output_tokens ?? outputTokens;
+                  thinkingTokens = evt.usage.output_tokens_details?.thinking_tokens ?? thinkingTokens;
+                }
+                if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
               } else if (evt.type === 'message_stop') {
                 const cacheHit = evt.message?.usage?.cache_read_input_tokens ?? 0;
-                console.log(`[ai-chat] stream done | in: ${inputTokens} out: ${outputTokens}${cacheHit > 0 ? ` cache_read: ${cacheHit}` : ''}`);
-                send({ type: 'done', usage: { input_tokens: inputTokens, output_tokens: outputTokens } });
+                const truncWarn = stopReason === 'max_tokens'
+                  ? ` ⚠️ CORTADO POR max_tokens (${max_tokens}) — subir el límite o el thinking se comió el presupuesto`
+                  : '';
+                // thinking_tokens está incluido DENTRO de output_tokens (no es aparte) —
+                // se resta para aproximar cuánto fue texto visible real.
+                const textTokens = (outputTokens != null && thinkingTokens != null)
+                  ? outputTokens - thinkingTokens : null;
+                const thinkingBreakdown = thinkingTokens != null
+                  ? ` (thinking: ${thinkingTokens}, texto: ${textTokens})` : '';
+                console.log(`[ai-chat] stream done | in: ${inputTokens} out: ${outputTokens}${thinkingBreakdown} | stop_reason: ${stopReason}${cacheHit > 0 ? ` cache_read: ${cacheHit}` : ''}${truncWarn}`);
+                if (thinkingPreview) {
+                  console.log(`[ai-chat] thinking preview (resumido, no el razonamiento crudo): ${thinkingPreview.slice(0, 300)}${thinkingPreview.length > 300 ? '…' : ''}`);
+                }
+                send({
+                  type: 'done',
+                  usage: { input_tokens: inputTokens, output_tokens: outputTokens, thinking_tokens: thinkingTokens },
+                  stop_reason: stopReason,
+                  truncated: stopReason === 'max_tokens',
+                });
               }
             } catch (_) {}
           }

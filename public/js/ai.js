@@ -1645,7 +1645,7 @@ ${buildMarketContext()}`;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODELS[aiModel],
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: contextSlice,
       }),
@@ -1734,6 +1734,10 @@ ${buildMarketContext()}`;
 
         } else if (evt.type === 'done') {
           usage = evt.usage;
+          if (evt.truncated) {
+            replyText += '\n\n_⚠️ Respuesta cortada por límite de tokens — pedime que continúe si falta algo._';
+            if (textSpan) textSpan.innerHTML = aiRenderMarkdown(replyText);
+          }
 
         } else if (evt.type === 'error') {
           if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); thinkingRemoved = true; }
