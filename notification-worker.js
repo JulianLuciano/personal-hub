@@ -417,8 +417,9 @@ async function generateAndSendBriefing() {
   try {
     const https    = require('https');
     const bodyStr  = JSON.stringify({
-      model:      'claude-sonnet-4-6',
+      model:      'claude-sonnet-5',
       max_tokens: 1200,
+      output_config: { effort: 'medium' },
       system:     systemPrompt,
       messages:   [{ role: 'user', content: 'Genera el briefing del dia.' }],
     });

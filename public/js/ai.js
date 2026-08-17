@@ -677,8 +677,8 @@ function buildPortfolioContext() {
 
 let aiModel = 'sonnet'; // 'sonnet' or 'opus'
 const AI_MODELS = {
-  sonnet: 'claude-sonnet-4-6',
-  opus:   'claude-opus-4-6'
+  sonnet: 'claude-sonnet-5',
+  opus:   'claude-opus-5'
 };
 
 // ── System prompt cache ───────────────────────────────────────────────────────
@@ -1645,7 +1645,7 @@ ${buildMarketContext()}`;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODELS[aiModel],
-        max_tokens: 3000,
+        max_tokens: 4096,
         system: systemPrompt,
         messages: contextSlice,
       }),

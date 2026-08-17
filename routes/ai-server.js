@@ -620,8 +620,10 @@ Return this JSON structure:
 {"ticker":"","name":null,"type":"BUY","asset_class":"stock","date":"","qty":0,"price_usd":null,"price_local":null,"amount_usd":null,"amount_local":0,"fee_local":0,"fx_rate_to_usd":null,"pricing_currency":"USD","broker":"","exchange":null,"confidence":"high","notes":null}`;
 
   const bodyStr = JSON.stringify({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     max_tokens: 512,
+    output_config: { effort: 'low' },
+    thinking: { type: 'disabled' },
     messages: [{
       role: 'user',
       content: [
@@ -1421,7 +1423,7 @@ router.get('/token-diag', async (req, res) => {
 
   async function probe(withTools) {
     const body = {
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 10,
       system: 'x',
       messages: [{ role: 'user', content: 'x' }],
@@ -1447,8 +1449,20 @@ router.post('/ai-chat', async (req, res) => {
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const { model, max_tokens = 3000, system, messages } = req.body;
-  const MAX_TOOL_ITERATIONS = 5;
+  const { model, max_tokens = 4096, system, messages } = req.body;
+  // Subido de 5 a 6: un colchón extra de iteraciones para consultas que
+  // necesiten encadenar varias tools (ver nota más abajo sobre por qué esto
+  // NO es lo que causaba el bug de "dice que va a hacer algo y no lo hace").
+  const MAX_TOOL_ITERATIONS = 6;
+
+  // Sonnet 5 usa adaptive thinking + effort en vez del thinking manual de las
+  // versiones anteriores. La dejamos pensar adaptativamente (sin forzar
+  // thinking:disabled) a esfuerzo medio.
+  // (thinking:{type:'enabled', budget_tokens} rompe con 400 en Sonnet 5 — no tocar.)
+  const modelExtraParams =
+    model === 'claude-sonnet-5' ? { output_config: { effort: 'medium' } } :
+    model === 'claude-opus-5'   ? { output_config: { effort: 'high' } } :
+    {};
 
   const userMsg = messages?.findLast?.(m => m.role === 'user')?.content;
   console.log(`[ai-chat] ← request | model: ${model} | system: ${system?.length} chars | messages: ${messages?.length}`);
@@ -1476,6 +1490,7 @@ router.post('/ai-chat', async (req, res) => {
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         messages: loopMessages,
         tools: AI_TOOLS,
+        ...modelExtraParams,
       };
 
       console.log(`[ai-chat] iteración ${iterations} — mensajes: ${loopMessages.length}`);
@@ -1531,13 +1546,22 @@ router.post('/ai-chat', async (req, res) => {
       console.log(`[ai-chat] tools usadas: ${toolCallsLog.map(t => t.tool).join(', ')} | iteraciones: ${iterations}`);
     }
 
-    // Fase 2: stream de la respuesta final
+    // Fase 2: stream de la respuesta final.
+    // IMPORTANTE: sin "tools" acá a propósito. Para este punto la fase 1 ya
+    // resolvió el uso de tools (o llegó al máximo de iteraciones). Si acá se
+    // le siguiera pasando `tools`, el modelo podía decidir pedir OTRA tool
+    // en pleno streaming — y este endpoint solo parsea eventos de texto
+    // (content_block_delta / text_delta), no tool_use. Eso generaba el bug:
+    // el modelo escribía "voy a revisar tal cosa..." como preámbulo y después
+    // intentaba una tool call que nunca se ejecutaba ni se mostraba — quedaba
+    // la frase colgada sin resultado. Sacar tools de esta fase fuerza una
+    // respuesta final solo de texto con lo que ya se obtuvo en fase 1.
     const streamReqBody = JSON.stringify({
       model, max_tokens,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: loopMessages,
-      tools: AI_TOOLS,
       stream: true,
+      ...modelExtraParams,
     });
 
     await new Promise((resolve, reject) => {

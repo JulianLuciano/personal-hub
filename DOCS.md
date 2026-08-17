@@ -483,6 +483,7 @@ Formulario para registrar transacciones manualmente (~522 líneas).
 - `handleTxImage(event)` — captura la imagen seleccionada, la comprime con Canvas y la envía a `/api/ocr-transaction`
 - `compressImageToBase64(file, maxWidth, quality)` — reduce el tamaño de la imagen antes de enviar
 - `fillFormFromOcr(tx)` — rellena los campos del formulario con los datos extraídos por Claude Vision
+- Server-side (`routes/ai-server.js`, `/api/ocr-transaction`): `claude-sonnet-5`, `max_tokens: 512`, `output_config.effort: 'low'` + `thinking:{type:'disabled'}` — es extracción estructurada de un solo turno, no se beneficia de thinking adaptive ni de effort alto, así que se corre en el modo más barato/rápido posible.
 
 ---
 
@@ -491,8 +492,12 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 
 **Configuración:**
 - `AI_CONTEXT_WINDOW = 10` — cuántos mensajes se pasan como contexto en cada turn (5 pares Q&A). **Cambiar este único valor** para ajustar el sliding window en toda la app.
-- `AI_MODELS` — mapa `{ sonnet: 'claude-sonnet-4-6', opus: 'claude-opus-4-6' }`.
-- `max_tokens: 3000` para ambos modelos.
+- `AI_MODELS` — mapa `{ sonnet: 'claude-sonnet-5', opus: 'claude-opus-5' }`.
+  - **Sonnet**: `output_config.effort: 'medium'`, sin forzar `thinking` (adaptive thinking por default de Sonnet 5, decide sola cuándo y cuánto pensar según el effort).
+  - **Opus**: `output_config.effort: 'high'` (mismo valor que el default, seteado explícito para que quede documentado en código).
+  - Ambos params se agregan server-side en `/api/ai-chat` (routes/ai-server.js, ver `modelExtraParams`), no en el cliente.
+  - Nota: Sonnet 5 NO acepta el thinking manual viejo (`thinking:{type:'enabled', budget_tokens}`) — devuelve 400. Si en algún momento se quiere apagar el thinking del todo, es `thinking:{type:'disabled'}` explícito (hoy no se usa en el chat principal, sí en OCR — ver abajo).
+- `max_tokens: 4096` para ambos modelos (subido desde 3000 — con adaptive thinking prendido en Sonnet, `max_tokens` es un techo compartido entre tokens de thinking + texto de respuesta, así que con más margen hay menos riesgo de que la respuesta se corte por quedarse sin presupuesto).
 
 **Contexto builders** (arman el system prompt con datos reales del portfolio):
 - `buildPortfolioContext()` — posiciones con valores, P&L, pesos, cost basis, vest schedule RSU. Incluye `HISTORICAL_PERFORMANCE` (tabla 7d/30d con total_chg y return neto de cashflows via Modified Dietz), `ALLOCATION_TOTAL` con `cash_ars`, y ARS_CASH en PROFILE. ARS_CASH excluido de POSITIONS (aparece en PROFILE y ALLOCATION)
@@ -530,8 +535,9 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 - `aiLoadStarred()` — fetcha `/api/ai-messages/starred`, renderiza cards con preview + fecha + título de conversación. Al tocar una card llama `aiOpenConversation(conversationId, messageId)` para ir directo al mensaje.
 - Estado inicial correcto al reabrir conversaciones: `aiOpenConversation` pasa `row.starred` a `aiAddMsg` para que el ★ se renderice en amarillo si el mensaje estaba guardado.
 
-**Thinking blocks (Opus):**
-- Las respuestas de Opus pueden incluir bloques `{type:'thinking'}` antes del texto. El cliente filtra con `.find(b => b.type === 'text')` para no mostrar ni loggear el razonamiento interno.
+**Thinking blocks (Opus y Sonnet 5):**
+- Las respuestas de Opus y Sonnet 5 pueden incluir bloques `{type:'thinking'}` antes del texto (en Sonnet 5 esto es adaptive thinking, prendido por default salvo que se mande `thinking:{type:'disabled'}`). El cliente filtra con `.find(b => b.type === 'text')` para no mostrar ni loggear el razonamiento interno.
+- En Fase 2 (streaming) esto no aplica igual — el endpoint solo reenvía `text_delta`, así que si hubiera un bloque de thinking en el stream tampoco se muestra (correcto, es el comportamiento esperado).
 
 **Logging de conversaciones (fire-and-forget, no bloquea el chat):**
 - `aiConversationId` — UUID de la conversación activa; `null` al cargar la página (cada reload = nueva conversación).
@@ -626,15 +632,18 @@ POST /api/ai-chat → SSE stream:
   Fase 1 (tool loop):
     Llamada no-streaming a Anthropic con AI_TOOLS
     Si stop_reason = tool_use → ejecuta tools → agrega tool_result → repite
-    Techo duro: MAX_TOOL_ITERATIONS = 5
+    Techo duro: MAX_TOOL_ITERATIONS = 6
     Emite: data: {"type":"tool_log","log":[...]}  ← una sola vez
 
   Fase 2 (streaming):
-    Segunda llamada a Anthropic con stream: true
+    Segunda llamada a Anthropic con stream: true — SIN "tools" (a propósito,
+    ver nota abajo)
     Emite: data: {"type":"delta","text":"..."}    ← un chunk por evento
     Emite: data: {"type":"done","usage":{...}}    ← al finalizar
     Emite: data: {"type":"error","message":"..."}  ← en caso de error
 ```
+
+- **Por qué Fase 2 no manda `tools`:** el parser de streaming solo procesa eventos `content_block_delta` de tipo `text_delta` — no maneja bloques `tool_use`. Si Fase 2 mandara `tools`, el modelo podía escribir un preámbulo de texto ("voy a revisar tal cosa...") y después intentar una tool call que el parser ignora silenciosamente — la frase quedaba colgada sin ejecutarse ni completarse. Por diseño, para cuando se llega a Fase 2, el uso de tools ya se resolvió en Fase 1 (o se llegó al techo de iteraciones); Fase 2 es solo texto final con lo ya obtenido.
 
 - El header `X-Accel-Buffering: no` deshabilita el buffering de Railway/nginx.
 - `ai.js` consume el stream con `ReadableStream` + `getReader()`. El bubble de respuesta se crea en el primer `delta` y se re-renderiza con markdown en cada chunk.
@@ -856,8 +865,9 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 - Registra respuestas en `water_notif_responses` para análisis futuro.
 
 **Briefing diario (lunes a viernes, 5 min después del cierre NYSE):**
+- **Corre en `notification-worker.js`, un proceso/service separado del server principal** (deploy propio en Railway, `notifications-worker-production.up.railway.app`) — NO vive en `server.js` ni en `routes/ai-server.js`. Se comunica con el server principal solo vía HTTP (`GET /api/briefing-context`) para traer el contexto.
 - `getNYSECloseUTC()` — calcula dinámicamente a qué minuto UTC corresponde las 16:00 ET usando `Intl.DateTimeFormat`. Maneja DST de EEUU y UK automáticamente sin offsets hardcodeados.
-- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-4-6` directamente desde el worker con `max_tokens: 1500`. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
+- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-5` directamente desde el worker (no pasa por `/api/ai-chat`) con `max_tokens: 1200` y `output_config.effort: 'medium'` — sin tools (es generación de texto, un solo turno) y sin forzar `thinking` (adaptive por default, igual que el chat principal). Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
 - Test endpoint: `POST http://notifications-worker-production.up.railway.app/test-briefing` — dispara el briefing inmediatamente sin esperar el cierre NYSE.
 - Variables de entorno adicionales requeridas: `ANTHROPIC_API_KEY`, `SERVER_INTERNAL_URL` (URL del service principal, ej: `https://personal-hub-julian.up.railway.app`).
 
@@ -893,6 +903,8 @@ Frontend (ai.js)
   ← SSE stream (text/event-stream)
 
 server.js — loop agentic + streaming
+  (el endpoint vive en routes/ai-server.js, montado en server.js vía
+  `app.use('/api', aiRouter)` — no en server.js directamente)
   Fase 1 (tool loop, non-streaming):
   → Llamada 1 a Anthropic (con AI_TOOLS)
       Si stop_reason = end_turn   → pasa a Fase 2
@@ -900,11 +912,12 @@ server.js — loop agentic + streaming
           query_db              → executeQueryDb() → Supabase REST
           run_montecarlo        → executeRunMontecarlo() → simulación Node.js
           run_montecarlo_target → executeRunMontecarloTarget() → MC inverso Node.js
-      → tool_result agregado al hilo → repite (hasta MAX_TOOL_ITERATIONS = 5)
+      → tool_result agregado al hilo → repite (hasta MAX_TOOL_ITERATIONS = 6)
   → Emite: data: {"type":"tool_log","log":[...]}
 
   Fase 2 (streaming):
-  → Llamada final a Anthropic con stream: true
+  → Llamada final a Anthropic con stream: true — SIN tools (ver nota en la
+    sección de arriba sobre por qué)
   → Por cada chunk: data: {"type":"delta","text":"..."}
   → Al finalizar: data: {"type":"done","usage":{...}}
 ```
@@ -934,7 +947,7 @@ server.js — loop agentic + streaming
 
 - Cada iteración del loop = 1 llamada extra a la API de Anthropic
 - Las llamadas intermedias usan el mismo `max_tokens` que el request original
-- `MAX_TOOL_ITERATIONS = 5` como techo duro — si se supera, devuelve mensaje de error al usuario
+- `MAX_TOOL_ITERATIONS = 6` como techo duro. Si se supera con el modelo aún pidiendo tools, el loop corta igual y pasa a Fase 2 con los tool_results ya obtenidos hasta ese punto — NO hay un mensaje de error explícito al usuario, simplemente responde con lo que consiguió resolver.
 - Los requests sin tools son idénticos en costo a antes (0 overhead)
 - `_tool_calls_log` en la respuesta incluye `elapsed_ms` por tool para monitoreo
 
@@ -1189,7 +1202,7 @@ El system prompt le instruye al modelo cuándo usar cada tool:
 
 Cada request al agente genera:
 ```
-[ai-chat] ← request | model: claude-sonnet-4-6 | system: 8880 chars | messages: 6
+[ai-chat] ← request | model: claude-sonnet-5 | system: 8880 chars | messages: 6
 [ai-chat] ← user_msg: cuánto invertí en MELI en total?
 [ai-chat] ← system_preview: You are Julián's personal financial advisor...
 [ai-chat] iteración 1 — mensajes: 6
@@ -1206,7 +1219,7 @@ Cada request al agente genera:
 - Sin tools: 1 llamada a Anthropic por turno (igual que antes).
 - Con tools: 1 llamada adicional por cada iteración del loop. Típicamente 2 llamadas (1 tool call) o 3 (2 tool calls encadenados).
 - Las llamadas intermedias usan el mismo `max_tokens` configurado — se puede bajar para tool calls intermedias si el costo es un problema.
-- Techo duro: `MAX_TOOL_ITERATIONS = 5`.
+- Techo duro: `MAX_TOOL_ITERATIONS = 6`.
 
 ### Optimización de tokens (abril 2026)
 
