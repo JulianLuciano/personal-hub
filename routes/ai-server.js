@@ -555,7 +555,11 @@ function _callAnthropicOnce(anthropicKey, body) {
       res.on('end', () => resolve({ status: res.statusCode, body: data }));
     });
     req.on('error', reject);
-    req.setTimeout(90000, () => { req.destroy(); reject(new Error('Timeout 90s')); });
+    // 90s se quedaba corto: esta llamada es NO-streaming, así que no llega
+    // ningún byte hasta que Anthropic termina de generar la respuesta entera.
+    // Con Opus 5 a effort alto y preguntas largas/complejas, el modelo puede
+    // tardar bastante más de 90s en terminar de pensar antes de devolver nada.
+    req.setTimeout(240000, () => { req.destroy(); reject(new Error('Timeout 240s')); });
     req.write(bodyStr);
     req.end();
   });
@@ -567,6 +571,126 @@ async function callAnthropic(anthropicKey, body) {
   let attempt = 0;
   while (true) {
     const result = await _callAnthropicOnce(anthropicKey, body);
+    if (!RETRYABLE.has(result.status) || attempt >= MAX_RETRIES) return result;
+    attempt++;
+    const delayMs = 2000 * attempt;
+    console.warn(`[ai-chat] status ${result.status} — reintento ${attempt}/${MAX_RETRIES} en ${delayMs}ms`);
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+}
+
+// ── Versión streaming de la llamada a Anthropic, usada en Fase 1 del loop
+// agentic (ver /api/ai-chat más abajo). A diferencia de _callAnthropicOnce
+// (no-streaming), acá Anthropic manda eventos SSE — incluyendo "ping"
+// periódicos mientras genera — así que el socket nunca queda inactivo de
+// verdad mientras el modelo está pensando. Esto evita depender de adivinar
+// un número de timeout: mientras haya actividad real (aunque sea solo
+// pings), el timeout de Node no dispara.
+// Reconstruye el mismo shape que devolvería la API no-streaming
+// ({ stop_reason, content, usage }) para no tener que tocar la lógica del
+// loop de tools en /api/ai-chat.
+function _callAnthropicStreamOnce(anthropicKey, body) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = JSON.stringify({ ...body, stream: true });
+    const req = https.request({
+      hostname: 'api.anthropic.com',
+      path:     '/v1/messages',
+      method:   'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'Content-Length':    Buffer.byteLength(bodyStr),
+        'x-api-key':         anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta':    'prompt-caching-2024-07-31',
+      },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        // Las respuestas de error de Anthropic NO son SSE, son un JSON plano.
+        let errBody = '';
+        res.on('data', chunk => { errBody += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body: errBody }));
+        return;
+      }
+
+      let buffer   = '';
+      const blocks = []; // index -> { type, text, inputStr, id, name }
+      let stopReason = null;
+      const usage = { input_tokens: null, output_tokens: null };
+
+      res.on('data', chunk => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (!raw || raw === '[DONE]') continue;
+          try {
+            const evt = JSON.parse(raw);
+            if (evt.type === 'content_block_start') {
+              blocks[evt.index] = {
+                type: evt.content_block.type,
+                id:   evt.content_block.id,
+                name: evt.content_block.name,
+                text: '', inputStr: '', thinking: '', signature: '',
+              };
+            } else if (evt.type === 'content_block_delta') {
+              const b = blocks[evt.index];
+              if (!b) continue;
+              if (evt.delta.type === 'text_delta')            b.text      += evt.delta.text;
+              else if (evt.delta.type === 'input_json_delta') b.inputStr  += evt.delta.partial_json || '';
+              else if (evt.delta.type === 'thinking_delta')   b.thinking  += evt.delta.thinking || '';
+              else if (evt.delta.type === 'signature_delta')  b.signature += evt.delta.signature || '';
+              // Se captura el thinking completo + signature (no solo un
+              // preview) porque si el modelo hace thinking + tool_use en el
+              // mismo turno, Anthropic espera el bloque de thinking íntegro
+              // al reenviar el historial en la siguiente vuelta del loop —
+              // mandar uno incompleto puede tirar 400.
+            } else if (evt.type === 'message_start' && evt.message?.usage) {
+              usage.input_tokens = evt.message.usage.input_tokens ?? null;
+            } else if (evt.type === 'message_delta') {
+              if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+              if (evt.usage) usage.output_tokens = evt.usage.output_tokens ?? usage.output_tokens;
+            }
+          } catch (_) {}
+        }
+      });
+
+      res.on('end', () => {
+        const content = blocks.filter(Boolean).map(b => {
+          if (b.type === 'tool_use') {
+            let input = {};
+            try { input = JSON.parse(b.inputStr || '{}'); } catch (_) { /* input parcial/roto, se ejecuta con {} */ }
+            return { type: 'tool_use', id: b.id, name: b.name, input };
+          }
+          if (b.type === 'text') return { type: 'text', text: b.text };
+          if (b.type === 'thinking') return { type: 'thinking', thinking: b.thinking, signature: b.signature };
+          return { type: b.type };
+        });
+        resolve({ status: 200, body: JSON.stringify({ stop_reason: stopReason, content, usage }) });
+      });
+
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    // Igual se deja un timeout de red genuino (conexión colgada del todo,
+    // sin ningún byte ni siquiera un ping) — pero con streaming esto ya no
+    // debería dispararse por "el modelo está pensando mucho", solo por una
+    // falla de red real.
+    req.setTimeout(240000, () => { req.destroy(); reject(new Error('Timeout 240s')); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+async function callAnthropicStreaming(anthropicKey, body) {
+  const RETRYABLE = new Set([429, 529]);
+  const MAX_RETRIES = 2;
+  let attempt = 0;
+  while (true) {
+    const result = await _callAnthropicStreamOnce(anthropicKey, body);
     if (!RETRYABLE.has(result.status) || attempt >= MAX_RETRIES) return result;
     attempt++;
     const delayMs = 2000 * attempt;
@@ -1461,7 +1585,11 @@ router.post('/ai-chat', async (req, res) => {
   // (thinking:{type:'enabled', budget_tokens} rompe con 400 en Sonnet 5 — no tocar.)
   const modelExtraParams =
     model === 'claude-sonnet-5' ? { output_config: { effort: 'medium' } } :
-    model === 'claude-opus-5'   ? { output_config: { effort: 'high' } } :
+    // Bajado de high a medium: high te estaba disparando el timeout con
+    // preguntas largas/complejas (Opus a effort alto piensa mucho más antes
+    // de responder). Medium mantiene buena calidad con latencia razonable —
+    // ver DOCS.md para el detalle de la decisión.
+    model === 'claude-opus-5'   ? { output_config: { effort: 'medium' } } :
     {};
 
   const userMsg = messages?.findLast?.(m => m.role === 'user')?.content;
@@ -1480,7 +1608,11 @@ router.post('/ai-chat', async (req, res) => {
   let iterations     = 0;
 
   try {
-    // Fase 1: tool loop (non-streaming)
+    // Fase 1: tool loop, con streaming interno (callAnthropicStreaming) para
+    // que el timeout no dependa de un número adivinado — ver esa función
+    // más arriba para el porqué. El cliente NO ve nada de esta fase hasta
+    // el tool_log al final; el streaming acá es solo para robustez de
+    // conexión, no para mostrar progreso incremental en la UI.
     while (iterations < MAX_TOOL_ITERATIONS) {
       iterations++;
 
@@ -1494,7 +1626,7 @@ router.post('/ai-chat', async (req, res) => {
       };
 
       console.log(`[ai-chat] iteración ${iterations} — mensajes: ${loopMessages.length}`);
-      const raw = await callAnthropic(anthropicKey, anthropicBody);
+      const raw = await callAnthropicStreaming(anthropicKey, anthropicBody);
 
       if (raw.status !== 200) {
         console.error('[ai-chat] Anthropic error:', raw.body.slice(0, 400));
@@ -1649,7 +1781,10 @@ router.post('/ai-chat', async (req, res) => {
       });
 
       streamReq.on('error', reject);
-      streamReq.setTimeout(90000, () => { streamReq.destroy(); reject(new Error('Stream timeout 90s')); });
+      // En streaming, Anthropic manda "ping" events mientras genera, así que
+      // el timeout de inactividad rara vez debería dispararse acá — pero le
+      // damos el mismo margen que a Fase 1 por consistencia y seguridad.
+      streamReq.setTimeout(240000, () => { streamReq.destroy(); reject(new Error('Stream timeout 240s')); });
       streamReq.write(streamReqBody);
       streamReq.end();
     });
