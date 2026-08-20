@@ -852,9 +852,24 @@ function renderPortfolio() {
   // Render P&L attribution
   renderPnlAttribution();
 
-  // Load active period chart, then preload all others in background
+  // Load active period chart every render — cheap (cache hit is instant,
+  // no network), and this correctly picks up invalidateChartCache() if a
+  // position gets edited elsewhere and the cache is cleared.
   loadChartData();
-  preloadAllPeriods();
+
+  // Preload the OTHER periods only if any are missing from cache.
+  // Previously this ran unconditionally on every renderPortfolio() call —
+  // including the 60s market-status poll in core.js (loadMarketStatus ->
+  // renderPortfolio) — spamming 5 parallel fetches + console logs every
+  // minute even with nothing new to fetch. Guarding on "any period missing"
+  // instead of a one-time boolean flag means this self-heals if
+  // invalidateChartCache() ever runs elsewhere (e.g. after editing a
+  // position) — the next renderPortfolio() will correctly re-preload
+  // instead of staying silently stale forever.
+  const PERIODS_TO_PRELOAD = ['1S', '1M', '3M', '6M', '1A'];
+  if (PERIODS_TO_PRELOAD.some(p => !chartCache[p])) {
+    preloadAllPeriods();
+  }
 }
 
 // ── P&L ATTRIBUTION CHART ──────────────────────────────────────────────
