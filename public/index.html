@@ -84,12 +84,10 @@
         <div class="h-meal-slots" id="habitMealSlots"></div>
         <div class="h-meal-editor" id="habitMealEditor" style="display:none">
           <div class="h-drawer-label" id="habitMealEditorLabel">Desayuno</div>
-          <input class="h-drawer-other-input" id="habitMealEditorInput" placeholder="&#191;Qu&#233; comiste?" style="margin-top:0">
-          <button class="h-meal-indulgent-toggle" id="habitMealIndulgentToggle" onclick="habitToggleMealIndulgent()">
-            &#x1F440; Fue un exceso / delivery / etc.
-          </button>
+          <input class="h-drawer-other-input" id="habitMealEditorInput" placeholder="&#191;Qu&#233; pas&#243;?" style="margin-top:0">
           <input class="h-drawer-other-input" id="habitMealEditorKcal" type="number" inputmode="numeric"
             placeholder="Kcal aprox. (opcional)" style="display:none">
+          <button class="h-meal-editor-delete" id="habitMealEditorDeleteBtn" onclick="habitDeleteMealEditorEntry()" style="display:none">Borrar registro</button>
           <div class="h-meal-editor-actions">
             <button class="h-meal-editor-cancel" onclick="habitCloseMealEditor()">Cancelar</button>
             <button class="h-meal-editor-save" id="habitMealEditorSaveBtn" onclick="habitSaveMealEditor()">Guardar</button>

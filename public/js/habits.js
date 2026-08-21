@@ -52,8 +52,7 @@ let CURRENT_WEEK = 10;
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
 let habitDayState    = {};         // { trained, piano, deepwork }
 let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
-let habitMealEditorOpen      = null;  // 'desayuno'|'almuerzo'|'merienda'|'cena'|'capricho'|null
-let habitMealEditorIndulgent = false;
+let habitMealEditorOpen = null;    // 'desayuno'|'almuerzo'|'merienda'|'cena'|'capricho'|null
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -683,10 +682,15 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ── RENDER: MEALS ──────────────────────────────────────────────────────────────
-// Reemplaza la grilla de Excel. 4 slots fijos (desayuno/almuerzo/merienda/cena,
-// uno por día, editable) + caprichos ilimitados por día. Cada guardado pega
-// directo contra la tabla `meals` vía el proxy genérico /api/db/meals — no es
-// mock, es DB real desde el primer tap (mismo patrón que habitRegisterTrainLog).
+// Reemplaza la grilla de Excel. 4 slots fijos (desayuno/almuerzo/merienda/cena)
+// + caprichos ilimitados por día. Cada guardado pega directo contra la tabla
+// `meals` vía el proxy genérico /api/db/meals (mismo patrón que habitRegisterTrainLog).
+//
+// UX de cada slot:
+//   vacío     → dos botones 👍/👎
+//   👍 (bien) → guarda directo, sin texto, sin editor. Tocar de nuevo lo borra.
+//   👎 (mal)  → abre el editor: texto OBLIGATORIO, recién ahí se guarda.
+//               Tocar un slot ya marcado "mal" reabre el editor para corregirlo.
 
 const MEAL_SLOTS = [
   { id: 'desayuno', label: 'Desayuno' },
@@ -709,12 +713,35 @@ function habitRenderMeals() {
 
   const slotsHTML = MEAL_SLOTS.map(s => {
     const entry = slots[s.id];
-    const cls  = entry ? (entry.is_indulgent ? 'filled indulgent' : 'filled') : '';
-    const text = entry ? habitEscapeHtml(entry.description) : 'Tocar para anotar';
+
+    if (!entry) {
+      // Vacío: label + los dos botones de marcar
+      return (
+        '<div class="h-meal-slot empty">' +
+          '<span class="h-meal-slot-label">' + s.label + '</span>' +
+          '<div class="h-meal-slot-btns">' +
+            '<button class="h-meal-mark-btn good" onclick="habitMarkMealGood(' + "'" + s.id + "'" + ')">&#128077;</button>' +
+            '<button class="h-meal-mark-btn bad" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">&#128078;</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    if (!entry.is_indulgent) {
+      // Bien: sin texto, tocar lo borra
+      return (
+        '<div class="h-meal-slot filled good" onclick="habitClearMealSlot(' + "'" + s.id + "'" + ')">' +
+          '<span class="h-meal-slot-label">' + s.label + '</span>' +
+          '<span class="h-meal-slot-text">&#10003; Bien</span>' +
+        '</div>'
+      );
+    }
+
+    // Mal: con texto, tocar reabre el editor para corregir
     return (
-      '<div class="h-meal-slot ' + cls + '" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">' +
+      '<div class="h-meal-slot filled bad" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">' +
         '<span class="h-meal-slot-label">' + s.label + '</span>' +
-        '<span class="h-meal-slot-text">' + text + '</span>' +
+        '<span class="h-meal-slot-text">' + habitEscapeHtml(entry.description) + '</span>' +
       '</div>'
     );
   }).join('');
@@ -734,41 +761,74 @@ function habitRenderMeals() {
     '</div>';
 }
 
+// Marca un slot como "bien": guarda directo, sin descripción, sin abrir editor.
+async function habitMarkMealGood(mealType) {
+  const payload = {
+    meal_date:     habitDateStr(habitDayOffset),
+    meal_type:     mealType,
+    description:   null,
+    is_indulgent:  false,
+    kcal_estimate: null,
+  };
+  try {
+    const res = await fetch('/api/db/meals?on_conflict=meal_date,slot_key', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body:    JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+    const rows  = await res.json();
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+    habitMealsState.slots = { ...habitMealsState.slots, [mealType]: saved };
+    habitRenderMeals();
+  } catch (e) {
+    console.error('[habits] Error guardando meal (bien):', e);
+  }
+}
+
+// Borra el registro de un slot (vuelve a quedar vacío, con los dos botones).
+async function habitClearMealSlot(mealType) {
+  const entry = habitMealsState.slots[mealType];
+  if (!entry) return;
+  try {
+    const res = await fetch('/api/db/meals?id=eq.' + entry.id, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    const next = { ...habitMealsState.slots };
+    delete next[mealType];
+    habitMealsState.slots = next;
+    habitRenderMeals();
+  } catch (e) {
+    console.error('[habits] Error borrando meal:', e);
+  }
+}
+
+// Editor de texto — solo se usa para el caso "mal" (slots) y para capricho
+// (que siempre lleva texto). El caso "bien" nunca pasa por acá.
 function habitOpenMealEditor(mealType) {
   habitMealEditorOpen = mealType;
   const isCapricho = mealType === 'capricho';
   const existing = !isCapricho ? habitMealsState.slots[mealType] : null;
 
-  const editor    = document.getElementById('habitMealEditor');
-  const label     = document.getElementById('habitMealEditorLabel');
-  const input     = document.getElementById('habitMealEditorInput');
-  const kcalInput = document.getElementById('habitMealEditorKcal');
-  const toggleBtn = document.getElementById('habitMealIndulgentToggle');
+  const editor     = document.getElementById('habitMealEditor');
+  const label      = document.getElementById('habitMealEditorLabel');
+  const input      = document.getElementById('habitMealEditorInput');
+  const kcalInput  = document.getElementById('habitMealEditorKcal');
+  const deleteBtn  = document.getElementById('habitMealEditorDeleteBtn');
   if (!editor || !input) return;
 
   if (label) label.textContent = MEAL_TYPE_LABELS[mealType] || mealType;
   input.value = existing ? existing.description : '';
-  input.placeholder = isCapricho ? '¿Qué te diste de gusto?' : '¿Qué comiste?';
+  input.placeholder = isCapricho ? '¿Qué te diste de gusto?' : '¿Qué pasó? (delivery, exceso, etc.)';
 
-  habitMealEditorIndulgent = isCapricho ? true : !!(existing && existing.is_indulgent);
-  if (toggleBtn) {
-    toggleBtn.style.display = isCapricho ? 'none' : 'flex';
-    toggleBtn.classList.toggle('on', habitMealEditorIndulgent);
-  }
   if (kcalInput) {
     kcalInput.style.display = isCapricho ? 'block' : 'none';
     kcalInput.value = existing && existing.kcal_estimate ? existing.kcal_estimate : '';
   }
+  if (deleteBtn) deleteBtn.style.display = existing ? 'block' : 'none';
 
   editor.style.display = 'block';
   editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   setTimeout(() => input.focus(), 50);
-}
-
-function habitToggleMealIndulgent() {
-  habitMealEditorIndulgent = !habitMealEditorIndulgent;
-  const btn = document.getElementById('habitMealIndulgentToggle');
-  if (btn) btn.classList.toggle('on', habitMealEditorIndulgent);
 }
 
 function habitCloseMealEditor() {
@@ -784,14 +844,14 @@ async function habitSaveMealEditor() {
   const kcalInput = document.getElementById('habitMealEditorKcal');
   const btn       = document.getElementById('habitMealEditorSaveBtn');
   const description = (input && input.value ? input.value : '').trim();
-  if (!description) { if (input) input.focus(); return; }
+  if (!description) { if (input) input.focus(); return; } // obligatorio, siempre (mal o capricho)
 
   const isCapricho = mealType === 'capricho';
   const payload = {
     meal_date:     habitDateStr(habitDayOffset),
     meal_type:     mealType,
     description,
-    is_indulgent:  isCapricho ? true : habitMealEditorIndulgent,
+    is_indulgent:  true, // el editor solo se usa para "mal" y para capricho
     kcal_estimate: isCapricho && kcalInput && kcalInput.value ? parseInt(kcalInput.value, 10) : null,
   };
 
@@ -826,6 +886,14 @@ async function habitSaveMealEditor() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
   }
+}
+
+// Borra el registro que se está editando (solo aplica a slots "mal" existentes).
+async function habitDeleteMealEditorEntry() {
+  const mealType = habitMealEditorOpen;
+  if (!mealType || mealType === 'capricho') { habitCloseMealEditor(); return; }
+  await habitClearMealSlot(mealType);
+  habitCloseMealEditor();
 }
 
 async function habitDeleteCapricho(id, event) {
@@ -1580,7 +1648,8 @@ function renderMealsGrid(rows, monday) {
       } else {
         const cell = dayData[rowType];
         const cls  = cell ? (cell.is_indulgent ? 'indulgent' : 'filled') : '';
-        html += '<div class="h-meal-grid-cell ' + cls + '">' + (cell ? habitEscapeHtml(cell.description) : '') + '</div>';
+        const text = cell ? (cell.is_indulgent ? habitEscapeHtml(cell.description) : '&#10003;') : '';
+        html += '<div class="h-meal-grid-cell ' + cls + '">' + text + '</div>';
       }
     });
     html += '</div>';

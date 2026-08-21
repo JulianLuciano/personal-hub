@@ -2152,14 +2152,14 @@
   border-radius: 12px;
   border: 1.5px solid var(--border);
   background: var(--surface2);
-  cursor: pointer;
   transition: all 0.15s;
 }
-.h-meal-slot.filled {
+.h-meal-slot.filled { cursor: pointer; }
+.h-meal-slot.filled.good {
   border-color: rgba(67,233,123,0.35);
   background: rgba(67,233,123,0.08);
 }
-.h-meal-slot.indulgent {
+.h-meal-slot.filled.bad {
   border-color: rgba(255,101,132,0.35);
   background: rgba(255,101,132,0.08);
 }
@@ -2177,6 +2177,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+.h-meal-slot-btns { display: flex; gap: 8px; }
+.h-meal-mark-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.h-meal-mark-btn.good:active,
+.h-meal-mark-btn.good:hover {
+  border-color: var(--accent3);
+  background: rgba(67,233,123,0.12);
+}
+.h-meal-mark-btn.bad:active,
+.h-meal-mark-btn.bad:hover {
+  border-color: var(--accent2);
+  background: rgba(255,101,132,0.12);
 }
 .h-meal-caprichos-row {
   display: flex;
@@ -2215,33 +2237,24 @@
   cursor: pointer;
 }
 
-/* ── Editor inline de comida (Today) ────────────────────────────── */
+/* ── Editor inline de comida (Today) — solo caso "mal" y capricho ──── */
 .h-meal-editor {
   padding: 14px 16px;
   border-top: 1px solid var(--border);
   background: var(--surface2);
 }
-.h-meal-indulgent-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
+.h-meal-editor-delete {
+  display: block;
   margin-top: 10px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1.5px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent2);
   font-size: 12px;
   font-family: 'DM Sans', sans-serif;
   font-weight: 600;
+  text-decoration: underline;
   cursor: pointer;
-  transition: all 0.15s;
-}
-.h-meal-indulgent-toggle.on {
-  border-color: var(--accent2);
-  color: var(--accent2);
-  background: rgba(255,101,132,0.08);
 }
 .h-meal-editor-actions {
   display: flex;
