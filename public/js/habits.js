@@ -14,7 +14,6 @@
 const HABITS_LIST = [
   { id: 'trained',  icon: '🏋️', name: 'Entrenaste hoy',   color: 'rgba(108,99,255,0.15)', streak: 3, hasDetail: true  },
   { id: 'piano',    icon: '🎹', name: 'Practicaste piano', color: 'rgba(79,195,247,0.15)',  streak: 0, hasDetail: true  },
-  { id: 'deepwork', icon: '🧠', name: 'Deep work 60 min',  color: 'rgba(67,233,123,0.15)',  streak: 5, hasDetail: false },
   { id: 'water',    icon: '💧', name: 'Agua',              color: 'rgba(79,195,247,0.10)',  streak: 0, hasDetail: false, isWater: true },
 ];
 
@@ -38,7 +37,6 @@ const YEAR_GOALS = [
   { id: 'training',      icon: '🏋️', name: 'Semanas con ≥3 días',  target: '≥80% del año (≥42 sem)', current: 7,  goal: 42,  unit: 'sem'  },
   { id: 'piano_days',    icon: '🎹', name: 'Días de piano',          target: '≥40 días en el año',     current: 8,  goal: 40,  unit: 'días' },
   { id: 'piano_class',   icon: '🎵', name: 'Clases de piano',        target: '≥15 clases',             current: 3,  goal: 15,  unit: ''     },
-  { id: 'deepwork',      icon: '🧠', name: 'Días con deep work',     target: '≥70% días laborables',   current: 18, goal: 40,  unit: 'días' },
   { id: 'groupplans',    icon: '👥', name: 'Planes grupales',        target: '≥1 por mes',             current: 2,  goal: 12,  unit: ''     },
   { id: 'presentations', icon: '🎤', name: 'Presentaciones',         target: '≥6 en el año',           current: 1,  goal: 6,   unit: ''     },
   { id: 'trips',         icon: '✈️', name: 'Viajes',                 target: '3 este año',             current: 0,  goal: 3,   unit: ''     },
@@ -50,7 +48,7 @@ let CURRENT_WEEK = 10;
 // ── STATE ──────────────────────────────────────────────────────────────────────
 
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
-let habitDayState    = {};         // { trained, piano, deepwork }
+let habitDayState    = {};         // { trained, piano }
 let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
@@ -58,12 +56,7 @@ let habitSaveTimeout = null;       // debounce timer para auto-save
 let habitWaterMl     = 0;           // ml de agua de hoy (cargado desde DB)
 let habitWaterGoal   = 2000;        // meta del día (2500 si entrenó)
 
-// ── MOCK DATA (reemplazar con sbFetch cuando haya DB) ──────────────────────────
-
-const MOCK_DAILY = {
-  0:   { trained: false, piano: false, deepwork: false },
-  '-1':{ trained: true,  piano: false, deepwork: true },
-};
+// ── MOCK DATA (one-shots todavía no tienen tabla propia) ───────────────────────
 
 const MOCK_ONESHOTS = {
   presentations: 1, feedbacks: 0, recordings: 0,
@@ -71,24 +64,39 @@ const MOCK_ONESHOTS = {
   pscReviews: 0, groupPlans: 2, dates2nd: 1,
 };
 
-// ── DB INTEGRATION STUBS ───────────────────────────────────────────────────────
-// Cuando tengas las tablas en Supabase, reemplazá estas funciones.
-// sbFetch está definida en core.js.
+// ── DB INTEGRATION ──────────────────────────────────────────────────────────────
+// trained/piano ya pegan contra /api/habits/daily (tabla habit_daily_logs, real).
+// Antes esto devolvía datos hardcodeados (bug: "ayer" siempre marcado, cualquier
+// otro día en blanco) porque nunca se conectó al endpoint que ya existía en
+// server.js. one-shots siguen en mock, todavía no tienen tabla.
 
 async function loadDailyFromDB(dateStr) {
-  // TODO: return await sbFetch(`habit_daily_logs?log_date=eq.${dateStr}&limit=1`).then(r => r[0] || null);
-  const offset = habitDayOffset;
-  return MOCK_DAILY[String(offset)] || null;
+  try {
+    const res = await fetch('/api/habits/daily/' + dateStr);
+    if (res.status === 204) return null; // no hay registro guardado ese día
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+    return await res.json();
+  } catch (e) {
+    console.error('[habits] Error cargando daily:', e);
+    return null;
+  }
 }
 
 async function saveDailyToDB(dateStr, state) {
-  // TODO:
-  // return await fetch('/api/habits/daily', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ log_date: dateStr, ...state })
-  // });
-  console.log('[habits] save daily mock:', dateStr, state);
+  try {
+    const res = await fetch('/api/habits/daily', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        log_date: dateStr,
+        trained: state.trained ?? null,
+        piano:   state.piano ?? null,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+  } catch (e) {
+    console.error('[habits] Error guardando daily:', e);
+  }
 }
 
 async function loadOneshotsFromDB() {
@@ -316,7 +324,6 @@ async function habitLoadDay() {
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
   habitRenderHabits();
   habitRenderMeals();
-  habitRenderMood();
   habitRenderDrawers();
 }
 
@@ -845,7 +852,8 @@ async function habitSaveAllMeals() {
       if (d.status === null) {
         // Estaba guardado y se deseleccionó → borrar
         if (saved) {
-          await fetch('/api/db/meals?id=eq.' + saved.id, { method: 'DELETE' });
+          const delRes = await fetch('/api/db/meals?id=eq.' + saved.id, { method: 'DELETE' });
+          if (!delRes.ok) throw new Error((await delRes.text()).slice(0, 150));
           delete habitMealsState.slots[s.id];
         }
         continue;
@@ -897,7 +905,7 @@ async function habitSaveAllMeals() {
     }, 1500);
   } catch (e) {
     console.error('[habits] Error guardando comidas:', e);
-    alert('No se pudo guardar, probá de nuevo');
+    alert('No se pudo guardar: ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar comidas'; }
   }
 }
@@ -1040,26 +1048,6 @@ function habitSelectPianoDur(val) {
 function habitPianoDurCustomChange(val) {
   habitDayState.pianoDur = parseInt(val) || null;
   habitScheduleSave();
-}
-
-// ── RENDER: MOOD ──────────────────────────────────────────────────────────────
-
-function habitSelectMood(val) {
-  habitDayState.mood = habitDayState.mood === val ? null : val;
-  [1,2,3,4,5].forEach(i => {
-    const btn = document.getElementById('h-mood-' + i);
-    if (btn) btn.classList.toggle('selected', habitDayState.mood === i);
-  });
-  if (habitDayState.mood) localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
-  habitScheduleSave();
-}
-
-function habitRenderMood() {
-  const mood = habitDayState.mood || null;
-  [1,2,3,4,5].forEach(i => {
-    const btn = document.getElementById('h-mood-' + i);
-    if (btn) btn.classList.toggle('selected', mood === i);
-  });
 }
 
 // Drawer state is restored by habitRestoreDrawerSelections() called from habitRenderHabits

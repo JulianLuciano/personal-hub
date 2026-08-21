@@ -2428,38 +2428,6 @@
   flex-shrink: 0;
 }
 
-/* ── Mood block ─────────────────────────────────────────────────── */
-.h-mood-block {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 14px 16px;
-}
-.h-mood-opts {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-.h-mood-btn {
-  flex: 1;
-  font-size: 26px;
-  padding: 8px 4px;
-  border: 1.5px solid transparent;
-  border-radius: 12px;
-  background: none;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: center;
-  opacity: 0.4;
-}
-.h-mood-btn:hover { opacity: 0.75; transform: scale(1.1); }
-.h-mood-btn.selected {
-  opacity: 1;
-  border-color: var(--accent);
-  background: rgba(108,99,255,0.08);
-  transform: scale(1.12);
-}
-
 /* Light theme overrides */
 .light .h-past-banner {
   background: rgba(247,183,49,0.06);
