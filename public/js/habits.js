@@ -52,7 +52,6 @@ let CURRENT_WEEK = 10;
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
 let habitDayState    = {};         // { trained, piano, deepwork }
 let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
-let habitMealEditorOpen = null;    // 'desayuno'|'almuerzo'|'merienda'|'cena'|'capricho'|null
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -315,14 +314,14 @@ async function habitLoadDay() {
   habitDayState = data ? { ...data } : {};
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
-  habitCloseMealEditor();   // resetear editor de comidas al cambiar de día
   habitRenderHabits();
   habitRenderMeals();
   habitRenderMood();
   habitRenderDrawers();
 }
 
-// Carga las comidas del día desde la tabla real `meals` (vía sbFetch → /api/db/meals).
+// Carga las comidas del día desde la tabla real `meals` (vía sbFetch → /api/db/meals)
+// y arma el borrador en base a lo que ya está guardado.
 async function habitLoadMeals(dateStr) {
   try {
     const rows = await sbFetch(`/rest/v1/meals?meal_date=eq.${dateStr}`);
@@ -337,6 +336,7 @@ async function habitLoadMeals(dateStr) {
     console.error('[habits] Error cargando meals:', e);
     habitMealsState = { slots: {}, caprichos: [] };
   }
+  habitMealsDraftFromState();
 }
 
 async function habitLoadWater() {
@@ -683,14 +683,19 @@ window.addEventListener('beforeunload', () => {
 
 // ── RENDER: MEALS ──────────────────────────────────────────────────────────────
 // Reemplaza la grilla de Excel. 4 slots fijos (desayuno/almuerzo/merienda/cena)
-// + caprichos ilimitados por día. Cada guardado pega directo contra la tabla
-// `meals` vía el proxy genérico /api/db/meals (mismo patrón que habitRegisterTrainLog).
+// + caprichos por día. Guardado en tabla `meals` vía proxy genérico /api/db/meals
+// (mismo patrón que habitRegisterTrainLog), pero NO se guarda tap por tap: los
+// botones/texto solo arman un borrador en memoria, y un único "Guardar" persiste
+// todo junto.
 //
 // UX de cada slot:
-//   vacío     → dos botones 👍/👎
-//   👍 (bien) → guarda directo, sin texto, sin editor. Tocar de nuevo lo borra.
-//   👎 (mal)  → abre el editor: texto OBLIGATORIO, recién ahí se guarda.
-//               Tocar un slot ya marcado "mal" reabre el editor para corregirlo.
+//   👍/👎 → togglean el estado en el borrador (tildado visualmente). Tocar el
+//           mismo botón ya seleccionado lo deselecciona.
+//   texto → aparece SOLO cuando el estado del slot es 👎, se esconde si se
+//           deselecciona.
+// Capricho: "+ Capricho" es un toggle igual — al tocarlo aparece el campo de
+// texto (+ kcal opcional); tocarlo de nuevo lo esconde y descarta lo tipeado.
+// Nada de esto pega contra la DB hasta tocar "Guardar comidas".
 
 const MEAL_SLOTS = [
   { id: 'desayuno', label: 'Desayuno' },
@@ -700,202 +705,205 @@ const MEAL_SLOTS = [
 ];
 const MEAL_TYPE_LABELS = { desayuno: 'Desayuno', almuerzo: 'Almuerzo', merienda: 'Merienda', cena: 'Cena', capricho: 'Capricho' };
 
+// habitMealsState: lo que YA está guardado en DB (fuente de verdad al cargar).
+// habitMealsDraft: lo que se está por guardar, arranca como espejo de lo guardado.
+let habitMealsDraft = { slots: {}, capricho: { open: false, description: '', kcal: '' } };
+
 function habitEscapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
 }
 
+function habitMealsDraftFromState() {
+  const slots = {};
+  MEAL_SLOTS.forEach(s => {
+    const saved = habitMealsState.slots[s.id];
+    slots[s.id] = saved
+      ? { status: saved.is_indulgent ? 'bad' : 'good', description: saved.description || '' }
+      : { status: null, description: '' };
+  });
+  habitMealsDraft = { slots, capricho: { open: false, description: '', kcal: '' } };
+}
+
 function habitRenderMeals() {
   const container = document.getElementById('habitMealSlots');
   if (!container) return;
-  const { slots, caprichos } = habitMealsState;
 
   const slotsHTML = MEAL_SLOTS.map(s => {
-    const entry = slots[s.id];
-
-    if (!entry) {
-      // Vacío: label + los dos botones de marcar
-      return (
-        '<div class="h-meal-slot empty">' +
+    const d = habitMealsDraft.slots[s.id] || { status: null, description: '' };
+    const goodSel = d.status === 'good' ? ' selected' : '';
+    const badSel  = d.status === 'bad'  ? ' selected' : '';
+    const textHTML = d.status === 'bad'
+      ? '<input class="h-meal-slot-input" data-flash="' + s.id + '" placeholder="&#191;Qu&#233; pas&#243;? (delivery, exceso, etc.)" ' +
+          'value="' + habitEscapeHtml(d.description) + '" oninput="habitMealDraftSetText(' + "'" + s.id + "'" + ', this.value)">'
+      : '';
+    return (
+      '<div class="h-meal-slot-row">' +
+        '<div class="h-meal-slot-top">' +
           '<span class="h-meal-slot-label">' + s.label + '</span>' +
           '<div class="h-meal-slot-btns">' +
-            '<button class="h-meal-mark-btn good" onclick="habitMarkMealGood(' + "'" + s.id + "'" + ')">&#128077;</button>' +
-            '<button class="h-meal-mark-btn bad" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">&#128078;</button>' +
+            '<button class="h-meal-mark-btn good' + goodSel + '" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'good'" + ')">&#128077;</button>' +
+            '<button class="h-meal-mark-btn bad' + badSel + '" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'bad'" + ')">&#128078;</button>' +
           '</div>' +
-        '</div>'
-      );
-    }
-
-    if (!entry.is_indulgent) {
-      // Bien: sin texto, tocar lo borra
-      return (
-        '<div class="h-meal-slot filled good" onclick="habitClearMealSlot(' + "'" + s.id + "'" + ')">' +
-          '<span class="h-meal-slot-label">' + s.label + '</span>' +
-          '<span class="h-meal-slot-text">&#10003; Bien</span>' +
-        '</div>'
-      );
-    }
-
-    // Mal: con texto, tocar reabre el editor para corregir
-    return (
-      '<div class="h-meal-slot filled bad" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">' +
-        '<span class="h-meal-slot-label">' + s.label + '</span>' +
-        '<span class="h-meal-slot-text">' + habitEscapeHtml(entry.description) + '</span>' +
+        '</div>' +
+        textHTML +
       '</div>'
     );
   }).join('');
 
-  const caprichosHTML = caprichos.map(c => (
+  const savedCaprichosHTML = habitMealsState.caprichos.map(c => (
     '<div class="h-meal-capricho-chip">' +
       '<span>' + habitEscapeHtml(c.description) + (c.kcal_estimate ? ' · ' + c.kcal_estimate + 'kcal' : '') + '</span>' +
       '<span class="h-meal-capricho-remove" onclick="habitDeleteCapricho(' + "'" + c.id + "'" + ', event)">&times;</span>' +
     '</div>'
   )).join('');
 
+  const cap = habitMealsDraft.capricho;
+  const capDraftHTML = cap.open
+    ? '<div class="h-meal-capricho-draft">' +
+        '<input class="h-meal-slot-input" data-flash="capricho" placeholder="&#191;Qu&#233; te diste de gusto?" ' +
+          'value="' + habitEscapeHtml(cap.description) + '" oninput="habitCapDraftSetText(this.value)">' +
+        '<input class="h-meal-slot-input" type="number" inputmode="numeric" placeholder="Kcal aprox. (opcional)" ' +
+          'value="' + habitEscapeHtml(cap.kcal) + '" oninput="habitCapDraftSetKcal(this.value)">' +
+      '</div>'
+    : '';
+
   container.innerHTML =
     '<div class="h-meal-slots-list">' + slotsHTML + '</div>' +
     '<div class="h-meal-caprichos-row">' +
-      caprichosHTML +
-      '<button class="h-meal-capricho-add" onclick="habitOpenMealEditor(' + "'capricho'" + ')">+ Capricho</button>' +
-    '</div>';
+      savedCaprichosHTML +
+      '<button class="h-meal-capricho-add' + (cap.open ? ' selected' : '') + '" onclick="habitCapDraftToggleOpen()">+ Capricho</button>' +
+    '</div>' +
+    capDraftHTML +
+    '<button class="h-meal-save-all-btn" id="habitMealsSaveAllBtn" onclick="habitSaveAllMeals()">Guardar comidas</button>';
 }
 
-// Marca un slot como "bien": guarda directo, sin descripción, sin abrir editor.
-async function habitMarkMealGood(mealType) {
-  const payload = {
-    meal_date:     habitDateStr(habitDayOffset),
-    meal_type:     mealType,
-    description:   null,
-    is_indulgent:  false,
-    kcal_estimate: null,
-  };
-  try {
-    const res = await fetch('/api/db/meals?on_conflict=meal_date,slot_key', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },
-      body:    JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
-    const rows  = await res.json();
-    const saved = Array.isArray(rows) ? rows[0] : rows;
-    habitMealsState.slots = { ...habitMealsState.slots, [mealType]: saved };
-    habitRenderMeals();
-  } catch (e) {
-    console.error('[habits] Error guardando meal (bien):', e);
+// Toggle visual — no pega contra la DB. Tocar el mismo botón ya seleccionado
+// deselecciona (y esconde el texto si era 'bad').
+function habitMealDraftToggle(mealType, status) {
+  const d = habitMealsDraft.slots[mealType];
+  if (d.status === status) {
+    d.status = null;
+    d.description = '';
+  } else {
+    d.status = status;
+    if (status === 'good') d.description = '';
   }
+  habitRenderMeals();
 }
 
-// Borra el registro de un slot (vuelve a quedar vacío, con los dos botones).
-async function habitClearMealSlot(mealType) {
-  const entry = habitMealsState.slots[mealType];
-  if (!entry) return;
-  try {
-    const res = await fetch('/api/db/meals?id=eq.' + entry.id, { method: 'DELETE' });
-    if (!res.ok) throw new Error(await res.text());
-    const next = { ...habitMealsState.slots };
-    delete next[mealType];
-    habitMealsState.slots = next;
-    habitRenderMeals();
-  } catch (e) {
-    console.error('[habits] Error borrando meal:', e);
+// Solo actualiza el borrador en memoria — sin re-render, para no perder foco/cursor.
+function habitMealDraftSetText(mealType, value) {
+  habitMealsDraft.slots[mealType].description = value;
+}
+
+function habitCapDraftToggleOpen() {
+  const cap = habitMealsDraft.capricho;
+  cap.open = !cap.open;
+  if (!cap.open) { cap.description = ''; cap.kcal = ''; }
+  habitRenderMeals();
+}
+
+function habitCapDraftSetText(value) { habitMealsDraft.capricho.description = value; }
+function habitCapDraftSetKcal(value) { habitMealsDraft.capricho.kcal = value; }
+
+function habitFlashMealField(key) {
+  const el = document.querySelector('[data-flash="' + key + '"]');
+  if (!el) return;
+  el.classList.remove('h-chip-flash');
+  void el.offsetWidth;
+  el.classList.add('h-chip-flash');
+  setTimeout(() => el.classList.remove('h-chip-flash'), 700);
+}
+
+// Guarda todo junto: los 4 slots (según su estado en el borrador) + el
+// capricho pendiente si hay uno abierto con texto. Un solo tap, un solo lote.
+async function habitSaveAllMeals() {
+  // Validar: todo lo marcado "mal" necesita texto antes de guardar nada
+  const missing = MEAL_SLOTS.filter(s => {
+    const d = habitMealsDraft.slots[s.id];
+    return d.status === 'bad' && !d.description.trim();
+  });
+  if (missing.length) {
+    missing.forEach(s => habitFlashMealField(s.id));
+    return;
   }
-}
-
-// Editor de texto — solo se usa para el caso "mal" (slots) y para capricho
-// (que siempre lleva texto). El caso "bien" nunca pasa por acá.
-function habitOpenMealEditor(mealType) {
-  habitMealEditorOpen = mealType;
-  const isCapricho = mealType === 'capricho';
-  const existing = !isCapricho ? habitMealsState.slots[mealType] : null;
-
-  const editor     = document.getElementById('habitMealEditor');
-  const label      = document.getElementById('habitMealEditorLabel');
-  const input      = document.getElementById('habitMealEditorInput');
-  const kcalInput  = document.getElementById('habitMealEditorKcal');
-  const deleteBtn  = document.getElementById('habitMealEditorDeleteBtn');
-  if (!editor || !input) return;
-
-  if (label) label.textContent = MEAL_TYPE_LABELS[mealType] || mealType;
-  input.value = existing ? existing.description : '';
-  input.placeholder = isCapricho ? '¿Qué te diste de gusto?' : '¿Qué pasó? (delivery, exceso, etc.)';
-
-  if (kcalInput) {
-    kcalInput.style.display = isCapricho ? 'block' : 'none';
-    kcalInput.value = existing && existing.kcal_estimate ? existing.kcal_estimate : '';
+  if (habitMealsDraft.capricho.open && !habitMealsDraft.capricho.description.trim()) {
+    habitFlashMealField('capricho');
+    return;
   }
-  if (deleteBtn) deleteBtn.style.display = existing ? 'block' : 'none';
 
-  editor.style.display = 'block';
-  editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  setTimeout(() => input.focus(), 50);
-}
+  const btn = document.getElementById('habitMealsSaveAllBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
-function habitCloseMealEditor() {
-  habitMealEditorOpen = null;
-  const editor = document.getElementById('habitMealEditor');
-  if (editor) editor.style.display = 'none';
-}
-
-async function habitSaveMealEditor() {
-  const mealType = habitMealEditorOpen;
-  if (!mealType) return;
-  const input     = document.getElementById('habitMealEditorInput');
-  const kcalInput = document.getElementById('habitMealEditorKcal');
-  const btn       = document.getElementById('habitMealEditorSaveBtn');
-  const description = (input && input.value ? input.value : '').trim();
-  if (!description) { if (input) input.focus(); return; } // obligatorio, siempre (mal o capricho)
-
-  const isCapricho = mealType === 'capricho';
-  const payload = {
-    meal_date:     habitDateStr(habitDayOffset),
-    meal_type:     mealType,
-    description,
-    is_indulgent:  true, // el editor solo se usa para "mal" y para capricho
-    kcal_estimate: isCapricho && kcalInput && kcalInput.value ? parseInt(kcalInput.value, 10) : null,
-  };
-
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
   try {
-    // Slots fijos: upsert por (meal_date, slot_key) — tocar el mismo slot dos
-    // veces edita en vez de duplicar. Capricho: insert simple, admite varios/día.
-    const qs = isCapricho ? '' : '?on_conflict=meal_date,slot_key';
-    const prefer = isCapricho
-      ? 'return=representation'
-      : 'resolution=merge-duplicates,return=representation';
+    for (const s of MEAL_SLOTS) {
+      const d     = habitMealsDraft.slots[s.id];
+      const saved = habitMealsState.slots[s.id];
 
-    const res = await fetch('/api/db/meals' + qs, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Prefer': prefer },
-      body:    JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
-    const rows  = await res.json();
-    const saved = Array.isArray(rows) ? rows[0] : rows;
+      if (d.status === null) {
+        // Estaba guardado y se deseleccionó → borrar
+        if (saved) {
+          await fetch('/api/db/meals?id=eq.' + saved.id, { method: 'DELETE' });
+          delete habitMealsState.slots[s.id];
+        }
+        continue;
+      }
 
-    if (isCapricho) {
-      habitMealsState.caprichos = [...habitMealsState.caprichos, saved];
-    } else {
-      habitMealsState.slots = { ...habitMealsState.slots, [mealType]: saved };
+      const payload = {
+        meal_date:     habitDateStr(habitDayOffset),
+        meal_type:     s.id,
+        description:   d.status === 'bad' ? d.description.trim() : null,
+        is_indulgent:  d.status === 'bad',
+        kcal_estimate: null,
+      };
+      const res = await fetch('/api/db/meals?on_conflict=meal_date,slot_key', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },
+        body:    JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+      const rows = await res.json();
+      habitMealsState.slots[s.id] = Array.isArray(rows) ? rows[0] : rows;
     }
-    habitCloseMealEditor();
+
+    if (habitMealsDraft.capricho.open && habitMealsDraft.capricho.description.trim()) {
+      const cap = habitMealsDraft.capricho;
+      const payload = {
+        meal_date:     habitDateStr(habitDayOffset),
+        meal_type:     'capricho',
+        description:   cap.description.trim(),
+        is_indulgent:  true,
+        kcal_estimate: cap.kcal ? parseInt(cap.kcal, 10) : null,
+      };
+      const res = await fetch('/api/db/meals', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body:    JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+      const rows  = await res.json();
+      const saved = Array.isArray(rows) ? rows[0] : rows;
+      habitMealsState.caprichos = [...habitMealsState.caprichos, saved];
+    }
+
+    habitMealsDraftFromState(); // resincroniza el borrador con lo recién guardado
+    if (btn) btn.textContent = 'Guardado ✓';
     habitRenderMeals();
+    setTimeout(() => {
+      const b = document.getElementById('habitMealsSaveAllBtn');
+      if (b) { b.disabled = false; b.textContent = 'Guardar comidas'; }
+    }, 1500);
   } catch (e) {
-    console.error('[habits] Error guardando meal:', e);
+    console.error('[habits] Error guardando comidas:', e);
     alert('No se pudo guardar, probá de nuevo');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar comidas'; }
   }
 }
 
-// Borra el registro que se está editando (solo aplica a slots "mal" existentes).
-async function habitDeleteMealEditorEntry() {
-  const mealType = habitMealEditorOpen;
-  if (!mealType || mealType === 'capricho') { habitCloseMealEditor(); return; }
-  await habitClearMealSlot(mealType);
-  habitCloseMealEditor();
-}
-
+// Los caprichos ya guardados se borran al toque (no forman parte del borrador
+// pendiente, es una acción puntual sobre algo que ya está en DB).
 async function habitDeleteCapricho(id, event) {
   if (event) event.stopPropagation();
   if (!confirm('¿Borrar este capricho?')) return;
