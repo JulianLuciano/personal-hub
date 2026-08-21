@@ -53,6 +53,9 @@ let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
+let habitPendingSave  = null;      // { dateStr, state } — snapshot tomado al programar el save,
+                                    // no al dispararse (evita guardar en el día/estado equivocado
+                                    // si navegás a otro día antes de que venza el debounce)
 let habitWaterMl     = 0;           // ml de agua de hoy (cargado desde DB)
 let habitWaterGoal   = 2000;        // meta del día (2500 si entrenó)
 
@@ -129,10 +132,18 @@ function habitFormatDate(d) {
   return `${H_DAYS[d.getDay()]} ${d.getDate()} ${H_MONTHS[d.getMonth()]}`;
 }
 
+// Fecha LOCAL en formato YYYY-MM-DD. NO usar toISOString().slice(0,10) para
+// esto: convierte a UTC, y cerca de medianoche en horario de verano de
+// Londres (BST, UTC+1) puede devolver el día equivocado.
+function habitLocalDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
 function habitDateStr(offset) {
-  // YYYY-MM-DD para la DB
-  const d = habitGetDate(offset);
-  return d.toISOString().slice(0, 10);
+  return habitLocalDateStr(habitGetDate(offset));
 }
 
 function habitWeekOfYear() {
@@ -209,7 +220,7 @@ function waterPromptRespond(tookWater) {
     }).then(() => {
       habitWaterMl += 500;
       habitWaterRender();
-      localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+      localStorage.setItem('habitLastActivity', habitLocalDateStr(new Date()));
     }).catch(console.warn);
   } else {
     fetch('/api/water/respond', {
@@ -268,6 +279,7 @@ function habitUpdateDateUI() {
 
 function habitGoToday() {
   if (habitDayOffset === 0) return;
+  habitFlushSave();
   habitDayOffset = 0;
   habitUpdateDateUI();
   habitLoadDay();
@@ -276,6 +288,7 @@ function habitGoToday() {
 function habitShiftDay(delta) {
   const next = habitDayOffset + delta;
   if (next > 0 || next < habitMinOffset()) return;
+  habitFlushSave();
   habitDayOffset = next;
   habitUpdateDateUI();
   habitLoadDay();
@@ -292,8 +305,8 @@ function habitInitDatePicker() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const jan1  = new Date(today.getFullYear(), 0, 1);
-  picker.max   = today.toISOString().slice(0, 10);
-  picker.min   = jan1.toISOString().slice(0, 10);
+  picker.max   = habitLocalDateStr(today);
+  picker.min   = habitLocalDateStr(jan1);
   picker.value = habitDateStr(0); // hoy
 }
 
@@ -305,6 +318,7 @@ function habitPickDate(dateStr) {
   if (picked > today || picked < jan1) return;
   const diffMs   = picked - today;
   const diffDays = Math.round(diffMs / 86400000);
+  habitFlushSave();
   habitDayOffset = diffDays;
   habitUpdateDateUI();
   habitLoadDay();
@@ -356,11 +370,25 @@ async function habitLoadWater() {
 }
 
 function habitScheduleSave() {
-  // Debounce: espera 1.5s sin cambios antes de guardar
+  // Debounce: espera 1.5s sin cambios antes de guardar.
+  // El snapshot se toma ACÁ (fecha + estado actuales), no cuando dispara el
+  // timeout — si no, navegar a otro día antes de que venza el debounce hacía
+  // que el guardado se disparara con la fecha y el estado del día nuevo, no
+  // del que realmente se había editado.
   clearTimeout(habitSaveTimeout);
-  habitSaveTimeout = setTimeout(() => {
-    saveDailyToDB(habitDateStr(habitDayOffset), habitDayState);
-  }, 1500);
+  habitPendingSave = { dateStr: habitDateStr(habitDayOffset), state: { ...habitDayState } };
+  habitSaveTimeout = setTimeout(habitFlushSave, 1500);
+}
+
+// Fuerza el guardado pendiente ya (sin esperar el debounce). Se llama antes
+// de navegar a otro día, para no depender de que el timer siga vivo en
+// background si el usuario cierra la app o sigue navegando rápido.
+function habitFlushSave() {
+  clearTimeout(habitSaveTimeout);
+  if (!habitPendingSave) return;
+  const { dateStr, state } = habitPendingSave;
+  habitPendingSave = null;
+  saveDailyToDB(dateStr, state);
 }
 
 // ── RENDER: HABITS ─────────────────────────────────────────────────────────────
@@ -559,7 +587,7 @@ function habitToggle(id, fromCheck) {
     // Marcar y abrir drawer
     habitDayState[id] = true;
     if (h && h.hasDetail) habitOpenDrawers.add(id);
-    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    localStorage.setItem('habitLastActivity', habitLocalDateStr(new Date()));
     habitRenderHabits();
     habitScheduleSave();
     return;
@@ -646,7 +674,7 @@ async function habitWaterFlush() {
         body:    JSON.stringify({ amount_ml: deltaMl, source: 'manual' }),
       })
     ));
-    localStorage.setItem('habitLastActivity', new Date().toISOString().slice(0,10));
+    localStorage.setItem('habitLastActivity', habitLocalDateStr(new Date()));
   } catch (e) {
     // Si falla, reencolar para reintentar en el próximo flush
     console.warn('[water] flush failed, re-queuing:', e.message);
@@ -711,6 +739,7 @@ const MEAL_SLOTS = [
   { id: 'cena',     label: 'Cena'     },
 ];
 const MEAL_TYPE_LABELS = { desayuno: 'Desayuno', almuerzo: 'Almuerzo', merienda: 'Merienda', cena: 'Cena', capricho: 'Capricho' };
+const MEAL_SKIP_TEXT = '(nada)'; // texto fijo para "no comí esta comida"
 
 // habitMealsState: lo que YA está guardado en DB (fuente de verdad al cargar).
 // habitMealsDraft: lo que se está por guardar, arranca como espejo de lo guardado.
@@ -726,9 +755,15 @@ function habitMealsDraftFromState() {
   const slots = {};
   MEAL_SLOTS.forEach(s => {
     const saved = habitMealsState.slots[s.id];
-    slots[s.id] = saved
-      ? { status: saved.is_indulgent ? 'bad' : 'good', description: saved.description || '' }
-      : { status: null, description: '' };
+    if (!saved) {
+      slots[s.id] = { status: null, description: '' };
+    } else if (saved.is_indulgent) {
+      slots[s.id] = { status: 'bad', description: saved.description || '' };
+    } else if (saved.description === MEAL_SKIP_TEXT) {
+      slots[s.id] = { status: 'skip', description: '' };
+    } else {
+      slots[s.id] = { status: 'good', description: '' };
+    }
   });
   habitMealsDraft = { slots, capricho: { open: false, description: '', kcal: '' } };
 }
@@ -740,6 +775,7 @@ function habitRenderMeals() {
   const slotsHTML = MEAL_SLOTS.map(s => {
     const d = habitMealsDraft.slots[s.id] || { status: null, description: '' };
     const goodSel = d.status === 'good' ? ' selected' : '';
+    const skipSel = d.status === 'skip' ? ' selected' : '';
     const badSel  = d.status === 'bad'  ? ' selected' : '';
     const textHTML = d.status === 'bad'
       ? '<input class="h-meal-slot-input" data-flash="' + s.id + '" placeholder="&#191;Qu&#233; pas&#243;? (delivery, exceso, etc.)" ' +
@@ -750,8 +786,9 @@ function habitRenderMeals() {
         '<div class="h-meal-slot-top">' +
           '<span class="h-meal-slot-label">' + s.label + '</span>' +
           '<div class="h-meal-slot-btns">' +
-            '<button class="h-meal-mark-btn good' + goodSel + '" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'good'" + ')">&#128077;</button>' +
-            '<button class="h-meal-mark-btn bad' + badSel + '" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'bad'" + ')">&#128078;</button>' +
+            '<button class="h-meal-mark-btn good' + goodSel + '" title="Bien" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'good'" + ')">&#128077;</button>' +
+            '<button class="h-meal-mark-btn skip' + skipSel + '" title="No comí" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'skip'" + ')">&#128683;</button>' +
+            '<button class="h-meal-mark-btn bad' + badSel + '" title="Mal" onclick="habitMealDraftToggle(' + "'" + s.id + "'" + ', ' + "'bad'" + ')">&#128078;</button>' +
           '</div>' +
         '</div>' +
         textHTML +
@@ -795,7 +832,7 @@ function habitMealDraftToggle(mealType, status) {
     d.description = '';
   } else {
     d.status = status;
-    if (status === 'good') d.description = '';
+    if (status === 'good' || status === 'skip') d.description = '';
   }
   habitRenderMeals();
 }
@@ -862,7 +899,7 @@ async function habitSaveAllMeals() {
       const payload = {
         meal_date:     habitDateStr(habitDayOffset),
         meal_type:     s.id,
-        description:   d.status === 'bad' ? d.description.trim() : null,
+        description:   d.status === 'bad' ? d.description.trim() : (d.status === 'skip' ? MEAL_SKIP_TEXT : null),
         is_indulgent:  d.status === 'bad',
         kcal_estimate: null,
       };
@@ -1214,7 +1251,7 @@ async function loadAnalyticsFromDB(weeks) {
   // Fecha de inicio = thisMonday - (weeks-1) semanas
   const fromDate = new Date(thisMonday);
   fromDate.setDate(thisMonday.getDate() - (weeks - 1) * 7);
-  const fromStr = fromDate.toISOString().slice(0, 10);
+  const fromStr = habitLocalDateStr(fromDate);
 
   // Query a Supabase via proxy
   let rows = [];
@@ -1262,7 +1299,7 @@ async function loadAnalyticsFromDB(weeks) {
 
     result.push({
       weekLabel:  'S' + weekNum,
-      weekStart:  weekStart.toISOString().slice(0, 10),
+      weekStart:  habitLocalDateStr(weekStart),
       trainDays,
       trainMins,
       pianoDays,
@@ -1578,8 +1615,7 @@ function mealsWeekRange(offset) {
   monday.setHours(0, 0, 0, 0);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  const fmt = d => d.toISOString().slice(0, 10);
-  return { from: fmt(monday), to: fmt(sunday), monday };
+  return { from: habitLocalDateStr(monday), to: habitLocalDateStr(sunday), monday };
 }
 
 async function loadMealsGrid() {
@@ -1604,6 +1640,21 @@ async function loadMealsGrid() {
 
   renderMealsGrid(rows, monday);
   renderMealsStats(rows);
+  habitMealsGridAutoScroll();
+}
+
+// Deja el scroll horizontal de la grilla arrancando en el día de hoy (o el
+// lunes, si estás viendo una semana pasada). Ej: si es jueves, la grilla
+// abre con jueves como primera columna visible, scrolleable para ambos lados.
+function habitMealsGridAutoScroll() {
+  const wrap = document.querySelector('.h-meal-grid-wrap');
+  if (!wrap) return;
+  if (mealsWeekOffset !== 0) { wrap.scrollLeft = 0; return; }
+  const todayIdx = (new Date().getDay() + 6) % 7; // lunes = 0
+  const headers  = document.querySelectorAll('#habitMealsGrid .h-meal-grid-daylabel');
+  const target   = headers[todayIdx];
+  if (target) target.scrollIntoView({ inline: 'start', block: 'nearest' });
+  else wrap.scrollLeft = 0;
 }
 
 function renderMealsGrid(rows, monday) {
@@ -1624,7 +1675,7 @@ function renderMealsGrid(rows, monday) {
   const dates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    return d.toISOString().slice(0, 10);
+    return habitLocalDateStr(d);
   });
 
   let html = '<div class="h-meal-grid-header-row"><div class="h-meal-grid-corner"></div>';
@@ -1644,7 +1695,7 @@ function renderMealsGrid(rows, monday) {
       } else {
         const cell = dayData[rowType];
         const cls  = cell ? (cell.is_indulgent ? 'indulgent' : 'filled') : '';
-        const text = cell ? (cell.is_indulgent ? habitEscapeHtml(cell.description) : '&#10003;') : '';
+        const text = cell ? (cell.is_indulgent || cell.description === MEAL_SKIP_TEXT ? habitEscapeHtml(cell.description) : '&#10003;') : '';
         html += '<div class="h-meal-grid-cell ' + cls + '">' + text + '</div>';
       }
     });
@@ -1664,12 +1715,10 @@ function renderMealsStats(rows) {
   const caprichoKcal = rows
     .filter(r => r.meal_type === 'capricho' && r.kcal_estimate)
     .reduce((s, r) => s + r.kcal_estimate, 0);
-  const desayunos = rows.filter(r => r.meal_type === 'desayuno').length;
 
   container.innerHTML =
     '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>' +
-    '<div class="h-meal-stat-chip">' + caprichoKcal + ' kcal en caprichos</div>' +
-    '<div class="h-meal-stat-chip">' + desayunos + '/7 desayunos</div>';
+    '<div class="h-meal-stat-chip">' + caprichoKcal + ' kcal en caprichos</div>';
 }
 
 function habitMealsShiftWeek(delta) {

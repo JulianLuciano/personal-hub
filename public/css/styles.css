@@ -2162,23 +2162,29 @@
   color: var(--muted);
   flex-shrink: 0;
 }
-.h-meal-slot-btns { display: flex; gap: 8px; }
+.h-meal-slot-btns { display: flex; gap: 6px; }
 .h-meal-mark-btn {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 1.5px solid var(--border);
   background: var(--surface);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: all 0.15s;
   opacity: 0.55;
+  flex-shrink: 0;
 }
 .h-meal-mark-btn.good.selected {
   opacity: 1;
   border-color: var(--accent3);
   background: rgba(67,233,123,0.15);
+}
+.h-meal-mark-btn.skip.selected {
+  opacity: 1;
+  border-color: var(--muted);
+  background: rgba(148,163,184,0.15);
 }
 .h-meal-mark-btn.bad.selected {
   opacity: 1;
