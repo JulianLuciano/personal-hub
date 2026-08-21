@@ -2132,46 +2132,7 @@
   overflow: hidden;
   margin-bottom: 0;
 }
-.h-food-opts {
-  display: flex;
-  gap: 0;
-}
-.h-food-opt {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 14px 12px;
-  border: none;
-  background: none;
-  color: var(--muted);
-  font-family: 'DM Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  border-bottom: 2px solid transparent;
-}
-.h-food-opt:first-child { border-right: 1px solid var(--border); }
-.h-food-opt-icon { font-size: 18px; }
-.h-food-opt.good.selected {
-  color: var(--accent3);
-  background: rgba(67,233,123,0.06);
-  border-bottom-color: var(--accent3);
-}
-.h-food-opt.bad.selected {
-  color: var(--accent4);
-  background: rgba(247,183,49,0.06);
-  border-bottom-color: var(--accent4);
-}
-.h-food-drop {
-  display: none;
-  padding: 14px 16px;
-  border-top: 1px solid var(--border);
-  background: var(--surface2);
-}
-.h-food-drop.open { display: block; }
+/* ── Slots de comida (Today) ────────────────────────────────────── */
 .h-food-drop-label {
   font-size: 11px;
   font-weight: 700;
@@ -2180,35 +2141,93 @@
   text-transform: uppercase;
   margin-bottom: 10px;
 }
-.h-food-meals {
+.h-meal-slots { padding: 10px 16px 14px; }
+.h-meal-slots-list { display: flex; flex-direction: column; gap: 8px; }
+.h-meal-slot {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.h-meal-chip {
-  padding: 7px 14px;
-  border-radius: 100px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
   border: 1.5px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 13px;
-  font-family: 'DM Sans', sans-serif;
-  font-weight: 500;
+  background: var(--surface2);
   cursor: pointer;
   transition: all 0.15s;
 }
-.h-meal-chip.selected {
-  border-color: var(--accent4);
-  color: var(--accent4);
-  background: rgba(247,183,49,0.1);
+.h-meal-slot.filled {
+  border-color: rgba(67,233,123,0.35);
+  background: rgba(67,233,123,0.08);
 }
-.h-food-issue {
-  display: flex;
-  gap: 8px;
+.h-meal-slot.indulgent {
+  border-color: rgba(255,101,132,0.35);
+  background: rgba(255,101,132,0.08);
 }
-.h-issue-btn {
+.h-meal-slot-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.h-meal-slot-text {
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   flex: 1;
-  padding: 8px 6px;
+}
+.h-meal-caprichos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.h-meal-capricho-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 100px;
+  background: rgba(255,101,132,0.1);
+  border: 1.5px solid rgba(255,101,132,0.3);
+  color: var(--accent2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.h-meal-capricho-remove {
+  cursor: pointer;
+  opacity: 0.6;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+}
+.h-meal-capricho-add {
+  padding: 6px 14px;
+  border-radius: 100px;
+  border: 1.5px dashed var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Editor inline de comida (Today) ────────────────────────────── */
+.h-meal-editor {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+.h-meal-indulgent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 12px;
   border-radius: 10px;
   border: 1.5px solid var(--border);
   background: var(--surface);
@@ -2218,12 +2237,128 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
-  text-align: center;
 }
-.h-issue-btn.selected {
+.h-meal-indulgent-toggle.on {
   border-color: var(--accent2);
   color: var(--accent2);
   background: rgba(255,101,132,0.08);
+}
+.h-meal-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.h-meal-editor-cancel,
+.h-meal-editor-save {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  border: none;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+.h-meal-editor-cancel {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+}
+.h-meal-editor-save {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Grilla semanal de comidas (Analytics) ──────────────────────── */
+.h-meal-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.h-meal-week-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+}
+.h-meal-week-btn.disabled { opacity: 0.3; pointer-events: none; }
+.h-meal-grid-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+}
+.h-meal-grid {
+  display: table;
+  border-collapse: collapse;
+  min-width: 100%;
+  font-size: 11px;
+}
+.h-meal-grid-header-row,
+.h-meal-grid-row { display: table-row; }
+.h-meal-grid-corner,
+.h-meal-grid-rowlabel {
+  display: table-cell;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface2);
+  min-width: 62px;
+  max-width: 62px;
+}
+.h-meal-grid-daylabel,
+.h-meal-grid-cell {
+  display: table-cell;
+  min-width: 84px;
+  max-width: 84px;
+}
+.h-meal-grid-daylabel {
+  text-align: center;
+  padding: 8px 2px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface2);
+}
+.h-meal-grid-daylabel span { font-weight: 400; color: var(--muted); font-size: 10px; }
+.h-meal-grid-rowlabel {
+  padding: 8px 6px;
+  font-weight: 700;
+  color: var(--muted);
+  vertical-align: middle;
+}
+.h-meal-grid-cell {
+  padding: 6px 6px;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  vertical-align: top;
+  line-height: 1.3;
+  color: var(--text);
+}
+.h-meal-grid-cell.filled { background: rgba(67,233,123,0.1); }
+.h-meal-grid-cell.indulgent { background: rgba(255,101,132,0.1); }
+.h-meal-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.h-meal-stat-chip {
+  padding: 6px 12px;
+  border-radius: 100px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 

@@ -45,9 +45,14 @@ app.all('/api/db/*', async (req, res) => {
   const supaUrl = `${SUPABASE_URL}/rest/v1/${subPath}${qs}`;
 
   try {
+    // Forwardear Prefer del cliente (ej. 'resolution=merge-duplicates,return=representation'
+    // para upserts) — antes se ignoraba y siempre se usaba el default de Supabase.
+    const extraHeaders = {};
+    if (req.headers['prefer']) extraHeaders['Prefer'] = req.headers['prefer'];
+
     const sbRes = await fetch(supaUrl, {
       method: req.method,
-      headers: headers({ 'Content-Type': 'application/json' }),
+      headers: headers({ 'Content-Type': 'application/json', ...extraHeaders }),
       body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
     });
     const text = await sbRes.text();

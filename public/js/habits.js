@@ -50,7 +50,10 @@ let CURRENT_WEEK = 10;
 // ── STATE ──────────────────────────────────────────────────────────────────────
 
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
-let habitDayState    = {};         // { trained, piano, deepwork, food, foodBad[], foodIssue }
+let habitDayState    = {};         // { trained, piano, deepwork }
+let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
+let habitMealEditorOpen      = null;  // 'desayuno'|'almuerzo'|'merienda'|'cena'|'capricho'|null
+let habitMealEditorIndulgent = false;
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -60,8 +63,8 @@ let habitWaterGoal   = 2000;        // meta del día (2500 si entrenó)
 // ── MOCK DATA (reemplazar con sbFetch cuando haya DB) ──────────────────────────
 
 const MOCK_DAILY = {
-  0:   { trained: false, piano: false, deepwork: false, food: null, foodBad: [], foodIssue: null },
-  '-1':{ trained: true,  piano: false, deepwork: true,  food: false, foodBad: ['dinner'], foodIssue: 'quality' },
+  0:   { trained: false, piano: false, deepwork: false },
+  '-1':{ trained: true,  piano: false, deepwork: true },
 };
 
 const MOCK_ONESHOTS = {
@@ -308,14 +311,33 @@ async function habitLoadDay() {
   const [data] = await Promise.all([
     loadDailyFromDB(dateStr),
     habitDayOffset === 0 ? habitLoadWater() : Promise.resolve(),
+    habitLoadMeals(dateStr),
   ]);
   habitDayState = data ? { ...data } : {};
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
+  habitCloseMealEditor();   // resetear editor de comidas al cambiar de día
   habitRenderHabits();
-  habitRenderFood();
+  habitRenderMeals();
   habitRenderMood();
   habitRenderDrawers();
+}
+
+// Carga las comidas del día desde la tabla real `meals` (vía sbFetch → /api/db/meals).
+async function habitLoadMeals(dateStr) {
+  try {
+    const rows = await sbFetch(`/rest/v1/meals?meal_date=eq.${dateStr}`);
+    const slots = {};
+    const caprichos = [];
+    (rows || []).forEach(r => {
+      if (r.meal_type === 'capricho') caprichos.push(r);
+      else slots[r.meal_type] = r;
+    });
+    habitMealsState = { slots, caprichos };
+  } catch (e) {
+    console.error('[habits] Error cargando meals:', e);
+    habitMealsState = { slots: {}, caprichos: [] };
+  }
 }
 
 async function habitLoadWater() {
@@ -660,78 +682,163 @@ window.addEventListener('beforeunload', () => {
   waterQueue = [];
 });
 
-// ── RENDER: FOOD ───────────────────────────────────────────────────────────────
-// food: null = sin marcar, true = comí bien, false = comí mal
-// foodBad: [] multiselect de comidas (breakfast/lunch/dinner/other)
-// foodIssue: null | 'quantity' | 'quality' | 'both'
+// ── RENDER: MEALS ──────────────────────────────────────────────────────────────
+// Reemplaza la grilla de Excel. 4 slots fijos (desayuno/almuerzo/merienda/cena,
+// uno por día, editable) + caprichos ilimitados por día. Cada guardado pega
+// directo contra la tabla `meals` vía el proxy genérico /api/db/meals — no es
+// mock, es DB real desde el primer tap (mismo patrón que habitRegisterTrainLog).
 
-const FOOD_MEALS = [
-  { id: 'breakfast', label: 'Desayuno' },
-  { id: 'lunch',     label: 'Almuerzo' },
-  { id: 'dinner',    label: 'Cena'     },
-  { id: 'other',     label: 'Otros'    },
+const MEAL_SLOTS = [
+  { id: 'desayuno', label: 'Desayuno' },
+  { id: 'almuerzo', label: 'Almuerzo' },
+  { id: 'merienda', label: 'Merienda' },
+  { id: 'cena',     label: 'Cena'     },
 ];
+const MEAL_TYPE_LABELS = { desayuno: 'Desayuno', almuerzo: 'Almuerzo', merienda: 'Merienda', cena: 'Cena', capricho: 'Capricho' };
 
-function habitRenderFood() {
-  const block  = document.getElementById('habitFoodBlock');
-  if (!block) return;
-  const food   = habitDayState.food;   // null | true | false
-  const bad    = habitDayState.foodBad   || [];
-  const issue  = habitDayState.foodIssue || null;
-
-  // Option buttons state
-  ['opt-good','opt-bad'].forEach(id => {
-    const el = document.getElementById('h-food-' + id);
-    if (el) el.classList.remove('selected');
-  });
-  if (food === true)  { const el = document.getElementById('h-food-opt-good'); if(el) el.classList.add('selected'); }
-  if (food === false) { const el = document.getElementById('h-food-opt-bad');  if(el) el.classList.add('selected'); }
-
-  // Dropdown visibility
-  const drop = document.getElementById('habitFoodDrop');
-  if (drop) drop.classList.toggle('open', food === false);
-
-  // Meal chips
-  FOOD_MEALS.forEach(m => {
-    const chip = document.getElementById('h-meal-' + m.id);
-    if (chip) chip.classList.toggle('selected', bad.includes(m.id));
-  });
-
-  // Issue buttons
-  ['quantity','quality','both'].forEach(v => {
-    const el = document.getElementById('h-issue-' + v);
-    if (el) el.classList.toggle('selected', issue === v);
-  });
+function habitEscapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
 }
 
-function habitSelectFood(val) {
-  // val: true = bien, false = mal — toggle si ya estaba seleccionado
-  if (habitDayState.food === val) {
-    habitDayState.food = null;
-  } else {
-    habitDayState.food = val;
-    if (val === true) {
-      habitDayState.foodBad   = [];
-      habitDayState.foodIssue = null;
-    }
+function habitRenderMeals() {
+  const container = document.getElementById('habitMealSlots');
+  if (!container) return;
+  const { slots, caprichos } = habitMealsState;
+
+  const slotsHTML = MEAL_SLOTS.map(s => {
+    const entry = slots[s.id];
+    const cls  = entry ? (entry.is_indulgent ? 'filled indulgent' : 'filled') : '';
+    const text = entry ? habitEscapeHtml(entry.description) : 'Tocar para anotar';
+    return (
+      '<div class="h-meal-slot ' + cls + '" onclick="habitOpenMealEditor(' + "'" + s.id + "'" + ')">' +
+        '<span class="h-meal-slot-label">' + s.label + '</span>' +
+        '<span class="h-meal-slot-text">' + text + '</span>' +
+      '</div>'
+    );
+  }).join('');
+
+  const caprichosHTML = caprichos.map(c => (
+    '<div class="h-meal-capricho-chip">' +
+      '<span>' + habitEscapeHtml(c.description) + (c.kcal_estimate ? ' · ' + c.kcal_estimate + 'kcal' : '') + '</span>' +
+      '<span class="h-meal-capricho-remove" onclick="habitDeleteCapricho(' + "'" + c.id + "'" + ', event)">&times;</span>' +
+    '</div>'
+  )).join('');
+
+  container.innerHTML =
+    '<div class="h-meal-slots-list">' + slotsHTML + '</div>' +
+    '<div class="h-meal-caprichos-row">' +
+      caprichosHTML +
+      '<button class="h-meal-capricho-add" onclick="habitOpenMealEditor(' + "'capricho'" + ')">+ Capricho</button>' +
+    '</div>';
+}
+
+function habitOpenMealEditor(mealType) {
+  habitMealEditorOpen = mealType;
+  const isCapricho = mealType === 'capricho';
+  const existing = !isCapricho ? habitMealsState.slots[mealType] : null;
+
+  const editor    = document.getElementById('habitMealEditor');
+  const label     = document.getElementById('habitMealEditorLabel');
+  const input     = document.getElementById('habitMealEditorInput');
+  const kcalInput = document.getElementById('habitMealEditorKcal');
+  const toggleBtn = document.getElementById('habitMealIndulgentToggle');
+  if (!editor || !input) return;
+
+  if (label) label.textContent = MEAL_TYPE_LABELS[mealType] || mealType;
+  input.value = existing ? existing.description : '';
+  input.placeholder = isCapricho ? '¿Qué te diste de gusto?' : '¿Qué comiste?';
+
+  habitMealEditorIndulgent = isCapricho ? true : !!(existing && existing.is_indulgent);
+  if (toggleBtn) {
+    toggleBtn.style.display = isCapricho ? 'none' : 'flex';
+    toggleBtn.classList.toggle('on', habitMealEditorIndulgent);
   }
-  habitRenderFood();
-  habitScheduleSave();
+  if (kcalInput) {
+    kcalInput.style.display = isCapricho ? 'block' : 'none';
+    kcalInput.value = existing && existing.kcal_estimate ? existing.kcal_estimate : '';
+  }
+
+  editor.style.display = 'block';
+  editor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  setTimeout(() => input.focus(), 50);
 }
 
-function habitToggleMeal(mealId) {
-  if (!habitDayState.foodBad) habitDayState.foodBad = [];
-  const idx = habitDayState.foodBad.indexOf(mealId);
-  if (idx === -1) habitDayState.foodBad.push(mealId);
-  else            habitDayState.foodBad.splice(idx, 1);
-  habitRenderFood();
-  habitScheduleSave();
+function habitToggleMealIndulgent() {
+  habitMealEditorIndulgent = !habitMealEditorIndulgent;
+  const btn = document.getElementById('habitMealIndulgentToggle');
+  if (btn) btn.classList.toggle('on', habitMealEditorIndulgent);
 }
 
-function habitSelectIssue(val) {
-  habitDayState.foodIssue = habitDayState.foodIssue === val ? null : val;
-  habitRenderFood();
-  habitScheduleSave();
+function habitCloseMealEditor() {
+  habitMealEditorOpen = null;
+  const editor = document.getElementById('habitMealEditor');
+  if (editor) editor.style.display = 'none';
+}
+
+async function habitSaveMealEditor() {
+  const mealType = habitMealEditorOpen;
+  if (!mealType) return;
+  const input     = document.getElementById('habitMealEditorInput');
+  const kcalInput = document.getElementById('habitMealEditorKcal');
+  const btn       = document.getElementById('habitMealEditorSaveBtn');
+  const description = (input && input.value ? input.value : '').trim();
+  if (!description) { if (input) input.focus(); return; }
+
+  const isCapricho = mealType === 'capricho';
+  const payload = {
+    meal_date:     habitDateStr(habitDayOffset),
+    meal_type:     mealType,
+    description,
+    is_indulgent:  isCapricho ? true : habitMealEditorIndulgent,
+    kcal_estimate: isCapricho && kcalInput && kcalInput.value ? parseInt(kcalInput.value, 10) : null,
+  };
+
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    // Slots fijos: upsert por (meal_date, slot_key) — tocar el mismo slot dos
+    // veces edita en vez de duplicar. Capricho: insert simple, admite varios/día.
+    const qs = isCapricho ? '' : '?on_conflict=meal_date,slot_key';
+    const prefer = isCapricho
+      ? 'return=representation'
+      : 'resolution=merge-duplicates,return=representation';
+
+    const res = await fetch('/api/db/meals' + qs, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': prefer },
+      body:    JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+    const rows  = await res.json();
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+
+    if (isCapricho) {
+      habitMealsState.caprichos = [...habitMealsState.caprichos, saved];
+    } else {
+      habitMealsState.slots = { ...habitMealsState.slots, [mealType]: saved };
+    }
+    habitCloseMealEditor();
+    habitRenderMeals();
+  } catch (e) {
+    console.error('[habits] Error guardando meal:', e);
+    alert('No se pudo guardar, probá de nuevo');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+  }
+}
+
+async function habitDeleteCapricho(id, event) {
+  if (event) event.stopPropagation();
+  if (!confirm('¿Borrar este capricho?')) return;
+  try {
+    const res = await fetch('/api/db/meals?id=eq.' + id, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    habitMealsState.caprichos = habitMealsState.caprichos.filter(c => c.id !== id);
+    habitRenderMeals();
+  } catch (e) {
+    console.error('[habits] Error borrando capricho:', e);
+  }
 }
 
 
@@ -1384,6 +1491,127 @@ async function habitRenderAnalytics() {
       },
     });
   }
+
+  // Grilla de comidas — independiente del rango 8sem/YTD de los charts de arriba,
+  // tiene su propia navegación semana a semana.
+  loadMealsGrid();
+}
+
+// ── COMIDAS: GRILLA SEMANAL (Analytics) ─────────────────────────────────────
+// Recrea la vieja grilla de Excel: filas = comida, columnas = día,
+// coloreado según is_indulgent. Datos reales de la tabla `meals`.
+
+let mealsWeekOffset = 0; // 0 = semana actual, negativo = semanas atrás
+
+const MEAL_GRID_ROWS   = ['desayuno', 'almuerzo', 'merienda', 'cena', 'capricho'];
+const MEAL_GRID_DAYS   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+function mealsWeekRange(offset) {
+  const now = new Date();
+  const dow = (now.getDay() + 6) % 7; // lunes = 0
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - dow + offset * 7);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { from: fmt(monday), to: fmt(sunday), monday };
+}
+
+async function loadMealsGrid() {
+  const { from, to, monday } = mealsWeekRange(mealsWeekOffset);
+
+  const label = document.getElementById('habitMealsWeekLabel');
+  if (label) {
+    label.textContent = mealsWeekOffset === 0
+      ? 'Esta semana'
+      : fmtWeekLabel(from) + ' – ' + fmtWeekLabel(to);
+  }
+  const nextBtn = document.getElementById('habitMealsWeekNextBtn');
+  if (nextBtn) nextBtn.classList.toggle('disabled', mealsWeekOffset >= 0);
+
+  let rows = [];
+  try {
+    rows = await sbFetch(`/rest/v1/meals?meal_date=gte.${from}&meal_date=lte.${to}&order=meal_date.asc`);
+  } catch (e) {
+    console.error('[analytics] Error cargando meals:', e);
+    rows = [];
+  }
+
+  renderMealsGrid(rows, monday);
+  renderMealsStats(rows);
+}
+
+function renderMealsGrid(rows, monday) {
+  const container = document.getElementById('habitMealsGrid');
+  if (!container) return;
+
+  const byDate = {};
+  rows.forEach(r => {
+    byDate[r.meal_date] = byDate[r.meal_date] || {};
+    if (r.meal_type === 'capricho') {
+      byDate[r.meal_date].capricho = byDate[r.meal_date].capricho || [];
+      byDate[r.meal_date].capricho.push(r);
+    } else {
+      byDate[r.meal_date][r.meal_type] = r;
+    }
+  });
+
+  const dates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+
+  let html = '<div class="h-meal-grid-header-row"><div class="h-meal-grid-corner"></div>';
+  dates.forEach((d, i) => {
+    html += '<div class="h-meal-grid-daylabel">' + MEAL_GRID_DAYS[i] + '<br><span>' + d.slice(8,10) + '/' + d.slice(5,7) + '</span></div>';
+  });
+  html += '</div>';
+
+  MEAL_GRID_ROWS.forEach(rowType => {
+    html += '<div class="h-meal-grid-row"><div class="h-meal-grid-rowlabel">' + (MEAL_TYPE_LABELS[rowType] || rowType) + '</div>';
+    dates.forEach(d => {
+      const dayData = byDate[d] || {};
+      if (rowType === 'capricho') {
+        const items = dayData.capricho || [];
+        const text  = items.map(c => habitEscapeHtml(c.description)).join(', ');
+        html += '<div class="h-meal-grid-cell ' + (items.length ? 'indulgent' : '') + '">' + text + '</div>';
+      } else {
+        const cell = dayData[rowType];
+        const cls  = cell ? (cell.is_indulgent ? 'indulgent' : 'filled') : '';
+        html += '<div class="h-meal-grid-cell ' + cls + '">' + (cell ? habitEscapeHtml(cell.description) : '') + '</div>';
+      }
+    });
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function renderMealsStats(rows) {
+  const container = document.getElementById('habitMealsStats');
+  if (!container) return;
+
+  const slotRows   = rows.filter(r => r.meal_type !== 'capricho');
+  const indulgent  = slotRows.filter(r => r.is_indulgent).length;
+  const pct        = slotRows.length ? Math.round((indulgent / slotRows.length) * 100) : 0;
+  const caprichoKcal = rows
+    .filter(r => r.meal_type === 'capricho' && r.kcal_estimate)
+    .reduce((s, r) => s + r.kcal_estimate, 0);
+  const desayunos = rows.filter(r => r.meal_type === 'desayuno').length;
+
+  container.innerHTML =
+    '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>' +
+    '<div class="h-meal-stat-chip">' + caprichoKcal + ' kcal en caprichos</div>' +
+    '<div class="h-meal-stat-chip">' + desayunos + '/7 desayunos</div>';
+}
+
+function habitMealsShiftWeek(delta) {
+  const next = mealsWeekOffset + delta;
+  if (next > 0) return; // no ir al futuro
+  mealsWeekOffset = next;
+  loadMealsGrid();
 }
 
 // ── HISTORIAL DE HÁBITOS (Analytics) ────────────────────────────────────────

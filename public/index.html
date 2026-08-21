@@ -80,29 +80,19 @@
       <div class="h-divider"></div>
 
       <div class="h-food-block" id="habitFoodBlock">
-        <div class="h-food-opts">
-          <button class="h-food-opt good" id="h-food-opt-good" onclick="habitSelectFood(true)">
-            <span class="h-food-opt-icon">&#x1F957;</span>
-            <span>Com&#237; bien</span>
+        <div class="h-food-drop-label" style="padding:14px 16px 0">&#127869; Comidas</div>
+        <div class="h-meal-slots" id="habitMealSlots"></div>
+        <div class="h-meal-editor" id="habitMealEditor" style="display:none">
+          <div class="h-drawer-label" id="habitMealEditorLabel">Desayuno</div>
+          <input class="h-drawer-other-input" id="habitMealEditorInput" placeholder="&#191;Qu&#233; comiste?" style="margin-top:0">
+          <button class="h-meal-indulgent-toggle" id="habitMealIndulgentToggle" onclick="habitToggleMealIndulgent()">
+            &#x1F440; Fue un exceso / delivery / etc.
           </button>
-          <button class="h-food-opt bad" id="h-food-opt-bad" onclick="habitSelectFood(false)">
-            <span class="h-food-opt-icon">&#x1F355;</span>
-            <span>Com&#237; mal</span>
-          </button>
-        </div>
-        <div class="h-food-drop" id="habitFoodDrop">
-          <div class="h-food-drop-label">&#191;En qu&#233; comida?</div>
-          <div class="h-food-meals">
-            <button class="h-meal-chip" id="h-meal-breakfast" onclick="habitToggleMeal('breakfast')">Desayuno</button>
-            <button class="h-meal-chip" id="h-meal-lunch"     onclick="habitToggleMeal('lunch')">Almuerzo</button>
-            <button class="h-meal-chip" id="h-meal-dinner"    onclick="habitToggleMeal('dinner')">Cena</button>
-            <button class="h-meal-chip" id="h-meal-other"     onclick="habitToggleMeal('other')">Otros</button>
-          </div>
-          <div class="h-food-drop-label" style="margin-top:12px">&#191;Qu&#233; fall&#243;?</div>
-          <div class="h-food-issue">
-            <button class="h-issue-btn" id="h-issue-quantity" onclick="habitSelectIssue('quantity')">&#x1F4CF; Cantidad</button>
-            <button class="h-issue-btn" id="h-issue-quality"  onclick="habitSelectIssue('quality')">&#x1F6AB; Calidad</button>
-            <button class="h-issue-btn" id="h-issue-both"     onclick="habitSelectIssue('both')">Ambas</button>
+          <input class="h-drawer-other-input" id="habitMealEditorKcal" type="number" inputmode="numeric"
+            placeholder="Kcal aprox. (opcional)" style="display:none">
+          <div class="h-meal-editor-actions">
+            <button class="h-meal-editor-cancel" onclick="habitCloseMealEditor()">Cancelar</button>
+            <button class="h-meal-editor-save" id="habitMealEditorSaveBtn" onclick="habitSaveMealEditor()">Guardar</button>
           </div>
         </div>
       </div>
@@ -185,6 +175,18 @@
       <div class="h-analytics-chart-wrap">
         <canvas id="chartPiano"></canvas>
       </div>
+
+      <!-- COMIDAS: grilla semanal (recrea la vieja grilla de Excel) -->
+      <p class="h-analytics-chart-title" style="margin-top:20px">&#127869; Comidas</p>
+      <div class="h-meal-week-nav">
+        <button class="h-meal-week-btn" onclick="habitMealsShiftWeek(-1)">&#8249;</button>
+        <span id="habitMealsWeekLabel">Esta semana</span>
+        <button class="h-meal-week-btn disabled" id="habitMealsWeekNextBtn" onclick="habitMealsShiftWeek(1)">&#8250;</button>
+      </div>
+      <div class="h-meal-grid-wrap">
+        <div class="h-meal-grid" id="habitMealsGrid"></div>
+      </div>
+      <div class="h-meal-stats-row" id="habitMealsStats"></div>
 
       <!-- HABIT HISTORY -->
       <div id="habitHistorySection" style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 20px;">
