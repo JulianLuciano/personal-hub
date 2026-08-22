@@ -334,11 +334,52 @@ async function habitLoadDay() {
     habitLoadMeals(dateStr),
   ]);
   habitDayState = data ? { ...data } : {};
+  await habitLoadTrainingDetail(dateStr); // tipo/duración/notas del entrenamiento (vive en habit_logs, no en habit_daily_logs)
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
   habitRenderHabits();
   habitRenderMeals();
   habitRenderDrawers();
+}
+
+// El checkbox "entrenaste hoy" (booleano) vive en habit_daily_logs, pero la
+// categoría/duración/notas del entrenamiento NUNCA se guardaban ahí — solo
+// existían en memoria mientras tenías el drawer abierto, y se perdían al
+// recargar el día. La única persistencia real de esos datos es habit_logs,
+// que se llena con el botón "Registrar". Esta función trae esa fila (si
+// existe para el día) y reconstruye trainType/trainTypeOther/trainDur para
+// que el drawer se vea igual que como quedó guardado.
+//
+// Caveat: si hubiera más de un entrenamiento registrado el mismo día,
+// habit_logs no tiene columna de hora para desempatar cuál mostrar acá — se
+// toma el último de la respuesta. Para un solo registro diario (el caso
+// normal) esto no es un problema.
+async function habitLoadTrainingDetail(dateStr) {
+  let rows = [];
+  try {
+    rows = await sbFetch(`/rest/v1/habit_logs?habit_date=eq.${dateStr}&habit=eq.Workout`);
+  } catch (e) {
+    console.error('[habits] Error cargando detalle de entrenamiento:', e);
+    return;
+  }
+  const entry = rows && rows.length ? rows[rows.length - 1] : null;
+  if (!entry) return;
+
+  const dbType = (entry.type && entry.type[0]) || null;
+  if (dbType) {
+    const knownChips = ['Rugby','Gym','Crossfit','Paddle','Fútbol','Correr','Bici'];
+    const uiType = Object.keys(HABIT_TRAIN_TYPE_DB_MAP).find(k => HABIT_TRAIN_TYPE_DB_MAP[k] === dbType);
+    if (uiType || knownChips.includes(dbType)) {
+      habitDayState.trainType = uiType || dbType;
+      habitDayState.trainTypeOther = null;
+    } else {
+      // No matchea ninguna pastilla conocida → va como "Otro" con el texto real
+      habitDayState.trainType = 'Otro';
+      habitDayState.trainTypeOther = dbType;
+    }
+  }
+  habitDayState.trainDur = entry.duration_min || null;
+  habitDayState.trainNotes = entry.notes || '';
 }
 
 // Carga las comidas del día desde la tabla real `meals` (vía sbFetch → /api/db/meals)
@@ -622,7 +663,12 @@ function habitRestoreDrawerSelections() {
       c.classList.toggle('selected', c.textContent.trim() === habitDayState.trainType);
     });
     const inp = document.getElementById('h-train-other');
-    if (inp) inp.style.display = habitDayState.trainType === 'Otro' ? 'block' : 'none';
+    if (inp) {
+      inp.style.display = habitDayState.trainType === 'Otro' ? 'block' : 'none';
+      if (habitDayState.trainType === 'Otro' && habitDayState.trainTypeOther) {
+        inp.value = habitDayState.trainTypeOther;
+      }
+    }
   }
   // Trained duration
   if (habitDayState.trainDur) {
@@ -631,6 +677,9 @@ function habitRestoreDrawerSelections() {
       c.classList.toggle('selected', n === habitDayState.trainDur);
     });
   }
+  // Trained notes
+  const notesInp = document.getElementById('h-train-notes');
+  if (notesInp && habitDayState.trainNotes) notesInp.value = habitDayState.trainNotes;
   // Piano types (multi)
   if (habitDayState.pianoTypes && habitDayState.pianoTypes.length) {
     document.querySelectorAll('#h-chips-piano-type .h-scroll-chip').forEach(c => {
