@@ -56,6 +56,10 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | Bug visual, color, layout, fuente | `styles.css` |
 | La app no carga / error en consola al iniciar | `core.js` |
 | Bug en tab Today (hábitos, progreso, heatmap) | `habits.js` |
+| Bug en registro de comidas (bien/mal/no comí, caprichos, grilla semanal) | `habits.js` (sección MEALS) + tabla `meals` en Supabase |
+| Hábito diario (entrenaste/piano) no persiste o se pierde al navegar días | `server.js` → `POST /api/habits/daily` (necesita `on_conflict=log_date`) + tabla `habit_daily_logs` en Supabase — ver "Fixes de hábitos (agosto 2026)" |
+| Entrenamiento marcado pero sin categoría/duración al volver a un día anterior | `habits.js` → `habitLoadTrainingDetail()` + tabla `habit_logs` — la categoría vive ahí, no en `habit_daily_logs` |
+| Upsert genérico (`/api/db/:table`) devuelve body vacío después de guardar | `server.js` → proxy `/api/db/*` debe reenviar el header `Prefer` del cliente |
 | Bug en navigación Tools / menú de herramientas | `core.js` |
 | Agregar/modificar receta o timer | `recipes.js` |
 | Bug en predictor de abrigo (UI, shortcuts, resultado) | `jacket.js` |
@@ -236,37 +240,54 @@ El módulo base que todos los demás dependen. Se carga primero. Contiene:
 ---
 
 ### `js/habits.js`
-Lógica completa del tab Hábitos. Incluye checks diarios, tracker de agua, one-shots anuales, estado de ánimo, drawers de detalle y sistema de notificaciones push real.
+Lógica completa del tab Hábitos. Incluye checks diarios (entrenamiento, piano), tracker de agua, one-shots anuales, registro de comidas, drawers de detalle y sistema de notificaciones push real.
 
 **Configuración:**
-- `HABITS_LIST` — array de hábitos con `{id, icon, name, color, streak, hasDetail, isWater}`. Hábitos actuales: entrenamiento (con drawer de tipo + duración), piano (con drawer de tipos practicados + duración), deep work.
+- `HABITS_LIST` — array de hábitos con `{id, icon, name, color, streak, hasDetail, isWater}`. Hábitos actuales: entrenamiento (con drawer de tipo + duración), piano (con drawer de tipos practicados + duración), agua. Deep work se sacó de la UI en agosto 2026 (ver sección de fixes más abajo) — la columna `deepwork` sigue existiendo en `habit_daily_logs` por si se retoma, pero nada la escribe ni la lee.
 - `ONESHOTS` — contadores anuales: presentaciones, feedbacks, grabaciones, clases de piano, viajes, charlas de desarrollo, PSC reviews, planes grupales, segundas citas.
-- `YEAR_GOALS` — objetivos anuales con valores actuales y metas para mostrar progreso.
+- `YEAR_GOALS` — objetivos anuales con valores actuales y metas para mostrar progreso (sin deep work, sacado en agosto 2026).
+- `MEAL_SLOTS` — los 4 slots fijos de comida: desayuno, almuerzo, merienda, cena.
+- `MEAL_SKIP_TEXT` — `'(nada)'`, texto fijo que se guarda cuando marcás "no comí esta comida".
 
 **Estado:**
-- `habitDayOffset` — 0 = hoy, negativo = días anteriores (hasta -7).
-- `habitDayState` — estado del día: `{trained, piano, deepwork, food, foodBad[], foodIssue, trainType, trainDur, pianoTypes[], pianoDur, mood}`.
+- `habitDayOffset` — 0 = hoy, negativo = días anteriores (hasta el 1 de enero del año en curso).
+- `habitDayState` — estado del día para trained/piano: `{trained, piano, trainType, trainTypeOther, trainDur, trainNotes, pianoTypes[], pianoDur}`. `trained`/`piano` (booleanos) persisten en `habit_daily_logs`; `trainType`/`trainDur`/`trainNotes` se reconstruyen en cada carga desde `habit_logs` (ver `habitLoadTrainingDetail()` más abajo) porque `habit_daily_logs` nunca los guardó. `pianoTypes`/`pianoDur` son puramente de sesión — no hay ningún botón "Registrar" para piano, así que se pierden al recargar (gap conocido, no arreglado).
+- `habitMealsState` — lo que YA está guardado en la tabla `meals` para el día: `{slots: {desayuno, almuerzo, merienda, cena}, caprichos: []}`.
+- `habitMealsDraft` — espejo editable de `habitMealsState`. Los toggles 👍/🚫/👎 y el texto solo modifican el borrador en memoria; nada pega contra la DB hasta tocar "Guardar comidas". Se resincroniza con `habitMealsDraftFromState()` al cargar el día y después de cada guardado exitoso.
+- `habitPendingSave` — snapshot `{dateStr, state}` tomado en el momento de programar un auto-save de trained/piano (no cuando dispara el debounce — ver bug de race condition en la sección de fixes).
 - `habitWaterMl` / `habitWaterGoal` — ml acumulados hoy y meta del día (2000ml base, 2500ml si entrenó).
 
 **Funciones principales:**
 - `initHabits()` — inicializa módulo, restaura hora de notif desde localStorage, carga datos, registra SW para push.
-- `habitLoadDay()` — carga estado del día desde DB (mock) + agua desde `/api/water/today` en paralelo.
+- `habitLoadDay()` — carga en paralelo: `loadDailyFromDB()` (trained/piano desde `habit_daily_logs`), agua (`habitLoadWater()`, solo si `habitDayOffset === 0`), comidas (`habitLoadMeals()`). Después llama a `habitLoadTrainingDetail()` para reconstruir tipo/duración/notas de entrenamiento desde `habit_logs`.
+- `habitLoadTrainingDetail(dateStr)` — trae la fila de `habit_logs` con `habit='Workout'` para el día (si existe) y reconstruye `trainType`/`trainTypeOther`/`trainDur`/`trainNotes`. Si el tipo guardado no matchea ninguna pastilla conocida, lo marca como `'Otro'` con el texto real en `trainTypeOther`. Caveat: `habit_logs` no tiene columna de hora, así que si hubiera más de un entrenamiento el mismo día, toma el último de la respuesta sin garantía de orden cronológico.
 - `habitRenderHabits()` — genera HTML de ítems con drawers inline para hasDetail. Llama `habitRestoreDrawerSelections()`.
 - `habitToggle(id)` — marca/desmarca hábito, re-renderiza lista completa (para que drawer aparezca en posición correcta).
+- `habitScheduleSave()` / `habitFlushSave()` — debounce de 1.5s para guardar trained/piano. El snapshot de fecha+estado se toma en `habitScheduleSave()` (al programar), no en `habitFlushSave()` (al dispararse) — ver bug de race condition abajo. `habitFlushSave()` se llama explícitamente antes de cualquier cambio de día (`habitShiftDay`, `habitGoToday`, `habitPickDate`) para no depender de que el timer siga vivo.
+- `habitLocalDateStr(d)` — helper de fecha local en formato `YYYY-MM-DD`. Usar esto (no `d.toISOString().slice(0,10)`) para cualquier fecha que se mande a la DB — ver bug de timezone abajo.
 - `habitWaterItemHTML()` — genera HTML del tracker de agua: barra hasta 3L, verde al llegar a la meta, tick inline a la izquierda del label, botones −100/+250/+500.
 - `habitAddWater(deltaMl)` — actualiza local + persiste en DB (acepta negativos), reconcilia con `/api/water/today` post-save.
-- `habitSelectFood(val)` / `habitToggleMeal(id)` / `habitSelectIssue(val)` — lógica del check de alimentación (bien/mal + detalle).
-- `habitSelectMood(val)` — registra estado de ánimo (1-5).
 - `habitInitNotifications()` — registra SW, solicita permiso, suscribe con VAPID, guarda suscripción en `/api/push/subscribe`.
 - `habitSaveNotifTime()` — persiste hora configurada en localStorage y llama `/api/push/subscribe` para que el worker use la preferencia.
 - `loadWaterNotifSetting()` — llamada desde `initHabits()`. Trae `GET /api/water/notif-settings` y sincroniza el toggle `#waterNotifToggle` (Settings → Hábitos) con el estado real guardado en Supabase.
 - `toggleWaterNotif()` — handler del click en el toggle de notificaciones de agua. UI optimista (togglea la clase `.on` al toque) + `POST /api/water/notif-settings`; revierte la clase si el POST falla.
 
 **Drawers de detalle (entrenamiento / piano):**
-- `habitDrawerHTML(id)` — genera HTML del drawer inline (chips de tipo + duración).
-- `habitSelectTrainType(type)` / `habitSelectTrainDur(val)` — selección única de tipo y duración de entrenamiento.
+- `habitDrawerHTML(id)` — genera HTML del drawer inline (chips de tipo + duración). El drawer de entrenamiento tiene botón "Registrar" (`habitRegisterTrainLog()`) que inserta en `habit_logs`; el de piano no tiene equivalente.
+- `habitSelectTrainType(type)` / `habitSelectTrainDur(val)` — selección única de tipo y duración de entrenamiento. Si `type === 'Otro'` se muestra un input de texto libre (`habitTrainOtherChange()`).
 - `habitTogglePianoType(type)` / `habitSelectPianoDur(val)` — selección múltiple de tipos de piano, única de duración.
-- `habitRestoreDrawerSelections()` — restaura estado visual de chips después de re-render.
+- `habitRestoreDrawerSelections()` — restaura estado visual de chips + el input "Otro" + las notas después de re-render.
+- `habitRegisterTrainLog()` — inserta en `habit_logs` (`{habit_date, habit:'Workout', type:[dbType], duration_min, notes}`) vía el proxy genérico `/api/db/habit_logs`. Es la única fuente real de tipo/duración de entrenamiento — el check diario (`trained`) es independiente de esto.
+
+**Sistema de comidas (`MEAL_*`, `habitMeals*`) — agosto 2026:**
+Reemplaza la vieja grilla de Excel que el usuario llevaba a mano. Modelo de borrador + guardado único: los botones y el texto solo arman `habitMealsDraft` en memoria, y un solo botón "Guardar comidas" persiste todo junto contra la tabla `meals` (ver esquema en "Base de datos" más abajo).
+
+- Cada uno de los 4 slots fijos (desayuno/almuerzo/merienda/cena) tiene 3 botones: 👍 bien, 🚫 no comí, 👎 mal. Togglean visualmente sin pegar contra la DB. Tocar el mismo botón ya seleccionado deselecciona.
+- El campo de texto **solo** aparece cuando el slot está en 👎, y es obligatorio para poder guardar. 👍 y 🚫 nunca muestran texto — 👍 guarda `description=null`, 🚫 guarda `description='(nada)'` (mismo `is_indulgent=false` que 👍, se distinguen por el texto).
+- "+ Capricho" es el mismo tipo de toggle: abre un campo de texto + kcal opcional; tocarlo de nuevo lo cierra y descarta lo tipeado. Admite varios por día (a diferencia de los 4 slots fijos, que son uno por día).
+- `habitSaveAllMeals()` — valida que todo lo marcado 👎 (y el capricho, si está abierto) tenga texto antes de mandar cualquier request. Si falta, flashea el campo (`habitFlashMealField()`, reutiliza `.h-chip-flash`) y no guarda nada. Si está OK: recorre los 4 slots (upsert por `meal_date,slot_key` si tienen estado, DELETE si tenían registro guardado y quedaron sin estado), después inserta el capricho pendiente si corresponde.
+- Guardado parcial: si marcás solo desayuno+almuerzo y guardás, merienda/cena quedan sin tocar (ni se guardan ni se borran). Al reabrir más tarde, `habitLoadMeals()` trae de la DB lo que ya está guardado y arma el borrador — lo completado aparece tildado, el resto vacío.
+- Analytics (dentro del sub-tab Hábitos, **no** en `analytics.js` que es de finanzas): `loadMealsGrid()` / `renderMealsGrid()` / `renderMealsStats()` — grilla semanal tipo la del Excel viejo (filas = comida, columnas = día, verde = bien/no comí, rosa = mal con el texto real), con navegación semana a semana (`habitMealsShiftWeek()`). `habitMealsGridAutoScroll()` deja el scroll horizontal arrancando en el día de hoy (si estás viendo la semana actual) en vez de siempre en lunes.
 
 ---
 
@@ -1018,7 +1039,9 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (tipo de cambio ARS/USD bolsa MEP al momento del tick). |
 | `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (ARS/USD bolsa MEP), `total_ars` (valor total en ARS = total_usd * fx_usd_ars). El campo `breakdown` puede contener `fiat_ars` con el saldo nativo en ARS. |
 | `rsu_vests` | Schedule de vesting de RSUs META. |
-| `habit_daily_logs` | Un registro por día con estado de cada hábito. UNIQUE(log_date). |
+| `habit_daily_logs` | Un registro por día con `trained`/`piano`/`deepwork` (booleanos), `food`/`food_note` (sin uso, UI vieja). UNIQUE(log_date) — **ojo:** esta tabla directamente no existía hasta agosto 2026 (server.js la referenciaba como si estuviera creada) y el upsert no tenía `on_conflict`, así que cada guardado insertaba una fila nueva en vez de actualizar. Ver "Fixes de hábitos (agosto 2026)" más abajo. Solo guarda booleanos — tipo/duración/notas de entrenamiento viven en `habit_logs`, no acá. |
+| `habit_logs` | Historial de entrenamientos registrados a mano con el botón "Registrar" del drawer. Columnas: `habit_date`, `habit` (`'Workout'` — piano no tiene registrador, nunca escribe acá), `type` (array), `duration_min`, `notes`. Sin columna de hora/timestamp explícita — no hay forma de ordenar de forma confiable si hay más de un registro el mismo día. |
+| `meals` | Registro de comidas por slot fijo (desayuno/almuerzo/merienda/cena) + caprichos libres, agosto 2026. Columnas: `meal_date`, `meal_type` (`desayuno`\|`almuerzo`\|`merienda`\|`cena`\|`capricho`), `slot_key` (generada: `meal_type` si no es capricho, `NULL` si lo es — permite múltiples caprichos por día pero un solo registro por slot fijo), `description` (nullable — null en "bien", `'(nada)'` en "no comí", texto real en "mal"/capricho), `is_indulgent`, `kcal_estimate`. UNIQUE(meal_date, slot_key), CHECK `is_indulgent=false OR description IS NOT NULL`. Upsert vía proxy genérico `/api/db/meals?on_conflict=meal_date,slot_key`. |
 | `habit_oneshots` | Contadores anuales (presentaciones, viajes, clases de piano, etc.). UNIQUE(year). |
 | `habit_weight_logs` | Historial de registros de peso quincenal. |
 | `push_subscriptions` | Suscripciones Web Push de cada dispositivo/browser. UNIQUE(endpoint). |
@@ -1699,3 +1722,70 @@ curl -s -X POST https://notifications-worker-production.up.railway.app/test-brie
 | `total`/`total_pnl` del briefing dispara a números absurdos (~30% más alto) | `routes/ai-server.js` → precio de tickers GBP (VWRP.L, ARKK.L, NDIA.L) | No dividir `price_snapshots.price_usd` por `fxRate` — ya viene convertido. Ver punto 4 |
 | Monto del próximo vest RSU no se mueve aunque cambie el precio de META | `routes/ai-server.js` → `NEXT_RSU_VEST` | Usaba `marketData['META'].regularMarketPrice` directo (fundamentals cache) en vez de priorizar `price_snapshots` como el resto del archivo. Fix agosto 2026. |
 | Briefing atribuye un movimiento de precio a un earnings que reportó after-market ese mismo día (el precio de ese día no puede reflejarlo todavía) | `routes/ai-server.js` → `UPCOMING_EARNINGS` / `routes/market-server.js` → `EARNINGS_TIMING` | `calendarEvents` de Yahoo no trae hora confiable de reporte. Se agregó tabla manual `EARNINGS_TIMING` (BMO/AMC por ticker, confirmada con `yfinance.get_earnings_dates()`) + instrucción de prompt para no asumir causalidad aun cuando el timing indica que la reacción ya podría verse. Fix agosto 2026. |
+
+---
+
+## Sistema de comidas + fixes de hábitos (agosto 2026)
+
+### Contexto
+
+El usuario llevaba un tracking manual de comidas en un Excel (grilla: filas = comida, columnas = día, celda coloreada verde/rosa según si fue una comida normal o un exceso). Se migró esto al Personal Hub como una feature nueva dentro de `habits.js` (registro en el tab Today, grilla de repaso en el sub-tab Analytics de Hábitos — **no** en `analytics.js`, que es exclusivamente de finanzas). En el camino se encontraron y corrigieron varios bugs preexistentes en el sistema de hábitos que no tenían relación directa con comidas, pero salieron a la luz al usar el mismo patrón de verificación (guardar algo, navegar a otro día, volver, chequear que siga ahí).
+
+### Feature: registro de comidas
+
+**Modelo de datos** — tabla `meals` nueva (ver schema completo en "Base de datos" más arriba). Decisión clave: usar una columna generada `slot_key` (`meal_type` si no es capricho, `NULL` si lo es) como base del UNIQUE constraint en vez de un índice parcial. Un índice parcial (`WHERE meal_type <> 'capricho'`) no sirve como target de `ON CONFLICT` sin repetir el mismo `WHERE` ahí, que PostgREST no permite armar vía query params — la columna generada evita el problema por completo, porque Postgres trata cada `NULL` como distinto en un UNIQUE constraint normal (no partial), así que caprichos (que son siempre `NULL`) nunca chocan entre sí, pero los 4 slots fijos sí quedan únicos por día.
+
+**UI — modelo de borrador + guardado único.** Primera versión guardaba cada tap contra la DB inmediatamente; se descartó porque no permitía completar el registro en varias pasadas a lo largo del día sin generar múltiples requests innecesarios. Versión final: `habitMealsDraft` vive en memoria, se resincroniza con lo guardado al cargar el día, y un solo botón "Guardar comidas" persiste todo el lote de una vez. Tres estados por slot (👍 bien / 🚫 no comí / 👎 mal); el campo de texto solo aparece en 👎 y es obligatorio para poder guardar — 🚫 no necesita texto, se guarda con `description='(nada)'` fijo (mismo `is_indulgent=false` que 👍, para que la grilla de Analytics lo pinte igual de verde).
+
+**Por qué "no comí" no necesitó tocar el schema:** se pidió que este tercer estado se viera verde en Analytics con texto `(nada)`. En vez de agregar una columna booleana nueva, se reutilizó `is_indulgent=false` (igual que "bien") y se usó el valor fijo de `description` para distinguirlos en el render — cero cambios de schema, cero migración.
+
+### Bugs encontrados y arreglados
+
+Se fueron descubriendo en cadena, cada uno tapando al siguiente: arreglar uno dejaba visible el bug de abajo.
+
+1. **Proxy genérico `/api/db/*` no reenviaba el header `Prefer` del cliente.** Cualquier upsert con `return=representation` volvía con body vacío. Fix: `server.js` ahora arma `extraHeaders` a partir de `req.headers['prefer']` si viene, y lo suma a los headers que manda a Supabase.
+
+2. **Debounce de guardado con race condition (`habitScheduleSave`).** El guardado de `trained`/`piano` espera 1.5s sin cambios antes de persistir. El bug: `habitDateStr(habitDayOffset)` y `habitDayState` se evaluaban recién cuando disparaba el `setTimeout`, no cuando se programaba — si navegabas a otro día antes de que venzan los 1.5s, el guardado se disparaba con la fecha y el estado del día **nuevo**, no del que realmente se había editado. Fix: `habitPendingSave` toma un snapshot `{dateStr, state}` en el momento de `habitScheduleSave()`; `habitFlushSave()` fuerza ese guardado pendiente antes de cualquier cambio de día (`habitShiftDay`, `habitGoToday`, `habitPickDate`).
+
+3. **Bug de timezone: `toISOString()` vs fecha local.** `d.toISOString().slice(0,10)` convierte a UTC — cerca de medianoche en horario de verano de Londres (BST, UTC+1) podía devolver el día equivocado. Se agregó `habitLocalDateStr(d)` (usa `getFullYear`/`getMonth`/`getDate` en local, sin conversión) y se reemplazaron todos los usos de `toISOString()` para fechas de calendario: `habitDateStr()`, límites del datepicker, rango de Analytics (`loadAnalyticsFromDB`), `mealsWeekRange()`, `renderMealsGrid()`, `habitLastActivity`.
+
+4. **`habit_daily_logs` directamente no existía en Supabase.** `server.js` la referenciaba (`GET`/`POST /api/habits/daily`) como si estuviera creada desde siempre, pero nunca se había corrido el `CREATE TABLE`. El `POST` fallaba en silencio (capturado en un `try/catch` que solo hacía `console.error`, sin alertar al usuario), el `GET` también, y lo único que se veía en pantalla era el estado optimista en memoria del navegador — nunca hubo persistencia real, ni para hoy ni para ningún día. Fix SQL: `CREATE TABLE IF NOT EXISTS habit_daily_logs (...)`.
+
+5. **Upsert de `habit_daily_logs` sin `on_conflict` (mismo patrón que el bug de `meals` antes de la columna generada).** Aun después de crear la tabla, el `POST` usaba `Prefer: resolution=merge-duplicates` pero la URL no tenía `?on_conflict=log_date` — sin eso, Postgres no sabe contra qué columna resolver el conflicto y cada guardado insertaba una fila **nueva** en vez de actualizar la del día. El `GET` tampoco tenía `order`, así que devolvía cualquiera de las filas duplicadas al azar. Fix: `on_conflict=log_date` en la URL del `POST`, `order=updated_at.desc.nullslast` en el `GET` como red de seguridad, más una constraint única real `habit_daily_logs_log_date_key UNIQUE(log_date)` (con un dedupe previo por si ya habían quedado filas duplicadas del período sin el fix).
+
+6. **Categoría/duración de entrenamiento nunca persistía entre días.** El checkbox booleano "entrenaste hoy" vive en `habit_daily_logs`, pero el tipo/duración/notas seleccionados en el drawer (`trainType`, `trainDur`, `trainNotes`) **nunca se mandaban a ningún lado** salvo al tocar el botón "Registrar" (que los inserta en la tabla separada `habit_logs`, pensada originalmente solo como historial para Analytics). Al navegar a un día anterior, el check volvía verde correctamente (gracias al fix #5) pero el drawer no mostraba ninguna pastilla seleccionada, porque esos campos jamás estuvieron en `habit_daily_logs`. Fix: `habitLoadTrainingDetail(dateStr)` trae la fila de `habit_logs` de ese día (si existe, asumiendo que se usó "Registrar") y reconstruye `trainType`/`trainTypeOther`/`trainDur`/`trainNotes` — incluyendo la regla de "si el tipo no matchea ninguna pastilla conocida, va como 'Otro' con el texto real en el campo libre". Piano quedó con el mismo gap sin arreglar: no tiene botón "Registrar" ni ningún otro path que escriba en `habit_logs`, así que su detalle sigue sin persistir.
+
+### UI: deep work y estado de ánimo eliminados
+
+Se sacaron de los tres lugares donde vivían: card diaria en Today (`HABITS_LIST`), card de metas anuales (`YEAR_GOALS`), y el bloque completo de estado de ánimo (HTML + CSS + `habitSelectMood`/`habitRenderMood`). No se tocó la columna `deepwork` de `habit_daily_logs` a nivel schema — sigue existiendo, simplemente nada la escribe ni la lee.
+
+### Archivos modificados
+
+`habits.js` (todo el trabajo de comidas + los 6 fixes), `index.html` (markup de comidas, banner de día anterior recortado), `styles.css` (estilos de comidas), `server.js` (proxy `Prefer`, endpoint `/api/habits/daily`). **`analytics.js` no se tocó en ningún momento** — es exclusivamente de finanzas, la grilla semanal de comidas vive dentro de `habits.js` en el sub-tab Analytics de Hábitos.
+
+### Migraciones SQL corridas (una vez, agosto 2026)
+
+```sql
+-- 1. Tabla meals (ver schema completo arriba en "Tablas principales")
+-- 2. habit_daily_logs no existía — CREATE TABLE IF NOT EXISTS con las
+--    columnas que server.js ya esperaba (log_date, trained, piano,
+--    deepwork, food, food_note, updated_at)
+-- 3. Dedupe defensivo + constraint única en habit_daily_logs.log_date:
+delete from habit_daily_logs a
+using habit_daily_logs b
+where a.log_date = b.log_date
+  and (a.updated_at, a.ctid) < (b.updated_at, b.ctid);
+
+alter table habit_daily_logs add constraint habit_daily_logs_log_date_key unique (log_date);
+```
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| Guardado de comida devuelve "no se pudo guardar" | Supabase → tabla `meals` | Probablemente falta la columna generada `slot_key` o la constraint única — correr el schema completo. Ver punto de diseño arriba |
+| "Entrenaste hoy" no se marca al volver a un día pasado | `server.js` → `POST /api/habits/daily` | Faltaba `on_conflict=log_date`. Ver bug #5 |
+| "Entrenaste hoy" se marca pero sin categoría/duración | `habits.js` → `habitLoadTrainingDetail()` | Esos campos viven en `habit_logs`, no en `habit_daily_logs`. Ver bug #6 |
+| Un toggle guardado se pierde si navegás rápido a otro día | `habits.js` → `habitScheduleSave()`/`habitFlushSave()` | Race condition del debounce. Ver bug #2 |
+| Fecha guardada no coincide con el día que se estaba viendo, cerca de medianoche | `habits.js` → cualquier uso de `toISOString()` para fechas | Usar `habitLocalDateStr()`. Ver bug #3 |
+| Upsert genérico vía `/api/db/:table` no devuelve la fila insertada | `server.js` → proxy `/api/db/*` | Debe reenviar el header `Prefer` del cliente. Ver bug #1 |
