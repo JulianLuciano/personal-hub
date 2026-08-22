@@ -267,7 +267,10 @@ app.get('/api/habits/daily/:date', async (req, res) => {
   const { date } = req.params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
   try {
-    const data = await sb(`habit_daily_logs?log_date=eq.${date}&limit=1`);
+    // order agregado como red de seguridad: si quedaron filas duplicadas de
+    // antes del fix del upsert (ver POST de abajo), esto asegura que se
+    // devuelva siempre la más reciente y no una vieja al azar.
+    const data = await sb(`habit_daily_logs?log_date=eq.${date}&order=updated_at.desc.nullslast&limit=1`);
     if (!Array.isArray(data) || data.length === 0) return res.status(204).end();
     res.json(data[0]);
   } catch (e) {
@@ -284,7 +287,12 @@ app.post('/api/habits/daily', async (req, res) => {
     deepwork: deepwork ?? null, food: food ?? null, food_note: food_note ?? null,
     updated_at: new Date().toISOString() };
   try {
-    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_daily_logs`;
+    // on_conflict=log_date es lo que faltaba: sin esto, 'resolution=merge-duplicates'
+    // no tiene contra qué columna resolver el conflicto y Supabase termina
+    // insertando una fila NUEVA en cada guardado en vez de actualizar la del
+    // día — por eso "entrenaste hoy" quedaba mal al navegar a días anteriores
+    // (el GET de arriba podía traer cualquiera de las filas duplicadas).
+    const supaUrl = `${SUPABASE_URL}/rest/v1/habit_daily_logs?on_conflict=log_date`;
     const sbRes = await fetch(supaUrl, {
       method: 'POST',
       headers: headers({ 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' }),
