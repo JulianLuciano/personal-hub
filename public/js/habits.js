@@ -107,6 +107,18 @@ async function loadOneshotsFromDB() {
   return { ...MOCK_ONESHOTS };
 }
 
+async function loadLatestWeightFromDB() {
+  try {
+    const res = await fetch('/api/habits/weight/latest');
+    if (res.status === 204) return null; // todavía no hay ningún registro
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
+    return await res.json();
+  } catch (e) {
+    console.error('[habits] Error cargando último peso:', e);
+    return null;
+  }
+}
+
 async function saveOneshotsToDB(state) {
   // TODO:
   // return await fetch('/api/habits/oneshots', {
@@ -168,6 +180,14 @@ async function initHabits() {
   if (h1) h1.textContent = 'Hábitos';
   if (sub) sub.textContent = '';
   habitOneshotState = await loadOneshotsFromDB();
+
+  const latestWeight = await loadLatestWeightFromDB();
+  if (latestWeight) {
+    const weightInput = document.getElementById('habitWeightInput');
+    if (weightInput) weightInput.value = latestWeight.weight_kg;
+    habitUpdateMilestones(latestWeight.weight_kg);
+  }
+
   habitUpdateDateUI();
   habitInitDatePicker();
   await habitLoadDay();
@@ -1200,22 +1220,36 @@ function habitStepOneshot(id, delta) {
 
 // ── RENDER: WEIGHT ─────────────────────────────────────────────────────────────
 
-function habitSaveWeight() {
+async function habitSaveWeight() {
   const input  = document.getElementById('habitWeightInput');
   const btn    = document.getElementById('habitWeightSaveBtn');
   const val    = parseFloat(input?.value);
   if (!input || isNaN(val)) return;
 
-  // TODO: POST to /api/habits/weight
-  console.log('[habits] save weight mock:', habitDateStr(0), val);
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/habits/weight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weight_kg: val, recorded_date: habitDateStr(0) }),
+    });
+    if (!res.ok) throw new Error((await res.text()).slice(0, 150));
 
-  if (btn) {
-    btn.textContent = 'Guardado ✓';
-    btn.classList.add('saved');
-    setTimeout(() => { btn.textContent = 'Guardar peso'; btn.classList.remove('saved'); }, 2000);
+    if (btn) {
+      btn.textContent = 'Guardado ✓';
+      btn.classList.add('saved');
+      setTimeout(() => { btn.textContent = 'Guardar peso'; btn.classList.remove('saved'); }, 2000);
+    }
+    habitUpdateMilestones(val);
+  } catch (e) {
+    console.error('[habits] Error guardando peso:', e);
+    if (btn) {
+      btn.textContent = 'Error, reintentar';
+      setTimeout(() => { btn.textContent = 'Guardar peso'; }, 2000);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
-
-  habitUpdateMilestones(val);
 }
 
 function habitUpdateMilestones(kg) {

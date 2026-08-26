@@ -345,6 +345,18 @@ app.post('/api/habits/oneshots', async (req, res) => {
   }
 });
 
+app.get('/api/habits/weight/latest', async (req, res) => {
+  if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
+  try {
+    const data = await sb('habit_weight_logs?order=created_at.desc&limit=1');
+    if (!Array.isArray(data) || data.length === 0) return res.status(204).end();
+    res.json(data[0]);
+  } catch (e) {
+    console.error('[habits/weight GET]', e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 app.post('/api/habits/weight', async (req, res) => {
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
   const { weight_kg, recorded_date } = req.body || {};
