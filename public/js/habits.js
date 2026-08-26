@@ -1317,6 +1317,7 @@ function habitRenderConfig() {
 let chartTraining  = null;
 let chartTrainTypes = null;
 let chartPiano     = null;
+let chartWeight    = null;
 
 // ── Carga y agrupa logs de habit_logs por semana ─────────────────────────────
 // Retorna array de { weekLabel, weekStart, trainDays, trainMins, pianoDays,
@@ -1419,6 +1420,85 @@ const AXIS_X = {
   grid: { color: 'rgba(255,255,255,0.05)' },
   ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } },
 };
+
+// ── PESO: EVOLUCIÓN (Analytics) ──────────────────────────────────────────────
+// Serie completa de peso, agrupada por recorded_date (no por created_at, que
+// es solo la hora en la que se tipeó el dato). Si hay varios registros el
+// mismo día, se queda con el mínimo de ese día.
+
+async function loadWeightSeries() {
+  let rows = [];
+  try {
+    rows = await sbFetch('/rest/v1/habit_weight_logs?select=weight_kg,recorded_date&order=recorded_date.asc');
+  } catch (e) {
+    console.error('[analytics] Error cargando habit_weight_logs:', e);
+    return [];
+  }
+  const minByDate = {};
+  rows.forEach(r => {
+    const w = parseFloat(r.weight_kg);
+    if (isNaN(w)) return;
+    if (minByDate[r.recorded_date] === undefined || w < minByDate[r.recorded_date]) {
+      minByDate[r.recorded_date] = w;
+    }
+  });
+  return Object.keys(minByDate).sort().map(date => ({ date, weight: minByDate[date] }));
+}
+
+async function renderWeightChart() {
+  const ctx = document.getElementById('chartWeight');
+  if (!ctx) return;
+  if (chartWeight) { chartWeight.destroy(); chartWeight = null; }
+
+  const series = await loadWeightSeries();
+  if (series.length === 0) return; // todavía no hay registros — no hay nada que graficar
+
+  // Arranca un día antes del primer registro real (punto vacío, sin línea
+  // dibujada hasta ahí) para que la serie no quede pegada al borde izquierdo.
+  const firstDate = new Date(series[0].date + 'T00:00:00');
+  const dayBefore = new Date(firstDate);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+
+  const labels = [fmtWeekLabel(habitLocalDateStr(dayBefore)), ...series.map(p => fmtWeekLabel(p.date))];
+  const data   = [null, ...series.map(p => p.weight)];
+
+  chartWeight = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Peso (kg)',
+        data,
+        borderColor:     'rgba(255,101,132,0.9)',
+        backgroundColor: 'rgba(255,101,132,0.08)',
+        borderWidth: 2,
+        pointRadius: 3,
+        fill: true,
+        tension: 0.3,
+        spanGaps: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: AXIS_X,
+        y: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: 'rgba(255,101,132,0.8)', font: { size: 10 }, callback: v => v + 'kg' },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y == null ? null : ctx.parsed.y + ' kg',
+          },
+        },
+      },
+    },
+  });
+}
 
 async function habitRenderAnalytics() {
   const panel = document.getElementById('h-panel-analytics');
@@ -1679,6 +1759,10 @@ async function habitRenderAnalytics() {
   // Grilla de comidas — independiente del rango 8sem/YTD de los charts de arriba,
   // tiene su propia navegación semana a semana.
   loadMealsGrid();
+
+  // Gráfico de peso — independiente del rango 8sem/YTD, muestra toda la serie
+  // histórica disponible.
+  renderWeightChart();
 }
 
 // ── COMIDAS: GRILLA SEMANAL (Analytics) ─────────────────────────────────────
