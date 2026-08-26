@@ -1452,11 +1452,8 @@ async function renderWeightChart() {
   const series = await loadWeightSeries();
   if (series.length === 0) return; // todavía no hay registros — no hay nada que graficar
 
-  // Arranca el eje un día antes del primer registro real, para que la serie
-  // no quede pegada al borde izquierdo.
-  const firstDate = new Date(series[0].date + 'T00:00:00');
-  const axisMin = new Date(firstDate);
-  axisMin.setDate(axisMin.getDate() - 1);
+  // Arranca el eje justo en la fecha del primer registro.
+  const axisMin = new Date(series[0].date + 'T00:00:00');
 
   // Puntos {x, y} con fecha real — a diferencia de un eje de categorías
   // (como usan los charts semanales de arriba), un eje 'time' espacia los
@@ -1754,9 +1751,19 @@ function habitMealsGridAutoScroll() {
   if (mealsWeekOffset !== 0) { wrap.scrollLeft = 0; return; }
   const todayIdx = (new Date().getDay() + 6) % 7; // lunes = 0
   const headers  = document.querySelectorAll('#habitMealsGrid .h-meal-grid-daylabel');
+  const corner   = document.querySelector('#habitMealsGrid .h-meal-grid-corner');
   const target   = headers[todayIdx];
-  if (target) target.scrollIntoView({ inline: 'start', block: 'nearest' });
-  else wrap.scrollLeft = 0;
+  if (!target) { wrap.scrollLeft = 0; return; }
+  // No usar scrollIntoView acá: .h-meal-grid-corner/.h-meal-grid-rowlabel son
+  // position:sticky (left:0, ~62px), así que después de scrollear esa columna
+  // queda pisando los primeros px de la columna de "hoy" — scrollIntoView no
+  // tiene en cuenta ese ancho pisado y deja el día actual cortado a la mitad.
+  // target.offsetLeft es la posición dentro del contenido completo del grid
+  // (no depende del scroll actual), así que restando el ancho de la columna
+  // sticky calculamos el scrollLeft exacto para que "hoy" arranque justo
+  // después de la columna fija.
+  const stickyWidth = corner ? corner.getBoundingClientRect().width : 0;
+  wrap.scrollLeft = target.offsetLeft - stickyWidth;
 }
 
 function renderMealsGrid(rows, monday) {
