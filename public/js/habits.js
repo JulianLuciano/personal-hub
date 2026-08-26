@@ -1754,16 +1754,17 @@ function habitMealsGridAutoScroll() {
   const corner   = document.querySelector('#habitMealsGrid .h-meal-grid-corner');
   const target   = headers[todayIdx];
   if (!target) { wrap.scrollLeft = 0; return; }
-  // No usar scrollIntoView acá: .h-meal-grid-corner/.h-meal-grid-rowlabel son
-  // position:sticky (left:0, ~62px), así que después de scrollear esa columna
-  // queda pisando los primeros px de la columna de "hoy" — scrollIntoView no
-  // tiene en cuenta ese ancho pisado y deja el día actual cortado a la mitad.
-  // target.offsetLeft es la posición dentro del contenido completo del grid
-  // (no depende del scroll actual), así que restando el ancho de la columna
-  // sticky calculamos el scrollLeft exacto para que "hoy" arranque justo
-  // después de la columna fija.
+  // offsetLeft no sirve acá: es relativo al offsetParent del elemento (el
+  // ancestro posicionado más cercano en el árbol, que no es .h-meal-grid-wrap
+  // sino algo más arriba en la página), no relativo al contenedor con scroll.
+  // getBoundingClientRect() da la posición real en pantalla de cada elemento,
+  // así que la resta entre target y wrap es la distancia real entre ambos
+  // sin importar qué elemento sea el offsetParent.
+  const wrapRect    = wrap.getBoundingClientRect();
+  const targetRect  = target.getBoundingClientRect();
   const stickyWidth = corner ? corner.getBoundingClientRect().width : 0;
-  wrap.scrollLeft = target.offsetLeft - stickyWidth;
+  const contentLeft = wrap.scrollLeft + (targetRect.left - wrapRect.left);
+  wrap.scrollLeft = contentLeft - stickyWidth;
 }
 
 function renderMealsGrid(rows, monday) {
