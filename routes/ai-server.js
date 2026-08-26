@@ -959,12 +959,12 @@ router.get('/briefing-context', async (req, res) => {
 
     const [positions, latestSnaps, snaps24h, snaps7d, snaps30d, txRows, cfRows] = await Promise.all([
       sb('positions?select=ticker,qty,avg_cost_usd,avg_cost_gbp,initial_investment_usd,initial_investment_gbp,net_invested_usd,net_invested_gbp,managed_by,category,pricing_currency,currency&order=ticker.asc'),
-      sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,fx_usd_ars,breakdown&order=captured_at.desc&limit=1'),
-      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate,fx_usd_ars,breakdown&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=1`),
+      sb('portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&order=captured_at.desc&limit=1'),
+      sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${tDayAnchor}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t7d}&order=captured_at.desc&limit=1`),
       sb(`portfolio_snapshots?select=captured_at,total_usd,total_gbp,fx_rate&captured_at=lte.${t30d}&order=captured_at.desc&limit=1`),
       sb('transactions?select=date,ticker,type,qty,price_usd,amount_usd,amount_local,broker&order=date.desc&limit=5'),
-      sb(`transactions?select=type,amount_usd,ticker,date&date=eq.${londonToday}&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)`),
+      sb(`transactions?select=type,amount_usd&date=eq.${londonToday}&is_reinvestment=eq.false&type=in.(BUY,DEPOSIT,SELL,WITHDRAWAL)`),
     ]);
 
     if (!Array.isArray(positions) || !Array.isArray(latestSnaps)) {
@@ -1021,110 +1021,8 @@ router.get('/briefing-context', async (req, res) => {
       return acc;
     }, 0);
 
-    // ── Safeguard: backdated / accounting-only cashflows ────────────────────
-    // A transaction (typically WITHDRAWAL/DEPOSIT) can carry a `date` of "today"
-    // even when the actual cash movement happened days or weeks earlier and
-    // today's row is only a retroactive bookkeeping correction — e.g. the
-    // 2026-08-19 EMERGENCY_FUND case: $679.69 WITHDRAWAL dated today, but the
-    // money had actually left the account days before. Applying netCFusd for
-    // that row inflated "Rendimiento del día" by ~$680, because the code
-    // "added back" cash that never really left the account today.
-    //
-    // We can't tell from `date` alone whether a cashflow is real-today or
-    // backdated, so we cross-check two independent readings of "today's move":
-    //   - rawDiffUSD     = totalUSD - snap24h.total_usd                     (top-down, snapshot-to-snapshot, BEFORE any cashflow adjustment)
-    //   - equityDiffUSD  = Σ per-position (priceNow - price24hAgo) × qty    (bottom-up, price-only, invested positions)
-    //   - cashFXDiffUSD  = Σ per-currency balance × (1/fxNow − 1/fx24h)     (bottom-up, pure FX revaluation of GBP/ARS cash — see below)
-    //   expectedDiffUSD  = equityDiffUSD + cashFXDiffUSD
-    // If rawDiffUSD already matches expectedDiffUSD within tolerance, the
-    // "cashflow" row didn't move real cash today — applying netCFusd would
-    // double-count a ghost, so we zero it out for the day-return calc only
-    // (netCFusd itself, used for the `day_cashflow_usd/gbp` line and for the
-    // AI's own commentary, is left untouched — the transaction is real and
-    // worth mentioning, it's just not a same-day cashflow).
-    //
-    // WHY cashFXDiffUSD IS NEEDED (found 2026-08-20, real data, not simulated):
-    // equityDiffUSD only covers invested positions — it never touched fiat
-    // cash. But GBP/ARS cash balances are converted to USD using the day's
-    // FX rate, so their USD value moves every day even with zero transactions.
-    // Verified on real snapshots (18→20 ago 2026, no cashflow that window):
-    // rawDiff was $251.80, equityDiffUSD (invested only) was $218.65 — a
-    // $33.15 residual, ~14x the £2/$2.72 tolerance, that would have wrongly
-    // flagged a same-day netCFusd as "real" (or vice versa) had one existed.
-    // Isolated the cause: fiat_gbp (£4,868, unchanged) revalued from $6,587.86
-    // to $6,621.94 across those two snapshots purely from fx_rate moving —
-    // a $34.08 swing, which is almost the entire residual. cashFXDiffUSD
-    // captures exactly that movement so the tolerance check isn't fooled by
-    // ordinary FX noise on cash holdings.
-    //
-    // cashFXDiffUSD holds the CURRENT (now) cash balance constant across both
-    // FX rates — i.e. it answers "how much would today's cash balance be worth
-    // if only the exchange rate had moved, no money in/out" — deliberately NOT
-    // (balance_now/fxNow − balance_24h/fx24h), which would also swallow any
-    // real change in the cash balance itself (e.g. a genuine transfer into/out
-    // of the GBP cash pot) into "expected" and mask it from the residual. Real
-    // balance changes should show up as residual, same as any other cashflow.
-    //
-    // KNOWN LIMITATION (documented, not solved): this is a heuristic anchored
-    // on aggregate value movement, not an explicit flag on the transaction.
-    // Two same-day cashflows that happen to cancel out in magnitude (e.g. a
-    // real +$500 deposit today AND a backdated -$680 "withdrawal" landing the
-    // same day) would fool this check into treating a real cashflow as a
-    // ghost, or vice versa, depending on which way the residual points. The
-    // durable fix is a dedicated field on the transaction (e.g. `is_backdated`
-    // or `cash_effective_date`) that says explicitly whether a row represents
-    // a same-day cash movement or a retroactive correction — see DOCS.md.
-    let netCFusdForDayReturn = netCFusd;
-    let cashflowSafeguardNote = null;
-    if (netCFusd !== 0 && snap24h) {
-      const investedForSafeguard = positions.filter(p => p.category !== 'fiat' && parseFloat(p.qty) > 0);
-      const equityDiffUSD = investedForSafeguard.reduce((acc, p) => {
-        const psNow = priceLatestMap[p.ticker];
-        const ps24h = price24hMap[p.ticker];
-        const qty   = parseFloat(p.qty) || 0;
-        if (!psNow || !ps24h || psNow.price_usd == null || ps24h.price_usd == null || psNow.price_usd === '' || ps24h.price_usd === '') return acc;
-        return acc + (parseFloat(psNow.price_usd) - parseFloat(ps24h.price_usd)) * qty;
-      }, 0);
-
-      // Pure FX revaluation of non-USD cash — see comment block above for why.
-      const bdNow  = latestSnap.breakdown || {};
-      const bd24h  = snap24h.breakdown || {};
-      const fxNow  = parseFloat(latestSnap.fx_rate) || fxRate;               // GBP per USD
-      const fx24h  = parseFloat(snap24h.fx_rate) || fxNow;
-      const fxArsNow = parseFloat(latestSnap.fx_usd_ars) || null;            // ARS per USD
-      const fxArs24h = parseFloat(snap24h.fx_usd_ars) || fxArsNow;
-      const gbpBal = parseFloat(bdNow.fiat_gbp) || 0;
-      const arsBal = parseFloat(bdNow.fiat_ars) || 0;
-      const cashFXDiffUSD =
-        (fxNow > 0 && fx24h > 0 ? gbpBal * (1 / fxNow - 1 / fx24h) : 0) +
-        (fxArsNow > 0 && fxArs24h > 0 ? arsBal * (1 / fxArsNow - 1 / fxArs24h) : 0);
-
-      const expectedDiffUSD = equityDiffUSD + cashFXDiffUSD;
-      const rawDiffUSD    = totalUSD - snap24h.total_usd; // before any cashflow adjustment
-      const TOLERANCE_GBP = 2;
-      const toleranceUSD  = TOLERANCE_GBP / fxRate;
-      const residualUSD   = rawDiffUSD - expectedDiffUSD;
-
-      if (Math.abs(residualUSD) <= toleranceUSD) {
-        // rawDiff already matches the pure price+FX-driven move -> today's
-        // cashflow row didn't actually move cash today. Don't apply it here.
-        netCFusdForDayReturn = 0;
-        cashflowSafeguardNote =
-          `[cashflow-safeguard] netCFusd omitido para el rendimiento del día: raw diff ($${rawDiffUSD.toFixed(2)}) ya matchea ` +
-          `expected diff ($${expectedDiffUSD.toFixed(2)} = equity $${equityDiffUSD.toFixed(2)} + cashFX $${cashFXDiffUSD.toFixed(2)}) ` +
-          `dentro de tolerancia (£${TOLERANCE_GBP} / $${toleranceUSD.toFixed(2)}). ` +
-          `netCFusd real: $${netCFusd.toFixed(2)} — tratado como ajuste contable, no como movimiento de caja de hoy.`;
-      } else {
-        cashflowSafeguardNote =
-          `[cashflow-safeguard] netCFusd aplicado: raw diff ($${rawDiffUSD.toFixed(2)}) vs expected diff ($${expectedDiffUSD.toFixed(2)} = equity ` +
-          `$${equityDiffUSD.toFixed(2)} + cashFX $${cashFXDiffUSD.toFixed(2)}) difieren $${residualUSD.toFixed(2)} ` +
-          `(> tolerancia $${toleranceUSD.toFixed(2)}) — cashflow tratado como movimiento real de hoy.`;
-      }
-      console.log(cashflowSafeguardNote);
-    }
-
-    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd - netCFusdForDayReturn : null;
-    const dayChangeGBP = snap24h ? totalGBP - snap24hGBP - netCFusdForDayReturn * fxRate : null;
+    const dayChangeUSD = snap24h ? totalUSD - snap24h.total_usd - netCFusd : null;
+    const dayChangeGBP = snap24h ? totalGBP - snap24hGBP - netCFusd * fxRate : null;
     const dayPctUSD    = snap24h && snap24h.total_usd > 0 ? (dayChangeUSD / snap24h.total_usd * 100) : null;
     const dayPctGBP    = snap24hGBP > 0 ? (dayChangeGBP / snap24hGBP * 100) : null;
 
@@ -1541,10 +1439,7 @@ router.get('/briefing-context', async (req, res) => {
       `fx: 1 GBP = ${(1 / fxRate).toFixed(4)} USD\n` +
       (dayChangeUSD != null ? `day_return_usd: ${dayChangeUSD >= 0 ? '+' : ''}${fU(dayChangeUSD)} (${sgn(dayPctUSD)}) [rendimiento, excluye cashflows]\n` : '') +
       (dayChangeGBP != null ? `day_return_gbp: ${dayChangeGBP >= 0 ? '+' : ''}${fG(dayChangeGBP)} (${sgn(dayPctGBP)}) [rendimiento, excluye cashflows]\n` : '') +
-      (netCFusd !== 0 ? `day_cashflow_usd: ${netCFusd >= 0 ? '+' : ''}${fU(netCFusd)} [capital ingresado/retirado hoy según fecha de transacción — NO asumas "ayer" u otra fecha, si necesitás mencionar cuándo, usá exactamente la fecha de la transacción abajo en RECENT_TRANSACTIONS]\nday_cashflow_gbp: ${netCFusd * fxRate >= 0 ? '+' : ''}${fG(netCFusd * fxRate)} [capital ingresado/retirado, no es rendimiento]\n` +
-        (netCFusdForDayReturn === 0
-          ? `day_cashflow_note: este movimiento quedó EXCLUIDO del rendimiento del día (day_return_usd/gbp arriba) porque parece un ajuste contable retroactivo, no una salida/entrada de caja real de hoy — mencionalo como ajuste/corrección, no como algo que pasó "hoy" en la cuenta.\n`
-          : `day_cashflow_note: este movimiento SÍ está excluido matemáticamente de day_return_usd/gbp (se sumó/restó como cashflow real de hoy).\n`) : '') +
+      (netCFusd !== 0 ? `day_cashflow_usd: ${netCFusd >= 0 ? '+' : ''}${fU(netCFusd)} [capital ingresado/retirado, no es rendimiento]\nday_cashflow_gbp: ${netCFusd * fxRate >= 0 ? '+' : ''}${fG(netCFusd * fxRate)} [capital ingresado/retirado, no es rendimiento]\n` : '') +
       `cost_basis: ${fU(costBasisUSD)} / ${fG(costBasisGBP)} (invested + cash)\n` +
       `total_pnl_usd: ${totalPnlUSD >= 0 ? '+' : ''}${fU(totalPnlUSD)} (${sgn(totalPnlPctUSD)})\n` +
       `total_pnl_gbp: ${totalPnlGBP >= 0 ? '+' : ''}${fG(totalPnlGBP)} (${sgn(totalPnlPctGBP)})\n` +
@@ -1617,9 +1512,11 @@ router.get('/briefing-context', async (req, res) => {
       `2. **Qué importa hoy** — ` +
       `Posiciones destacadas: rankealas por day_$_usd (impacto real en plata), NO por day%_usd — una posición chica con +4% puede pesar menos en dólares que RSU_META con +0.5%. Mostrá 3-5 como máximo. No aclares el criterio de orden entre paréntesis (nada de "(por impacto nominal)" ni similar) — el orden se entiende solo. ` +
       `Macro: NO listes VIX/índices/tasas/FX como rutina. Mencioná un dato macro puntual solo si (a) VIX está por encima de 20, (b) algún índice o el VIX se movió más de ±2% en el día o ±5% en 7d, o (c) explica directamente el movimiento del portfolio de hoy. Si nada de eso pasa, omitila por completo — no hace falta ni una línea.\n\n` +
-      `3. **Contexto y oportunidades** — 1 línea de estado siempre (% de RSU_META u otra posición sobre el equity total, próximo vest si existe). Mencioná deployable cash SOLO si es > $0 y hay algo concreto para hacer con eso — si es $0, no la menciones en absoluto. ` +
-      `Expandila a uno o dos párrafos SOLO si hay algo realmente accionable o a monitorear: deployable_cash > $0 con destino claro, concentración de una sola posición > 30% del equity, vest a menos de 30 días, earnings en UPCOMING_EARNINGS (ya viene filtrado a 7 días — si la sección no aparece en los datos, es porque no hay ninguno, no lo menciones), o cualquier otra observación puntual sobre una posición o el mercado que valga la pena señalar hoy. ` +
-      `Es UNA sola sección: si mencionás un ticker o dato al expandir, no lo repitas con otro ángulo más abajo — elegí el mejor punto y desarrollalo una vez. Si no se cumple ninguna condición, dejala en la línea de una sola oración y cerrá ahí.\n\n` +
+      `3. **Contexto y oportunidades** — Mencioná la concentración de RSU_META (o de otra posición) y el próximo vest SOLO si se cumple alguna de estas condiciones: (a) la posición supera el 30% del equity investible, (b) el vest está a menos de 30 días, (c) el vest es hoy o mañana, o (d) el % de concentración cambió de forma significativa respecto al briefing de ayer (cruzó un umbral redondo, ej. pasó de 34% a 29%, o de 28% a 31%). ` +
+      `IMPORTANTE — chequeo de repetición: estas condiciones se cumplen de forma persistente día tras día mientras la situación no cambie (ej. una concentración del 35% sigue siendo >30% mañana, y pasado, y la semana que viene). Antes de mencionarlo, revisá el briefing de ayer (más abajo): si ya dijiste básicamente lo mismo ayer (mismo % aproximado, misma cantidad de días para el vest, mismo mensaje de fondo), NO lo repitas hoy — omitilo directamente, aunque la condición siga siendo técnicamente cierta. Solo volvé a mencionarlo si pasó algo nuevo desde ayer: cruzó un umbral redondo distinto (30%→35%, o similar), el vest bajó a un hito más cercano (ej. de "días" a "esta semana", o a "mañana"), o directamente no se mencionó en los últimos 3-4 días (para que el dato no desaparezca del todo si la condición sigue vigente por mucho tiempo). ` +
+      `Si ninguna condición aplica, o aplica pero ya se dijo ayer sin novedad, NO la menciones — arrancá directo con lo que sí sea relevante hoy (deployable cash, otra concentración, earnings próximos, o cualquier observación puntual sobre una posición o el mercado). Si no hay nada relevante para ninguna posición ni condición, una sola oración de estado general del portfolio alcanza — no fuerces mencionar RSU_META por costumbre si hoy no pasó nada nuevo con ella. Mencioná deployable cash SOLO si es > $0 y hay algo concreto para hacer con eso — si es $0, no la menciones en absoluto. ` +
+      `Expandila a uno o dos párrafos SOLO si hay algo realmente accionable o a monitorear: deployable_cash > $0 con destino claro, concentración de una sola posición > 30% del equity Y no mencionada recientemente, vest a menos de 30 días con novedad real, earnings en UPCOMING_EARNINGS (ya viene filtrado a 7 días — si la sección no aparece en los datos, es porque no hay ninguno, no lo menciones), o cualquier otra observación puntual sobre una posición o el mercado que valga la pena señalar hoy. ` +
+      `Es UNA sola sección: si mencionás un ticker o dato al expandir, no lo repitas con otro ángulo más abajo — elegí el mejor punto y desarrollalo una vez. Si no hay nada accionable para expandir, dejala en la línea corta (o la oración de estado general si no aplicó ninguna condición de arriba) y cerrá ahí.\n\n` +
       `Sé directo. No repitas el mismo dato en dos secciones (ej: no expliques el gap USD/GBP en la sección 1 y de nuevo en la 2, ni el mismo ticker con el mismo argumento en la sección 2 y la 3).\n` +
       `Earnings — IMPORTANTE: UPCOMING_EARNINGS trae una columna timing (BMO=antes de la apertura, AMC=después del cierre, unknown=no confirmado). Usala solo para saber si la reacción al reporte YA PUEDE verse en el precio de hoy — nunca para asumir causalidad automática: ` +
       `si timing=AMC y la fecha es HOY, el reporte se publica después del cierre — el precio de hoy todavía NO puede reflejar ninguna reacción, no lo menciones como explicación de nada de lo que pasó hoy. ` +
@@ -1686,10 +1583,14 @@ router.post('/ai-chat', async (req, res) => {
 
   // Sonnet 5 usa adaptive thinking + effort en vez del thinking manual de las
   // versiones anteriores. La dejamos pensar adaptativamente (sin forzar
-  // thinking:disabled) a esfuerzo medio.
+  // thinking:disabled) a esfuerzo bajo: Anthropic recomienda "low" para chat
+  // no-código donde importa más la velocidad que exprimir la última gota de
+  // calidad — effort no solo controla cuánto piensa, también cuántas tool
+  // calls hace y qué tan verboso es antes de actuar. Antes estaba en medium
+  // pero seguía sintiéndose lento en preguntas largas.
   // (thinking:{type:'enabled', budget_tokens} rompe con 400 en Sonnet 5 — no tocar.)
   const modelExtraParams =
-    model === 'claude-sonnet-5' ? { output_config: { effort: 'medium' } } :
+    model === 'claude-sonnet-5' ? { output_config: { effort: 'low' } } :
     // Bajado de high a medium: high te estaba disparando el timeout con
     // preguntas largas/complejas (Opus a effort alto piensa mucho más antes
     // de responder). Medium mantiene buena calidad con latencia razonable —
