@@ -418,7 +418,7 @@ async function generateAndSendBriefing() {
     const https    = require('https');
     const bodyStr  = JSON.stringify({
       model:      'claude-sonnet-5',
-      max_tokens: 1200,
+      max_tokens: 2500,
       output_config: { effort: 'medium' },
       system:     systemPrompt,
       messages:   [{ role: 'user', content: 'Genera el briefing del dia.' }],
@@ -442,12 +442,17 @@ async function generateAndSendBriefing() {
           try {
             const parsed = JSON.parse(data);
             const text = (parsed.content || []).filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('');
+            const thinkingTokens = parsed.usage?.output_tokens_details?.thinking_tokens ?? null;
+            console.log('[briefing] stop_reason: ' + parsed.stop_reason + ' | out: ' + parsed.usage?.output_tokens + (thinkingTokens != null ? ' (thinking: ' + thinkingTokens + ')' : ''));
+            if (parsed.stop_reason === 'max_tokens') {
+              console.warn('[briefing] ⚠️ CORTADO POR max_tokens (2500) — subir el límite si se repite');
+            }
             resolve(text);
           } catch (err) { reject(err); }
         });
       });
       req.on('error', reject);
-      req.setTimeout(30000, function() { req.destroy(); reject(new Error('Timeout 30s')); });
+      req.setTimeout(60000, function() { req.destroy(); reject(new Error('Timeout 60s')); });
       req.write(bodyStr);
       req.end();
     });
