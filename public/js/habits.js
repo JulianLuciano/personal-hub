@@ -1316,7 +1316,6 @@ function habitRenderConfig() {
 
 let chartTraining  = null;
 let chartTrainTypes = null;
-let chartPiano     = null;
 let chartWeight    = null;
 
 // ── Carga y agrupa logs de habit_logs por semana ─────────────────────────────
@@ -1453,36 +1452,42 @@ async function renderWeightChart() {
   const series = await loadWeightSeries();
   if (series.length === 0) return; // todavía no hay registros — no hay nada que graficar
 
-  // Arranca un día antes del primer registro real (punto vacío, sin línea
-  // dibujada hasta ahí) para que la serie no quede pegada al borde izquierdo.
+  // Arranca el eje un día antes del primer registro real, para que la serie
+  // no quede pegada al borde izquierdo.
   const firstDate = new Date(series[0].date + 'T00:00:00');
-  const dayBefore = new Date(firstDate);
-  dayBefore.setDate(dayBefore.getDate() - 1);
+  const axisMin = new Date(firstDate);
+  axisMin.setDate(axisMin.getDate() - 1);
 
-  const labels = [fmtWeekLabel(habitLocalDateStr(dayBefore)), ...series.map(p => fmtWeekLabel(p.date))];
-  const data   = [null, ...series.map(p => p.weight)];
+  // Puntos {x, y} con fecha real — a diferencia de un eje de categorías
+  // (como usan los charts semanales de arriba), un eje 'time' espacia los
+  // puntos según los días que realmente pasaron entre uno y otro.
+  const points = series.map(p => ({ x: p.date, y: p.weight }));
 
   chartWeight = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
       datasets: [{
         label: 'Peso (kg)',
-        data,
+        data: points,
         borderColor:     'rgba(255,101,132,0.9)',
         backgroundColor: 'rgba(255,101,132,0.08)',
         borderWidth: 2,
         pointRadius: 3,
         fill: true,
         tension: 0.3,
-        spanGaps: false,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: AXIS_X,
+        x: {
+          type: 'time',
+          time: { unit: 'day', tooltipFormat: 'dd/MM/yyyy', displayFormats: { day: 'dd/MM' } },
+          min: axisMin,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 11 } },
+        },
         y: {
           grid: { color: 'rgba(255,255,255,0.05)' },
           ticks: { color: 'rgba(255,101,132,0.8)', font: { size: 10 }, callback: v => v + 'kg' },
@@ -1492,7 +1497,7 @@ async function renderWeightChart() {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => ctx.parsed.y == null ? null : ctx.parsed.y + ' kg',
+            label: ctx => ctx.parsed.y + ' kg',
           },
         },
       },
@@ -1686,76 +1691,6 @@ async function habitRenderAnalytics() {
     });
   }
 
-  // ── Gráfico 3: Piano — dos líneas: % días + min/semana ────────────────────
-  const ctx3 = document.getElementById('chartPiano');
-  if (ctx3) {
-    if (chartPiano) chartPiano.destroy();
-    chartPiano = new Chart(ctx3, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Días de piano (%)',
-            data: data.map(d => Math.round((d.pianoDays / 7) * 100)),
-            borderColor:     'rgba(79,195,247,0.9)',
-            backgroundColor: 'rgba(79,195,247,0.08)',
-            borderWidth: 2,
-            pointRadius: 3,
-            fill: true,
-            tension: 0.3,
-            yAxisID: 'yPct',
-            order: 1,
-          },
-          {
-            label: 'Min/semana',
-            data: data.map(d => d.pianoMins),
-            borderColor:     'rgba(247,183,49,0.9)',
-            backgroundColor: 'rgba(247,183,49,0.08)',
-            borderWidth: 2,
-            pointRadius: 3,
-            fill: true,
-            tension: 0.3,
-            yAxisID: 'yMins',
-            order: 2,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: AXIS_X,
-          yPct: {
-            type: 'linear', position: 'left',
-            min: 0, max: 100,
-            grid: { color: 'rgba(255,255,255,0.05)' },
-            ticks: { color: 'rgba(79,195,247,0.8)', font: { size: 10 }, callback: v => v + '%' },
-          },
-          yMins: {
-            type: 'linear', position: 'right',
-            min: 0,
-            grid: { drawOnChartArea: false },
-            ticks: { color: 'rgba(247,183,49,0.8)', font: { size: 10 }, callback: v => v + 'm' },
-          },
-        },
-        plugins: {
-          legend: { display: true, labels: { color: 'rgba(255,255,255,0.6)', font: { size: 11 }, boxWidth: 12 } },
-          tooltip: {
-            mode: 'index', intersect: false,
-            callbacks: {
-              label: ctx => {
-                const v = ctx.parsed.y;
-                if (ctx.dataset.label === 'Días de piano (%)') return 'Días de piano: ' + v + '%';
-                return 'Min/semana: ' + v;
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-
   // Grilla de comidas — independiente del rango 8sem/YTD de los charts de arriba,
   // tiene su propia navegación semana a semana.
   loadMealsGrid();
@@ -1879,13 +1814,9 @@ function renderMealsStats(rows) {
   const slotRows   = rows.filter(r => r.meal_type !== 'capricho');
   const indulgent  = slotRows.filter(r => r.is_indulgent).length;
   const pct        = slotRows.length ? Math.round((indulgent / slotRows.length) * 100) : 0;
-  const caprichoKcal = rows
-    .filter(r => r.meal_type === 'capricho' && r.kcal_estimate)
-    .reduce((s, r) => s + r.kcal_estimate, 0);
 
   container.innerHTML =
-    '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>' +
-    '<div class="h-meal-stat-chip">' + caprichoKcal + ' kcal en caprichos</div>';
+    '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>';
 }
 
 function habitMealsShiftWeek(delta) {
