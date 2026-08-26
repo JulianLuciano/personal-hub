@@ -1043,7 +1043,7 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `habit_logs` | Historial de entrenamientos registrados a mano con el botón "Registrar" del drawer. Columnas: `habit_date`, `habit` (`'Workout'` — piano no tiene registrador, nunca escribe acá), `type` (array), `duration_min`, `notes`. Sin columna de hora/timestamp explícita — no hay forma de ordenar de forma confiable si hay más de un registro el mismo día. |
 | `meals` | Registro de comidas por slot fijo (desayuno/almuerzo/merienda/cena) + caprichos libres, agosto 2026. Columnas: `meal_date`, `meal_type` (`desayuno`\|`almuerzo`\|`merienda`\|`cena`\|`capricho`), `slot_key` (generada: `meal_type` si no es capricho, `NULL` si lo es — permite múltiples caprichos por día pero un solo registro por slot fijo), `description` (nullable — null en "bien", `'(nada)'` en "no comí", texto real en "mal"/capricho), `is_indulgent`, `kcal_estimate`. UNIQUE(meal_date, slot_key), CHECK `is_indulgent=false OR description IS NOT NULL`. Upsert vía proxy genérico `/api/db/meals?on_conflict=meal_date,slot_key`. |
 | `habit_oneshots` | Contadores anuales (presentaciones, viajes, clases de piano, etc.). UNIQUE(year). |
-| `habit_weight_logs` | Historial de registros de peso quincenal. |
+| `habit_weight_logs` | Historial libre de peso (múltiples registros por día permitidos, sin UNIQUE — si hay más de uno el mismo `recorded_date`, la UI se queda con el mínimo de ese día). Columnas: `id`, `weight_kg`, `recorded_date` (fecha, no confundir con `created_at`), `created_at` (timestamp de cuándo se tipeó, puede no coincidir con `recorded_date`). Conectada a Supabase agosto 2026 — antes de eso la tabla ni existía. Ver "Peso conectado a Supabase + gráfico de evolución (agosto 2026)" más abajo. |
 | `push_subscriptions` | Suscripciones Web Push de cada dispositivo/browser. UNIQUE(endpoint). |
 | `water_logs` | Transacciones de agua del día. Acepta `amount_ml` negativos (correcciones). El total del día es la suma de todas las filas. |
 | `water_notif_state` | Fila única (id=1). Guarda `last_sent_at`, `interval_minutes`, `consecutive_yes`, `consecutive_no` para la lógica adaptativa del worker de agua. `enabled` (boolean, default true, migración manual `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — on/off del toggle "Notificaciones de agua" en Settings → Hábitos; leído/escrito vía `GET`/`POST /api/water/notif-settings`. |
@@ -1789,3 +1789,59 @@ alter table habit_daily_logs add constraint habit_daily_logs_log_date_key unique
 | Un toggle guardado se pierde si navegás rápido a otro día | `habits.js` → `habitScheduleSave()`/`habitFlushSave()` | Race condition del debounce. Ver bug #2 |
 | Fecha guardada no coincide con el día que se estaba viendo, cerca de medianoche | `habits.js` → cualquier uso de `toISOString()` para fechas | Usar `habitLocalDateStr()`. Ver bug #3 |
 | Upsert genérico vía `/api/db/:table` no devuelve la fila insertada | `server.js` → proxy `/api/db/*` | Debe reenviar el header `Prefer` del cliente. Ver bug #1 |
+
+## Peso conectado a Supabase + gráfico de evolución + limpieza de Analytics (agosto 2026)
+
+### Contexto
+
+El input de peso en el sub-tab One-shots existía en la UI pero `habitSaveWeight()` era mock (`console.log`, sin persistir nada). El endpoint `POST /api/habits/weight` ya estaba escrito en `server.js` desde antes (mismo patrón de feature-a-medio-hacer que `habit_daily_logs` — ver sesión de agosto anterior), pero nunca se había creado la tabla ni existía forma de leer el último valor guardado.
+
+### Feature: guardado + prefill
+
+**Modelo de datos:** se decidió historial libre en `habit_weight_logs` (sin UNIQUE por fecha) en vez de un registro por día — permite pesarse más de una vez el mismo día. Se agregó `GET /api/habits/weight/latest` (no existía ningún GET) que devuelve el último registro por `created_at.desc`. `initHabits()` llama a `loadLatestWeightFromDB()` al abrir la sección One-shots y precarga tanto el input como los milestones (Abril/Agosto/Diciembre) con ese valor, sin esperar a que el usuario guarde de nuevo. `habitSaveWeight()` ahora pega de verdad contra el `POST` existente, mandando `recorded_date` (día calendario, vía `habitDateStr(0)`) separado de `created_at` (que Supabase completa solo, hora real de guardado).
+
+### Feature: gráfico de evolución de peso (Analytics)
+
+Nuevo canvas `#chartWeight` en el sub-tab Analytics de Hábitos, entre Piano y Comidas — bueno, entre Entrenamiento y Comidas después de que se sacó Piano (ver abajo). `loadWeightSeries()` trae todo `habit_weight_logs`, agrupa por `recorded_date` (**no** por `created_at`, que es solo la hora en que se tipeó el dato) y si hay más de un registro el mismo día se queda con el mínimo.
+
+Dos vueltas de ajuste sobre el eje X:
+1. Primera versión usaba un eje de categorías (mismo patrón que los charts semanales de arriba, donde cada label ocupa el mismo ancho sin importar la fecha real) — con datos espaciados en el tiempo de forma muy despareja (ej. dos registros con 2 meses de diferencia y luego dos con 8 días), esto hacía que el gráfico mintiera visualmente, mostrando ambos gaps como si fueran iguales. Fix: eje `type: 'time'` de Chart.js (usa `chartjs-adapter-date-fns`, ya estaba cargado en `index.html` para otro chart) con puntos `{x: fecha, y: peso}` — ahora la distancia horizontal entre puntos es proporcional a los días reales transcurridos.
+2. El eje arranca exactamente en la fecha del primer registro (`axisMin = primera fecha de la serie`), sin día de margen previo — se probó con un día de padding a la izquierda primero pero se sacó a pedido.
+
+### UI: chart de Piano eliminado, pastilla de kcal en caprichos eliminada
+
+Se sacó el chart `#chartPiano` completo (canvas en `index.html` + bloque de render en `habits.js`, variable `chartPiano`) del sub-tab Analytics. El cálculo de `pianoDays`/`pianoMins` sigue existiendo dentro de `loadAnalyticsFromDB()` (no se tocó esa función) pero ya no lo consume nada — queda como data muerta, inofensiva, por si se reusa después.
+
+Se sacó también el chip `"X kcal en caprichos"` de `renderMealsStats()` (quedó solo `"X% comidas indulgentes"`). El campo `kcal_estimate` en la tabla `meals` y el input opcional al cargar un capricho **no** se tocaron — solo se dejó de mostrar ese chip agregado en Analytics.
+
+### Bug: scroll de la grilla de comidas no arrancaba bien en "hoy"
+
+La grilla de comidas (`#habitMealsGrid`, sub-tab Analytics) tiene scroll horizontal con columna de labels (`h-meal-grid-corner`/`h-meal-grid-rowlabel`) fija con `position: sticky; left: 0` (~62px). `habitMealsGridAutoScroll()` usaba `scrollIntoView({inline:'start'})` sobre la columna de "hoy", que no tiene en cuenta que esos 62px sticky van a quedar pisando el borde izquierdo de la columna después de scrollear — el resultado era el día actual visualmente cortado a la mitad.
+
+Primer intento de fix: calcular `scrollLeft` a mano restando el ancho de la columna sticky, pero usando `target.offsetLeft` — que resultó ser relativo al *offsetParent* del elemento (el ancestro posicionado más cercano en el árbol de la página), no al contenedor con scroll (`.h-meal-grid-wrap`), así que seguía quedando desalineado. Fix final: usar `getBoundingClientRect()` de `target` y de `wrap` y restar sus posiciones en pantalla — eso da la distancia real entre ambos sin depender de qué elemento sea el offsetParent, independiente del layout de tabla (`display:table`) que usa esta grilla.
+
+### Archivos modificados
+
+`habits.js` (todo lo de peso: guardado, prefill, chart; remoción de chart de Piano y chip de kcal; fix del scroll de la grilla de comidas), `index.html` (canvas `#chartWeight` agregado, canvas `#chartPiano` eliminado), `server.js` (`GET /api/habits/weight/latest` agregado — el `POST` ya existía de antes y no se tocó).
+
+### Migraciones SQL corridas (una vez, agosto 2026)
+
+```sql
+CREATE TABLE IF NOT EXISTS habit_weight_logs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  weight_kg     NUMERIC NOT NULL,
+  recorded_date DATE NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_habit_weight_logs_created_at
+  ON habit_weight_logs (created_at DESC);
+```
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| El input de peso siempre arranca vacío al abrir One-shots | `habits.js` → `loadLatestWeightFromDB()` / `initHabits()` | Debe llamarse al iniciar y precargar input + milestones |
+| El gráfico de peso muestra la misma distancia entre fechas con gaps muy distintos | `habits.js` → `renderWeightChart()` | Necesita eje `type:'time'`, no eje de categorías. Ver sección arriba |
+| El scroll de la grilla de comidas corta el día de hoy a la mitad | `habits.js` → `habitMealsGridAutoScroll()` | Usar `getBoundingClientRect()`, no `offsetLeft` ni `scrollIntoView` — hay una columna `position:sticky` de por medio |
