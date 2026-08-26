@@ -1523,6 +1523,7 @@ router.get('/briefing-context', async (req, res) => {
       `si timing=AMC y la fecha es HOY, el reporte se publica después del cierre — el precio de hoy todavía NO puede reflejar ninguna reacción, no lo menciones como explicación de nada de lo que pasó hoy. ` +
       `Si timing=AMC y la fecha es AYER, o timing=BMO y la fecha es HOY, el reporte ya salió y el precio de hoy podría estar reaccionando — pero earnings es una posible explicación entre varias (mercado en general, sector, flujo), no dés por hecho que el movimiento se debe al reporte solo porque el timing calza. Podés mencionar que reportó como contexto, sin afirmar causalidad, salvo que el movimiento sea claramente atípico para ese ticker. ` +
       `Si timing=unknown, no asumas nada de timing: describí el movimiento del día solo en base al precio.\n` +
+      `Footer: cerrá SIEMPRE el briefing con una línea horizontal (---) y debajo, en cursiva, "*Datos al cierre NYSE · ${today} · FX: 1 GBP = X USD*" usando el valor exacto de "fx:" que aparece en PORTFOLIO más abajo (no lo redondees distinto a como viene).\n` +
       (yesterdayBriefing ? `Así cerró el briefing de ayer:\n${yesterdayBriefing}\nNo repitas la misma observación o recomendación hoy — buscá un ángulo distinto.\n` : '') +
       `\n` +
       portfolioSummary + '\n' +

@@ -1846,7 +1846,12 @@ function aiRenderMarkdown(text) {
   text = text.replace(/\n/g, '<br>');
   // Clean up extra <br> after block divs
   text = text.replace(/(<\/div>)<br>/g, '$1');
-  text = text.replace(/<br>(<div)/g, '$1');
+  // Antes de un <div> (headers, bullets), un <br> solitario no genera
+  // línea en blanco visible (el bloque ya arranca en línea nueva por su
+  // cuenta) — pero SI había línea en blanco real en el markdown original
+  // (<br><br>), hay que preservar ambos para que se vea el espacio. Por
+  // eso solo se saca el <br> cuando NO viene precedido de otro <br>.
+  text = text.replace(/(?<!<br>)<br>(<div)/g, '$1');
   return text;
 }
 
