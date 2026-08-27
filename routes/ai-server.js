@@ -17,7 +17,7 @@ Use when asked about: full transaction history, specific asset purchase price, p
 Do NOT use if the answer is already in the system context.
 Do NOT use to explain WHY something moved (that's what happened, not what it means) — for "por qué", "investigá", "explicame las razones", etc., go to get_ticker_news/request_web_search instead. This tool only gives you numbers.
 
-IMPORTANT — for "% change over N days" questions (one ticker or all of them): use "daily_returns" with from_date/to_date, and OMIT filters.ticker to get ALL tickers in ONE call — it already returns return_pct + close_usd per ticker per day. Do NOT loop "price_history" once per ticker for this — that's 12+ calls for something daily_returns answers in one. Reserve "price_history" for when you need the full price timeseries of ONE specific ticker (e.g. charting, or exact price levels on exact dates) — it always requires a single filters.ticker, there's no bulk mode.
+IMPORTANT — for "% change over N days" questions (one ticker or all of them): use "period_returns" (see below), NOT "daily_returns" — it's a single lightweight query built for exactly this. Reserve "price_history" for when you need the full price timeseries of ONE specific ticker (e.g. charting, or exact price levels on exact dates) — it always requires a single filters.ticker, there's no bulk mode.
 Ticker note: market-data query_types (price_history, daily_returns) are keyed by the real market symbol — for the RSU position use ticker 'META', not 'RSU_META' (that's only the portfolio's internal label in transactions/positions).`,
     input_schema: {
       type: 'object',
@@ -33,8 +33,11 @@ Ticker note: market-data query_types (price_history, daily_returns) are keyed by
             'rsu_vests',
             'positions_snapshot',
             'daily_returns',
+            'period_returns',
           ],
-          description: 'Query type. Pick the most specific one.',
+          description: `Query type. Pick the most specific one.
+- "period_returns": for "% change over 7/30 days" questions (one ticker or ALL of them, omit filters.ticker for all) — this is a single lightweight query (2 rows per ticker) that ALWAYS returns both 7d and 30d change together. Prefer this over "daily_returns" for period-change questions.
+- "daily_returns": only when you need actual day-by-day granularity (e.g. "was there a specific bad day in there", not just the net change).`,
         },
         filters: {
           type: 'object',
@@ -344,6 +347,30 @@ async function executeQueryDb(input) {
     case 'positions_snapshot': {
       rows = await sb('positions?order=ticker.asc&select=ticker,name,category,qty,avg_cost_usd,avg_cost_gbp,initial_investment_usd,initial_investment_gbp,pricing_currency,managed_by');
       description = 'Snapshot de posiciones desde DB';
+      break;
+    }
+    case 'period_returns': {
+      // RPC directo a la función de Postgres (ver period_returns.sql) — no
+      // pasa por sb() porque necesita POST con body, no un GET con
+      // querystring. Devuelve 2 filas por ticker (7d + 30d) en vez de las
+      // ~280 filas crudas que traía filtrar daily_returns a mano.
+      let tickers = null;
+      if (ticker) tickers = [ticker];
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_period_returns`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_tickers: tickers }),
+        });
+        if (!res.ok) {
+          const errBody = await res.text();
+          return { error: `RPC get_period_returns falló (${res.status}): ${errBody.slice(0, 200)}` };
+        }
+        rows = await res.json();
+      } catch (e) {
+        return { error: `RPC get_period_returns error: ${e.message}` };
+      }
+      description = ticker ? `Variación 7d/30d de ${ticker}` : 'Variación 7d/30d (todos los tickers)';
       break;
     }
     case 'daily_returns': {
@@ -1942,11 +1969,7 @@ router.post('/ai-chat', async (req, res) => {
     // respuesta final solo de texto con lo que ya se obtuvo en fase 1.
     const streamReqBody = JSON.stringify({
       model, max_tokens,
-      system: [{
-        type: 'text',
-        text: system + '\n\n[Esta es tu respuesta FINAL — ya no tenés acceso a ninguna tool desde acá. Nunca describas una acción futura ("voy a buscar eso", "pido ese dato puntual", "te aviso en el próximo mensaje") — si te falta un dato, o lo tenías que haber pedido en un tool call ANTES de esta respuesta, o simplemente no está disponible; decilo así, no prometas algo que no vas a hacer.]',
-        cache_control: { type: 'ephemeral' },
-      }],
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: loopMessages,
       stream: true,
       ...modelExtraParams,
