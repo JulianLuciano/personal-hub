@@ -14,7 +14,10 @@ const AI_TOOLS = [
     name: 'query_db',
     description: `Query Julian's portfolio database for historical or detailed data not already in the system context.
 Use when asked about: full transaction history, specific asset purchase price, past portfolio performance, RSU vest schedule, historical prices, or daily returns.
-Do NOT use if the answer is already in the system context.`,
+Do NOT use if the answer is already in the system context.
+
+IMPORTANT — for "% change over N days" questions (one ticker or all of them): use "daily_returns" with from_date/to_date, and OMIT filters.ticker to get ALL tickers in ONE call — it already returns return_pct + close_usd per ticker per day. Do NOT loop "price_history" once per ticker for this — that's 12+ calls for something daily_returns answers in one. Reserve "price_history" for when you need the full price timeseries of ONE specific ticker (e.g. charting, or exact price levels on exact dates) — it always requires a single filters.ticker, there's no bulk mode.
+Ticker note: market-data query_types (price_history, daily_returns) are keyed by the real market symbol — for the RSU position use ticker 'META', not 'RSU_META' (that's only the portfolio's internal label in transactions/positions).`,
     input_schema: {
       type: 'object',
       properties: {
@@ -154,21 +157,29 @@ If p90 > max_horizon_months, reports that as "unlikely within N years".`,
   },
   {
     name: 'get_ticker_news',
-    description: `Get recent news headlines (titles, and summaries when available) for a specific ticker in Julian's portfolio, from the last 30 days.
+    description: `Get recent news headlines for a specific ticker in Julian's portfolio, from the last 30 days.
 Use ONLY for single-company positions: META, MELI, NU, MSFT, GOOGL, BRK.B. Do NOT use for diversified funds/ETFs (SPY, VWRP.L, ARKK.L, NDIA.L) or crypto (BTC, ADA) — a single headline rarely explains a move in a fund holding hundreds/thousands of underlying assets; use portfolio/macro context (VIX, rates, indices) instead for those.
-Discretionary — use freely whenever it helps answer the question, no need to ask permission.`,
+Discretionary — use freely whenever it helps answer the question, no need to ask permission.
+
+Two-step source strategy — YOU decide whether to go deeper, don't assume the first call is enough:
+1. Call WITHOUT "deep" first. This checks Yahoo only — titles and links, free, fast, but no summaries and sometimes thin coverage.
+2. If those results don't actually answer what was asked (e.g. nothing about the specific event the user wants, results look generic/unrelated, or too few results to judge), call it AGAIN for the SAME ticker with "deep": true. This adds Alpha Vantage — real summaries and sentiment, much richer, but draws from a shared daily budget (used by both this chat and the daily briefing), so don't use it reflexively on every call — only when step 1 genuinely wasn't enough.
+If even the deep call doesn't have what the user asked for, don't conclude on your own that "no existe" — that's what request_web_search is for (see its description).`,
     input_schema: {
       type: 'object',
       properties: {
         ticker: { type: 'string', description: "e.g. 'META', 'MELI', 'NU', 'MSFT', 'GOOGL', 'BRK.B'" },
+        deep:   { type: 'boolean', description: 'true = also query Alpha Vantage (richer, but shared daily budget). Only after a first plain call came back insufficient. Default false.' },
       },
       required: ['ticker'],
     },
   },
   {
     name: 'request_web_search',
-    description: `Request Julián's permission to search the web, for cases get_ticker_news/query_db can't answer (e.g. get_ticker_news came back empty for a ticker that genuinely needs explaining, or the question needs current information no other tool has).
-IMPORTANT: this does NOT perform a real search. It only shows Julián a confirmation prompt with your query and reason. Only call this when a web search is genuinely necessary — not routinely, and never as a first resort before trying get_ticker_news/query_db.`,
+    description: `Request Julián's permission to search the web, for cases get_ticker_news/query_db couldn't actually answer.
+IMPORTANT: this does NOT perform a real search. It only shows Julián a confirmation prompt with your query and reason. Only call this when a web search is genuinely necessary — not routinely, and never as a first resort before trying get_ticker_news/query_db.
+
+When to use it: if the user asked for something specific (e.g. "the latest earnings", "recent news about X") and get_ticker_news's results (even after "deep":true) don't actually contain that — DON'T conclude on your own that it doesn't exist and just tell the user so. Offer to search instead, via this tool. The only exception is a plain, certain logical fact you can verify from context yourself (e.g. an earnings date that's confirmed still in the future, so no report exists yet) — in that case explain the fact directly, no need to search.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -1838,7 +1849,7 @@ router.post('/ai-chat', async (req, res) => {
           if      (name === 'query_db')             result = await executeQueryDb(input);
           else if (name === 'run_montecarlo')        result = await executeRunMontecarlo(input);
           else if (name === 'run_montecarlo_target') result = await executeRunMontecarloTarget(input);
-          else if (name === 'get_ticker_news')       result = await fetchTickerNewsEnriched(input.ticker);
+          else if (name === 'get_ticker_news')       result = input.deep ? await fetchTickerNewsEnriched(input.ticker) : { ticker: input.ticker, yahoo: await fetchTickerNews(input.ticker), alphaVantage: null };
           else if (name === 'request_web_search') {
             // No ejecuta nada de verdad — solo marca que hay que cortar acá
             // y pedirle confirmación a Julián. Ver más abajo, después del loop.

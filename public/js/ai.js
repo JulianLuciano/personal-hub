@@ -1786,7 +1786,7 @@ async function aiStreamChat(requestBody, { thinkingEl, tmInterval } = {}) {
     result.replyText += '\n\n_⚠️ Respuesta cortada por límite de tokens — pedime que continúe si falta algo._';
   }
   if (result.webSearchSources && result.webSearchSources.length > 0) {
-    result.replyText += '\n\n**Fuentes:**\n' + result.webSearchSources.map(s => `- [${s.title}](${s.url})`).join('\n');
+    result.replyText += '\n\n**Fuentes:**\n' + result.webSearchSources.map(s => `- [${s.title} - ${aiSiteNameFromUrl(s.url)}](${s.url})`).join('\n');
   }
   if (textSpan && (result.truncated || result.webSearchSources)) {
     textSpan.innerHTML = aiRenderMarkdown(result.replyText);
@@ -1883,6 +1883,20 @@ async function getAppConfig() {
   }
 }
 
+// Deriva un nombre de sitio legible de una URL, para "Título - Sitio" en
+// las fuentes de web_search (ej. "bloomberg.com" -> "Bloomberg").
+function aiSiteNameFromUrl(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    if (host.endsWith('wikipedia.org')) return 'Wikipedia';
+    const parts = host.split('.');
+    const label = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  } catch (_) {
+    return url;
+  }
+}
+
 function aiRenderMarkdown(text) {
   // Escape HTML first
   text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1916,6 +1930,11 @@ function aiRenderMarkdown(text) {
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic *text* (not inside words)
   text = text.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+  // Links [text](url) — target=_blank abre en el navegador del sistema
+  // (Safari) en vez de navegar dentro de la PWA cuando está instalada como
+  // acceso directo. rel=noopener por seguridad (evita que la página
+  // destino tenga acceso a window.opener).
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   // Headers
   text = text.replace(/^### (.+)$/gm, '<div class="ai-h3">$1</div>');
   text = text.replace(/^## (.+)$/gm, '<div class="ai-h2">$1</div>');
