@@ -49,6 +49,10 @@ try {
 // Ticker aliases for fundamentals fetching only (P/E, beta, etc.)
 const TICKER_MAP = {
   'BTC':   'BTC-USD',
+  'ADA':   'ADA-USD', // faltaba — sin esto, "ADA" resuelve a un instrumento
+                       // ambiguo/random en Yahoo, no a Cardano (posible causa
+                       // real del error de schema que veníamos viendo en
+                       // fetchFundamentals('ADA'), a confirmar)
   'BRK.B': 'BRK-B',
 };
 
@@ -117,6 +121,201 @@ async function fetchFundamentals(ticker) {
     sector:             ap.sector   || null,
     industry:           ap.industry || null,
   };
+}
+
+// Mapping SOLO para búsqueda de noticias — algunos LSE-listed no tienen
+// cobertura de noticias en Yahoo, pero el mismo issuer/estrategia cotiza
+// también en EEUU con mucha mejor cobertura. NO es "el mismo fondo" en
+// todos los casos (ver nota en cada uno) — es la mejor aproximación
+// disponible para encontrar contexto de por qué se mueve el activo.
+const NEWS_TICKER_MAP = {
+  'ARKK.L': 'ARKK',   // mismo gestor (ARK Investment Management), holdings casi idénticas
+  'NDIA.L': 'INDA',   // mismo índice subyacente (MSCI India), distinto domicilio/issuer
+  'VWRP.L': 'VT',     // aproximación: Vanguard, exposición global, pero índice distinto (FTSE All-World vs FTSE Global All Cap)
+};
+
+async function fetchTickerNews(ticker, { maxAgeDays = 30, limit = 3 } = {}) {
+  if (!yf) throw new Error('yahoo-finance2 not loaded');
+  const searchTicker = NEWS_TICKER_MAP[ticker] || TICKER_MAP[ticker] || ticker;
+
+  let result;
+  try {
+    result = await yf.search(searchTicker, { newsCount: limit + 5, quotesCount: 0 });
+  } catch (e) {
+    console.warn(`[news] ${ticker} (${searchTicker}): error en fetch — ${e.message}`);
+    return { ticker, searchTicker, items: [], error: e.message };
+  }
+
+  const rawNews = result?.news || [];
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+  const items = rawNews
+    .map(n => {
+      const ts = n.providerPublishTime instanceof Date
+        ? n.providerPublishTime.getTime()
+        : (typeof n.providerPublishTime === 'number' ? n.providerPublishTime * 1000 : null);
+      return {
+        title:   n.title || null,
+        summary: n.summary || null,
+        link:    n.link || null,
+        publisher: n.publisher || null,
+        publishedAt: ts ? new Date(ts).toISOString() : null,
+        _ts: ts,
+      };
+    })
+    .filter(n => n._ts !== null && n._ts >= cutoff)
+    .sort((a, b) => b._ts - a._ts)
+    .slice(0, limit)
+    .map(({ _ts, ...rest }) => rest);
+
+  if (items.length === 0) {
+    console.log(`[news] ${ticker} (buscado como ${searchTicker}): sin noticias en los últimos ${maxAgeDays}d (${rawNews.length} recibidas, todas descartadas por fecha o vacío)`);
+  }
+
+  return { ticker, searchTicker, items };
+}
+
+// ── Alpha Vantage NEWS_SENTIMENT ────────────────────────────────────────────
+// Fuente secundaria, SOLO para el briefing (no para la tool del chat) — el
+// free tier tiene 25 requests/día compartidos por toda la cuenta, así que el
+// caller tiene que pasar un presupuesto (ver fetchTickerNewsEnriched) para no
+// dejar sin cupo al resto del día. A cambio de esa fricción, trae summary
+// real (Yahoo no lo tiene) y sentiment por ticker.
+const ALPHA_VANTAGE_KEY = process.env.ALPHA_VANTAGE_API_KEY || '';
+const AV_RELEVANCE_MIN  = 0.8;
+
+// Ruido validado a mano contra resultados reales (ago 2026) — filings 13F
+// institucionales parafraseados como "noticia" (marketbeat, gurufocus) y
+// sitios de exchanges cripto tratando el ticker como si fuera un token
+// tradeable (cryptorank, okx, bitget, bybit). Puede necesitar mantenimiento:
+// cada ticker nuevo puede destapar un dominio de spam distinto.
+const AV_NOISE_TITLE_PATTERNS = [
+  /form 4/i, /schedule 13g/i, /insider trading/i, /beneficial ownership/i,
+  /beneficial stake/i, /tax-withholding/i, /discloses sale/i, /disposes of/i,
+  /director sells/i, /(ceo|cfo|cro) reports/i, /reports \d+.*shares/i,
+  /holds \d+.*stake/i, /sells \$/i,
+  /\$?[\d,.]+\s*(million|shares?)\s+(in|of|purchased|acquired|bought|sold)/i,
+  /(increases?|decreases?|reduces?|raises?|takes?|buys?|sells?|acquires?|purchases?)\s+(new\s+)?(stock\s+)?(position|stake|holdings?|shares)\s+(in|of)/i,
+  /holding history/i, /shares (purchased|acquired|bought|sold) by/i,
+  /price prediction/i, /how to buy .* (in|with)/i, /convert .* to /i,
+  /\/[a-z]{3}: convert/i, /tokenized etf/i,
+  /^[a-z.\- ]+ etf (rises?|falls?|gains?|declines?) \d/i,
+];
+const AV_NOISE_DOMAINS = [
+  'stocktitan.net', 'tradingview.com', 'marketbeat.com', 'gurufocus.com',
+  'cryptorank.io', 'okx.com', 'bitget.com', 'bybit.com', 'moomoo.com',
+];
+
+function parseAVDate(raw) {
+  if (!raw || raw.length < 15) return null;
+  const iso = `${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}T${raw.slice(9,11)}:${raw.slice(11,13)}:${raw.slice(13,15)}Z`;
+  const d = new Date(iso);
+  return isNaN(d) ? null : d;
+}
+function isAVNoise(item) {
+  if (AV_NOISE_TITLE_PATTERNS.some(re => re.test(item.title))) return true;
+  if (AV_NOISE_DOMAINS.some(d => item.url.includes(d))) return true;
+  return false;
+}
+
+async function fetchAlphaVantageNews(ticker, { maxAgeDays = 30, limit = 3 } = {}) {
+  if (!ALPHA_VANTAGE_KEY) return { ticker, items: [], error: 'ALPHA_VANTAGE_API_KEY no configurada' };
+
+  const url = new URL('https://www.alphavantage.co/query');
+  url.searchParams.set('function', 'NEWS_SENTIMENT');
+  url.searchParams.set('tickers', ticker);
+  url.searchParams.set('apikey', ALPHA_VANTAGE_KEY);
+  url.searchParams.set('limit', '50');
+
+  let data;
+  try {
+    const res = await fetch(url);
+    data = await res.json();
+  } catch (e) {
+    console.warn(`[news-av] ${ticker}: error de red — ${e.message}`);
+    return { ticker, items: [], error: e.message };
+  }
+  if (data['Error Message'] || data['Note'] || data['Information']) {
+    const msg = data['Error Message'] || data['Note'] || data['Information'];
+    console.warn(`[news-av] ${ticker}: ${msg.slice(0, 120)}`);
+    return { ticker, items: [], error: msg };
+  }
+
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  const feed = data.feed || [];
+
+  const items = feed
+    .map(item => {
+      const ts = item.ticker_sentiment?.find(s => s.ticker === ticker);
+      const publishedAt = parseAVDate(item.time_published);
+      return ts ? {
+        title: item.title, summary: item.summary, url: item.url,
+        publishedAt, sentiment: ts.ticker_sentiment_label,
+        relevance: parseFloat(ts.relevance_score),
+      } : null;
+    })
+    .filter(Boolean)
+    .filter(item => item.publishedAt && item.publishedAt.getTime() >= cutoff)
+    .filter(item => item.relevance > AV_RELEVANCE_MIN)
+    .filter(item => !isAVNoise(item))
+    .sort((a, b) => b.relevance - a.relevance)
+    .slice(0, limit)
+    .map(i => ({ ...i, publishedAt: i.publishedAt.toISOString() }));
+
+  if (items.length === 0) {
+    console.log(`[news-av] ${ticker}: sin resultados útiles tras filtros (${feed.length} en el feed crudo)`);
+  }
+
+  return { ticker, items };
+}
+
+// ── Merge Yahoo + Alpha Vantage, con presupuesto diario compartido ──────────
+// Se llama tanto desde el chat (get_ticker_news) como desde el briefing —
+// como los dos consumen del mismo cupo de 25/día de Alpha Vantage sin
+// coordinarse entre sí, el presupuesto vive acá adentro como contador
+// compartido del proceso, no como algo que cada caller administre por su
+// cuenta. Se resetea solo al cambiar de día (UTC). Si el proceso se reinicia
+// (deploy), el contador vuelve a 0 — aceptable, mejor pecar de generoso que
+// bloquear innecesariamente.
+const AV_DAILY_MAX     = 15; // techo propio, por debajo del límite real de 25/día del free tier
+const AV_PER_TICKER_MAX = 5;
+let avDailyState = { count: 0, date: null };
+
+function avBudgetRemaining() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (avDailyState.date !== today) avDailyState = { count: 0, date: today };
+  return AV_DAILY_MAX - avDailyState.count;
+}
+function avBudgetConsume() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (avDailyState.date !== today) avDailyState = { count: 0, date: today };
+  avDailyState.count++;
+}
+
+// Tickers de una sola empresa — Alpha Vantage/noticias tienen sentido acá.
+// Fondos diversificados (SPY, VWRP.L, ARKK.L, NDIA.L) y cripto (BTC, ADA) NO
+// deberían disparar esto — un solo titular rara vez explica el movimiento de
+// un fondo de cientos/miles de posiciones; para esos, el macro (VIX, tasas,
+// índices) ya cumple ese rol. Se usa como guardrail extra acá adentro,
+// además de la condición de "evento relevante" que decide el caller.
+const SINGLE_COMPANY_TICKERS = new Set(['META', 'MELI', 'NU', 'MSFT', 'GOOGL', 'BRK.B', 'BRK-B']);
+
+async function fetchTickerNewsEnriched(ticker) {
+  const yahoo = await fetchTickerNews(ticker);
+
+  let alphaVantage = null;
+  if (!SINGLE_COMPANY_TICKERS.has(ticker)) {
+    console.log(`[news-av] ${ticker}: omitido — no es de empresa individual (fondo/cripto), usar macro en su lugar`);
+  } else if (avBudgetRemaining() > 0) {
+    avBudgetConsume();
+    alphaVantage = await fetchAlphaVantageNews(ticker, { limit: AV_PER_TICKER_MAX });
+    console.log(`[news-av] presupuesto diario: ${avDailyState.count}/${AV_DAILY_MAX} usado`);
+  } else {
+    console.log(`[news-av] ${ticker}: presupuesto diario de Alpha Vantage agotado (${AV_DAILY_MAX}/día), se omite`);
+  }
+
+  const hasContent = yahoo.items.length > 0 || (alphaVantage?.items.length > 0);
+  return { ticker, yahoo, alphaVantage, hasContent };
 }
 
 // ── Caches ────────────────────────────────────────────────────────────────────
@@ -430,7 +629,12 @@ module.exports = {
   getMacroCache:     () => macroCache,
   setMacroCache:     (data) => { macroCache = data; macroCachedAt = Date.now(); },
   fetchFundamentals,
+  fetchTickerNews,
+  fetchAlphaVantageNews,
+  fetchTickerNewsEnriched,
   fetchMacro,
   MACRO_TICKERS,
+  NEWS_TICKER_MAP,
+  SINGLE_COMPANY_TICKERS,
   CACHE_TTL_MS,
 };

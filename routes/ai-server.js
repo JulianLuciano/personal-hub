@@ -5,7 +5,7 @@ const https   = require('https');
 const router  = express.Router();
 
 const { SUPABASE_URL, SUPABASE_KEY, isConfigured, headers, sb } = require('../lib/supabase-server');
-const { getPortfolioCache, setPortfolioCache, getMacroCache, setMacroCache, fetchFundamentals, fetchMacro, MACRO_TICKERS, CACHE_TTL_MS } = require('./market-server');
+const { getPortfolioCache, setPortfolioCache, getMacroCache, setMacroCache, fetchFundamentals, fetchTickerNews, fetchTickerNewsEnriched, fetchMacro, MACRO_TICKERS, SINGLE_COMPANY_TICKERS, CACHE_TTL_MS } = require('./market-server');
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
@@ -150,6 +150,32 @@ If p90 > max_horizon_months, reports that as "unlikely within N years".`,
         },
       },
       required: ['target_gbp'],
+    },
+  },
+  {
+    name: 'get_ticker_news',
+    description: `Get recent news headlines (titles, and summaries when available) for a specific ticker in Julian's portfolio, from the last 30 days.
+Use ONLY for single-company positions: META, MELI, NU, MSFT, GOOGL, BRK.B. Do NOT use for diversified funds/ETFs (SPY, VWRP.L, ARKK.L, NDIA.L) or crypto (BTC, ADA) — a single headline rarely explains a move in a fund holding hundreds/thousands of underlying assets; use portfolio/macro context (VIX, rates, indices) instead for those.
+Discretionary — use freely whenever it helps answer the question, no need to ask permission.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        ticker: { type: 'string', description: "e.g. 'META', 'MELI', 'NU', 'MSFT', 'GOOGL', 'BRK.B'" },
+      },
+      required: ['ticker'],
+    },
+  },
+  {
+    name: 'request_web_search',
+    description: `Request Julián's permission to search the web, for cases get_ticker_news/query_db can't answer (e.g. get_ticker_news came back empty for a ticker that genuinely needs explaining, or the question needs current information no other tool has).
+IMPORTANT: this does NOT perform a real search. It only shows Julián a confirmation prompt with your query and reason. Only call this when a web search is genuinely necessary — not routinely, and never as a first resort before trying get_ticker_news/query_db.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        query:  { type: 'string', description: 'The exact web search query you would run if approved' },
+        reason: { type: 'string', description: 'One short sentence (in Rioplatense Spanish) explaining why this search is needed' },
+      },
+      required: ['query', 'reason'],
     },
   },
 ];
@@ -1104,6 +1130,7 @@ router.get('/briefing-context', async (req, res) => {
 
     let posSection = 'POSITIONS\nticker|category|value_usd|value_gbp|weight%|invested_usd|invested_gbp|pnl_usd%|pnl_gbp%|day%_usd|day%_gbp|day_$_usd|day_$_gbp|7d%_usd|7d%_gbp|30d%_usd|30d%_gbp\n';
     let totalInvUSD = 0, totalInvGBP = 0, totalValUSD = 0;
+    const tickerMoves = []; // para decidir qué tickers ameritan buscar noticias
 
     investedPositions.forEach(p => {
       const yticker   = p.ticker === 'RSU_META' ? 'META' : p.ticker;
@@ -1182,6 +1209,7 @@ router.get('/briefing-context', async (req, res) => {
       totalValUSD += valueUSD;
       totalInvUSD += invUSD;
       totalInvGBP += invGBP;
+      tickerMoves.push({ ticker: p.ticker, yticker, dayPctUSD: dayPctPosUSD });
       // Impacto del día en plata (no solo %) — para rankear por peso real en el portfolio,
       // no por variación porcentual pura (una posición chica con +4% puede pesar menos
       // en dólares que una grande con +0.5%).
@@ -1351,6 +1379,97 @@ router.get('/briefing-context', async (req, res) => {
       earningsList.sort((a, b) => a.date.localeCompare(b.date));
       earningsSection = 'UPCOMING_EARNINGS (next 7 days)\nticker|date|timing\n';
       earningsList.forEach(e => { earningsSection += e.ticker + '|' + e.date + '|' + e.timing + '\n'; });
+    }
+
+    // ── Noticias por ticker (Yahoo + Alpha Vantage, con escalado a web_search) ──
+    // Solo para tickers de una sola empresa (fondos/cripto usan macro, no
+    // noticias — un titular no explica el movimiento de un fondo de miles de
+    // posiciones) y solo si hay un evento que lo amerite: movimiento diario
+    // ≥5% absoluto, o earnings en la ventana de UPCOMING_EARNINGS (ya
+    // calculada arriba). Ordenados por impacto (día % absoluto) para que el
+    // presupuesto de Alpha Vantage y el techo de web_search se gasten primero
+    // en lo que más importa.
+    const MOVE_THRESHOLD = 5;
+    const earningsTickerSet = new Set(earningsList.map(e => e.ticker.replace(' (RSU)', '')));
+
+    const qualifyingTickers = tickerMoves
+      .filter(t => SINGLE_COMPANY_TICKERS.has(t.yticker))
+      .filter(t => (t.dayPctUSD != null && Math.abs(t.dayPctUSD) >= MOVE_THRESHOLD) || earningsTickerSet.has(t.yticker))
+      .sort((a, b) => Math.abs(b.dayPctUSD || 0) - Math.abs(a.dayPctUSD || 0));
+
+    let newsSection = '';
+    const newsSourcesForDb = []; // para persistir en daily_briefings (link_preview de 2-3 fuentes)
+    let webSearchCount = 0, webSearchCostUsd = 0;
+    const MAX_WEB_SEARCH_PER_RUN = 3;
+
+    if (qualifyingTickers.length > 0) {
+      console.log(`[briefing-context] tickers con evento relevante: ${qualifyingTickers.map(t => `${t.yticker} (${t.dayPctUSD != null ? sgn(t.dayPctUSD) : 'earnings'})`).join(', ')}`);
+
+      const newsResults = [];
+      for (const t of qualifyingTickers) {
+        const r = await fetchTickerNewsEnriched(t.yticker);
+        newsResults.push({ ...t, ...r });
+      }
+
+      // Escalar a web_search SOLO los que siguen sin nada útil, priorizando
+      // por movimiento — y solo hasta el techo de 3 búsquedas por corrida.
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      for (const r of newsResults) {
+        if (r.hasContent || webSearchCount >= MAX_WEB_SEARCH_PER_RUN || !anthropicKey) continue;
+        try {
+          const q = `¿por qué se movió la acción de ${r.yticker} hoy${r.dayPctUSD != null ? ` (${sgn(r.dayPctUSD)})` : ''}? noticias recientes`;
+          const wsBody = {
+            model: 'claude-sonnet-5',
+            max_tokens: 512,
+            output_config: { effort: 'low' },
+            messages: [{ role: 'user', content: `Buscá en la web: ${q}. Respondé en 2-3 líneas en español, directo.` }],
+            tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+          };
+          const raw = await callAnthropic(anthropicKey, wsBody);
+          webSearchCount++;
+          if (raw.status === 200) {
+            const resp = JSON.parse(raw.body);
+            const text = resp.content.filter(b => b.type === 'text').map(b => b.text).join('');
+            const sources = [];
+            for (const b of resp.content) {
+              if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+                for (const s of b.content) if (s.url) sources.push({ title: s.title || s.url, url: s.url });
+              }
+            }
+            const u = resp.usage || {};
+            const searches = u.server_tool_use?.web_search_requests || 0;
+            const cost = (u.input_tokens || 0) / 1_000_000 * 3 + (u.output_tokens || 0) / 1_000_000 * 15 + searches * 0.01;
+            webSearchCostUsd += cost;
+            r.webSearchText = text;
+            r.webSearchSources = sources.slice(0, 3);
+            console.log(`[briefing-context] web_search para ${r.yticker}: $${cost.toFixed(5)}`);
+          } else {
+            console.error(`[briefing-context] web_search error para ${r.yticker}:`, raw.body.slice(0, 200));
+          }
+        } catch (e) {
+          console.error(`[briefing-context] web_search excepción para ${r.yticker}:`, e.message);
+        }
+      }
+
+      // Armar la sección de texto para el prompt
+      const lines = [];
+      for (const r of newsResults) {
+        const parts = [];
+        if (r.yahoo?.items?.length) {
+          parts.push(...r.yahoo.items.map(i => `  - [Yahoo, ${i.publishedAt?.slice(0,10)}] ${i.title} (${i.link})`));
+        }
+        if (r.alphaVantage?.items?.length) {
+          parts.push(...r.alphaVantage.items.map(i => `  - [AlphaVantage, ${i.publishedAt?.slice(0,10)}, sentiment ${i.sentiment}] ${i.title}: ${i.summary} (${i.url})`));
+        }
+        if (r.webSearchText) {
+          parts.push(`  - [web_search] ${r.webSearchText}`);
+          r.webSearchSources?.forEach(s => newsSourcesForDb.push({ ticker: r.yticker, title: s.title, url: s.url }));
+        }
+        if (parts.length > 0) lines.push(`${r.yticker}:\n${parts.join('\n')}`);
+      }
+      if (lines.length > 0) {
+        newsSection = `NEWS_CONTEXT (fuentes externas — ver nota de confiabilidad en las instrucciones)\n${lines.join('\n')}\n`;
+      }
     }
 
     // Next RSU vest section
@@ -1524,6 +1643,7 @@ router.get('/briefing-context', async (req, res) => {
       `Si timing=AMC y la fecha es AYER, o timing=BMO y la fecha es HOY, el reporte ya salió y el precio de hoy podría estar reaccionando — pero earnings es una posible explicación entre varias (mercado en general, sector, flujo), no dés por hecho que el movimiento se debe al reporte solo porque el timing calza. Podés mencionar que reportó como contexto, sin afirmar causalidad, salvo que el movimiento sea claramente atípico para ese ticker. ` +
       `Si timing=unknown, no asumas nada de timing: describí el movimiento del día solo en base al precio.\n` +
       `Footer: cerrá SIEMPRE el briefing con una línea horizontal (---) y debajo, en cursiva, "*Datos al cierre NYSE · ${today} · FX: 1 GBP = X USD*" usando el valor exacto de "fx:" que aparece en PORTFOLIO más abajo (no lo redondees distinto a como viene).\n` +
+      `NEWS_CONTEXT (si aparece más abajo): es información de fuentes externas (Yahoo, Alpha Vantage, o una búsqueda web puntual) — no verificada por Julián ni por vos más allá de su credibilidad aparente. Presentala con ese margen de duda (ej. "según [fuente], parece que..."), nunca como hecho confirmado al mismo nivel que los datos de PORTFOLIO/POSITIONS (esos sí son datos propios verificados). Si usás algo de ahí en la sección 3, citá 2-3 de las fuentes con su link al final de esa mención.\n` +
       (yesterdayBriefing ? `Así cerró el briefing de ayer:\n${yesterdayBriefing}\nNo repitas la misma observación o recomendación hoy — buscá un ángulo distinto.\n` : '') +
       `\n` +
       portfolioSummary + '\n' +
@@ -1531,12 +1651,18 @@ router.get('/briefing-context', async (req, res) => {
       posSection + '\n' + cashSection + '\n' +
       (pnlAttrSection   ? pnlAttrSection   + '\n' : '') +
       (earningsSection  ? earningsSection  + '\n' : '') +
+      (newsSection      ? newsSection      + '\n' : '') +
       (nextVestSection  ? nextVestSection  + '\n' : '') +
       (allocationSection ? allocationSection + '\n' : '') +
       txSection + '\n\n' +
       (macroSection ? macroSection : '');
 
-    res.json({ systemPrompt });
+    res.json({
+      systemPrompt,
+      newsSources: newsSourcesForDb,
+      webSearchCount,
+      webSearchCostUsd: +webSearchCostUsd.toFixed(5),
+    });
   } catch (e) {
     console.error('[briefing-context]', e.message);
     res.status(502).json({ error: e.message });
@@ -1577,7 +1703,7 @@ router.post('/ai-chat', async (req, res) => {
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const { model, max_tokens = 4096, system, messages } = req.body;
+  const { model, max_tokens = 4096, system, messages, webSearchApproved, webSearchQuery } = req.body;
   // Subido de 5 a 6: un colchón extra de iteraciones para consultas que
   // necesiten encadenar varias tools (ver nota más abajo sobre por qué esto
   // NO es lo que causaba el bug de "dice que va a hacer algo y no lo hace").
@@ -1611,9 +1737,60 @@ router.post('/ai-chat', async (req, res) => {
 
   const send = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch (_) {} };
 
+  // ── Camino separado: el usuario ya confirmó una búsqueda web pedida por el
+  // modelo (ver request_web_search más abajo). En vez de mezclar la tool real
+  // web_search de Anthropic dentro del loop de Fase 1 (que tendría que
+  // reconstruir bloques server_tool_use/web_search_tool_result que nuestro
+  // parser de streaming no entiende — ver callAnthropicStreaming), se hace
+  // UNA llamada dedicada, solo con esa tool, no-streaming. Más simple y es
+  // exactamente el patrón que se validó a mano con los scripts de prueba.
+  if (webSearchApproved && webSearchQuery) {
+    console.log(`[ai-chat] web_search aprobado por el usuario: "${webSearchQuery}"`);
+    try {
+      const wsBody = {
+        model,
+        max_tokens,
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+        messages,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+        ...modelExtraParams,
+      };
+      const raw = await callAnthropic(anthropicKey, wsBody);
+      if (raw.status !== 200) {
+        console.error('[ai-chat] web_search error:', raw.body.slice(0, 400));
+        send({ type: 'error', message: `Anthropic ${raw.status}` });
+        return res.end();
+      }
+      const response = JSON.parse(raw.body);
+      const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      const sources = [];
+      for (const b of response.content) {
+        if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+          for (const r of b.content) if (r.url) sources.push({ title: r.title || r.url, url: r.url });
+        }
+      }
+      const u = response.usage || {};
+      const webSearches = u.server_tool_use?.web_search_requests || 0;
+      // Aproximado — Sonnet 5 $3/$15 por MTok; si cambia el precio publicado, actualizar acá.
+      const tokenCost  = (u.input_tokens || 0) / 1_000_000 * 3 + (u.output_tokens || 0) / 1_000_000 * 15;
+      const searchCost = webSearches * 0.01;
+      console.log(`[ai-chat] web_search costo: $${(tokenCost + searchCost).toFixed(5)} (tokens: $${tokenCost.toFixed(5)}, ${webSearches} búsqueda(s): $${searchCost.toFixed(5)})`);
+
+      send({ type: 'delta', text });
+      if (sources.length > 0) send({ type: 'web_search_sources', sources: sources.slice(0, 3) });
+      send({ type: 'done', usage: { input_tokens: u.input_tokens, output_tokens: u.output_tokens }, web_search_cost_usd: +(tokenCost + searchCost).toFixed(5) });
+      return res.end();
+    } catch (err) {
+      console.error('[ai-chat] web_search bypass error:', err.message);
+      send({ type: 'error', message: err.message });
+      return res.end();
+    }
+  }
+
   const toolCallsLog = [];
   let loopMessages   = [...messages];
   let iterations     = 0;
+  let pendingWebSearchConfirm = null;
 
   try {
     // Fase 1: tool loop, con streaming interno (callAnthropicStreaming) para
@@ -1661,6 +1838,13 @@ router.post('/ai-chat', async (req, res) => {
           if      (name === 'query_db')             result = await executeQueryDb(input);
           else if (name === 'run_montecarlo')        result = await executeRunMontecarlo(input);
           else if (name === 'run_montecarlo_target') result = await executeRunMontecarloTarget(input);
+          else if (name === 'get_ticker_news')       result = await fetchTickerNewsEnriched(input.ticker);
+          else if (name === 'request_web_search') {
+            // No ejecuta nada de verdad — solo marca que hay que cortar acá
+            // y pedirle confirmación a Julián. Ver más abajo, después del loop.
+            pendingWebSearchConfirm = { query: input.query, reason: input.reason };
+            result = { status: 'pending_user_confirmation', note: 'Esperando que el usuario confirme antes de buscar.' };
+          }
           else                                       result = { error: `Tool desconocida: ${name}` };
         } catch (toolErr) {
           console.error(`[ai-chat] tool ${name} error:`, toolErr.message);
@@ -1679,11 +1863,22 @@ router.post('/ai-chat', async (req, res) => {
       }
 
       loopMessages.push({ role: 'user', content: toolResults });
+      if (pendingWebSearchConfirm) break; // el modelo pidió buscar — cortar acá, no seguir iterando
     }
 
     if (toolCallsLog.length > 0) {
       send({ type: 'tool_log', log: toolCallsLog });
       console.log(`[ai-chat] tools usadas: ${toolCallsLog.map(t => t.tool).join(', ')} | iteraciones: ${iterations}`);
+    }
+
+    // Si el modelo pidió web_search, no se sigue a Fase 2 — se le devuelve el
+    // control a Julián con la pregunta/motivo, y se corta la respuesta acá.
+    // El cliente, si confirma, vuelve a pegarle a este mismo endpoint con
+    // webSearchApproved:true (ver el bypass al principio del handler).
+    if (pendingWebSearchConfirm) {
+      console.log(`[ai-chat] pidiendo confirmación de web_search: "${pendingWebSearchConfirm.query}"`);
+      send({ type: 'web_search_confirm', query: pendingWebSearchConfirm.query, reason: pendingWebSearchConfirm.reason });
+      return res.end();
     }
 
     // Fase 2: stream de la respuesta final.

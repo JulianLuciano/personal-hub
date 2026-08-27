@@ -1640,137 +1640,36 @@ ${buildMarketContext()}`;
       + (wlExtended   ? '\n' + wlExtended   : '');
 
     // ── SSE fetch ────────────────────────────────────────────────────────────
-    const sseRes = await fetch('/api/ai-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: AI_MODELS[aiModel],
-        max_tokens: 8192,
-        system: systemPrompt,
-        messages: contextSlice,
-      }),
-    });
+    const requestBody = {
+      model: AI_MODELS[aiModel],
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: contextSlice,
+    };
 
-    if (!sseRes.ok || !sseRes.body) {
-      clearInterval(tmInterval);
-      thinkingEl.remove();
-      aiAddMsg('assistant', '⚠️ Error de conexión con el servidor.');
+    const result = await aiStreamChat(requestBody, { thinkingEl, tmInterval });
+
+    if (result.error) {
+      aiAddMsg('assistant', '⚠️ Error: ' + result.error);
       aiHistory.pop();
       return;
     }
 
-    const reader  = sseRes.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer    = '';
-    let replyEl   = null;        // DOM element — created on first delta
-    let replyText = '';          // accumulated full text
-    let toolLog   = [];
-    let usage     = null;
-    let thinkingRemoved = false;
-
-    const msgs = document.getElementById('aiMessages');
-
-    const ensureReplyEl = () => {
-      if (!replyEl) {
-        replyEl = document.createElement('div');
-        replyEl.className = 'ai-msg assistant';
-        // Star button
-        const starBtn = document.createElement('button');
-        starBtn.className = 'ai-star-btn';
-        starBtn.title = 'Guardar como favorito';
-        starBtn.textContent = '☆';
-        starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(replyEl); });
-        replyEl.appendChild(starBtn);
-        replyEl.dataset.starred = 'false';
-        _aiMsgMeta.set(replyEl, { dbId: null });
-        msgs.appendChild(replyEl);
-      }
-    };
-
-    // We'll build a <span> for the streaming text, separate from the star button
-    let textSpan = null;
-    const ensureTextSpan = () => {
-      if (!textSpan) {
-        textSpan = document.createElement('span');
-        textSpan.className = 'ai-msg-text';
-        replyEl.insertBefore(textSpan, replyEl.querySelector('.ai-star-btn'));
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const raw = line.slice(6).trim();
-        if (!raw) continue;
-
-        let evt;
-        try { evt = JSON.parse(raw); } catch (_) { continue; }
-
-        if (evt.type === 'tool_log') {
-          toolLog = evt.log || [];
-          // Render tool log before the reply element
-          if (toolLog.length > 0) aiRenderToolLog(toolLog, msgs);
-
-        } else if (evt.type === 'delta') {
-          // Remove thinking indicator on first text delta
-          if (!thinkingRemoved) {
-            clearInterval(tmInterval);
-            thinkingEl.remove();
-            thinkingRemoved = true;
-          }
-          ensureReplyEl();
-          ensureTextSpan();
-          replyText += evt.text;
-          // Re-render markdown on every delta
-          textSpan.innerHTML = aiRenderMarkdown(replyText);
-          msgs.scrollTop = msgs.scrollHeight;
-
-        } else if (evt.type === 'done') {
-          usage = evt.usage;
-          if (evt.truncated) {
-            replyText += '\n\n_⚠️ Respuesta cortada por límite de tokens — pedime que continúe si falta algo._';
-            if (textSpan) textSpan.innerHTML = aiRenderMarkdown(replyText);
-          }
-
-        } else if (evt.type === 'error') {
-          if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); thinkingRemoved = true; }
-          aiAddMsg('assistant', '⚠️ Error: ' + (evt.message || 'No se pudo conectar con la IA.'));
-          aiHistory.pop();
-          return;
-        }
-      }
+    if (result.webSearchConfirm) {
+      // El modelo pidió permiso para buscar en la web — no hubo respuesta
+      // todavía (nada que agregar a aiHistory), se muestra el prompt de
+      // confirmación y se espera al usuario.
+      aiRenderWebSearchConfirm(result.webSearchConfirm, requestBody, contextStartSeq);
+      return;
     }
 
-    // Ensure thinking is gone even if no deltas arrived
-    if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); }
-
-    if (!replyText) {
+    if (!result.replyText) {
       aiAddMsg('assistant', '(sin respuesta)');
       aiHistory.pop();
       return;
     }
 
-    aiHistory.push({ role: 'assistant', content: replyText });
-
-    // Log assistant message and wire up star dbId
-    aiLogMessage({
-      role: 'assistant',
-      content: replyText,
-      model: AI_MODELS[aiModel],
-      input_tokens:      usage?.input_tokens  ?? null,
-      output_tokens:     usage?.output_tokens ?? null,
-      context_start_seq: contextStartSeq,
-      tool_calls:        toolLog.length > 0 ? toolLog : null,
-    }).then(dbId => {
-      if (dbId && replyEl) _aiMsgMeta.set(replyEl, { dbId });
-    });
+    aiFinishAssistantTurn(result, contextStartSeq);
 
   } catch (e) {
     clearInterval(tmInterval);
@@ -1779,6 +1678,187 @@ ${buildMarketContext()}`;
     aiAddMsg('assistant', '⚠️ Error de conexión: ' + e.message);
     aiHistory.pop();
   }
+}
+
+// ── Streaming SSE compartido — usado tanto por el flujo normal como por el
+// re-envío después de confirmar una búsqueda web (ver aiRenderWebSearchConfirm).
+async function aiStreamChat(requestBody, { thinkingEl, tmInterval } = {}) {
+  const result = {
+    replyText: '', toolLog: [], usage: null, truncated: false,
+    webSearchConfirm: null, webSearchSources: null, error: null, replyEl: null,
+  };
+
+  let sseRes;
+  try {
+    sseRes = await fetch('/api/ai-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (e) {
+    result.error = 'No se pudo conectar con el servidor.';
+    return result;
+  }
+
+  if (!sseRes.ok || !sseRes.body) {
+    result.error = 'Error de conexión con el servidor.';
+    return result;
+  }
+
+  const reader  = sseRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer    = '';
+  let textSpan  = null;
+  let thinkingRemoved = !thinkingEl; // si no nos pasaron indicador, no hay nada que sacar
+
+  const msgs = document.getElementById('aiMessages');
+  const ensureReplyEl = () => {
+    if (!result.replyEl) {
+      const el = document.createElement('div');
+      el.className = 'ai-msg assistant';
+      const starBtn = document.createElement('button');
+      starBtn.className = 'ai-star-btn';
+      starBtn.title = 'Guardar como favorito';
+      starBtn.textContent = '☆';
+      starBtn.addEventListener('click', (e) => { e.stopPropagation(); aiToggleStar(el); });
+      el.appendChild(starBtn);
+      el.dataset.starred = 'false';
+      _aiMsgMeta.set(el, { dbId: null });
+      msgs.appendChild(el);
+      result.replyEl = el;
+    }
+  };
+  const ensureTextSpan = () => {
+    if (!textSpan) {
+      textSpan = document.createElement('span');
+      textSpan.className = 'ai-msg-text';
+      result.replyEl.insertBefore(textSpan, result.replyEl.querySelector('.ai-star-btn'));
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (!raw) continue;
+
+      let evt;
+      try { evt = JSON.parse(raw); } catch (_) { continue; }
+
+      if (evt.type === 'tool_log') {
+        result.toolLog = evt.log || [];
+        if (result.toolLog.length > 0) aiRenderToolLog(result.toolLog, msgs);
+
+      } else if (evt.type === 'delta') {
+        if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); thinkingRemoved = true; }
+        ensureReplyEl();
+        ensureTextSpan();
+        result.replyText += evt.text;
+        textSpan.innerHTML = aiRenderMarkdown(result.replyText);
+        msgs.scrollTop = msgs.scrollHeight;
+
+      } else if (evt.type === 'web_search_confirm') {
+        result.webSearchConfirm = { query: evt.query, reason: evt.reason };
+
+      } else if (evt.type === 'web_search_sources') {
+        result.webSearchSources = evt.sources || [];
+
+      } else if (evt.type === 'done') {
+        result.usage = evt.usage;
+        result.truncated = !!evt.truncated;
+
+      } else if (evt.type === 'error') {
+        result.error = evt.message || 'No se pudo conectar con la IA.';
+      }
+    }
+  }
+
+  if (!thinkingRemoved) { clearInterval(tmInterval); thinkingEl.remove(); }
+
+  if (result.truncated) {
+    result.replyText += '\n\n_⚠️ Respuesta cortada por límite de tokens — pedime que continúe si falta algo._';
+  }
+  if (result.webSearchSources && result.webSearchSources.length > 0) {
+    result.replyText += '\n\n**Fuentes:**\n' + result.webSearchSources.map(s => `- [${s.title}](${s.url})`).join('\n');
+  }
+  if (textSpan && (result.truncated || result.webSearchSources)) {
+    textSpan.innerHTML = aiRenderMarkdown(result.replyText);
+  }
+
+  return result;
+}
+
+// Guarda el turno del asistente en aiHistory + Supabase. Compartido entre el
+// flujo normal y el de después de confirmar una búsqueda web.
+function aiFinishAssistantTurn(result, contextStartSeq) {
+  aiHistory.push({ role: 'assistant', content: result.replyText });
+  aiLogMessage({
+    role: 'assistant',
+    content: result.replyText,
+    model: AI_MODELS[aiModel],
+    input_tokens:      result.usage?.input_tokens  ?? null,
+    output_tokens:     result.usage?.output_tokens ?? null,
+    context_start_seq: contextStartSeq,
+    tool_calls:        result.toolLog.length > 0 ? result.toolLog : null,
+  }).then(dbId => {
+    if (dbId && result.replyEl) _aiMsgMeta.set(result.replyEl, { dbId });
+  });
+}
+
+// Prompt de confirmación cuando el modelo pide permiso para buscar en la web
+// (tool request_web_search — ver ai-server.js). Sin estilos propios en CSS
+// todavía, usa clases nuevas (ai-web-search-confirm, ai-ws-*) — hay que
+// agregarles estilo en el stylesheet de la app.
+function aiRenderWebSearchConfirm(confirm, requestBody, contextStartSeq) {
+  const msgs = document.getElementById('aiMessages');
+  const el = document.createElement('div');
+  el.className = 'ai-msg assistant ai-web-search-confirm';
+  el.innerHTML =
+    `<div class="ai-ws-confirm-text">🔎 ¿Buscar en la web: <em>"${confirm.query}"</em>?` +
+    (confirm.reason ? `<br><span class="ai-ws-confirm-reason">${confirm.reason}</span>` : '') +
+    `</div>` +
+    `<div class="ai-ws-confirm-btns">` +
+    `<button class="ai-ws-yes">Sí, buscar</button>` +
+    `<button class="ai-ws-no">No, gracias</button>` +
+    `</div>`;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  const textEl = el.querySelector('.ai-ws-confirm-text');
+  const btnsEl = el.querySelector('.ai-ws-confirm-btns');
+  const yesBtn = el.querySelector('.ai-ws-yes');
+  const noBtn  = el.querySelector('.ai-ws-no');
+
+  noBtn.addEventListener('click', () => {
+    btnsEl.remove();
+    textEl.innerHTML += '<br><em>❌ Búsqueda cancelada.</em>';
+  });
+
+  yesBtn.addEventListener('click', async () => {
+    yesBtn.disabled = true;
+    noBtn.disabled  = true;
+    btnsEl.remove();
+    textEl.innerHTML += '<br><em>Buscando…</em>';
+
+    const result = await aiStreamChat({ ...requestBody, webSearchApproved: true, webSearchQuery: confirm.query }, {});
+
+    if (result.error) {
+      aiAddMsg('assistant', '⚠️ Error: ' + result.error);
+      return;
+    }
+    if (!result.replyText) {
+      aiAddMsg('assistant', '(sin respuesta)');
+      return;
+    }
+    aiFinishAssistantTurn(result, contextStartSeq);
+  });
 }
 
 // getAnthropicKey eliminada — la API key ya no se expone al frontend.

@@ -395,12 +395,16 @@ async function generateAndSendBriefing() {
 
   // Obtener el prompt completo desde el server principal
   let systemPrompt = '';
+  let newsSources = [], webSearchCount = 0, webSearchCostUsd = 0;
   try {
     const ctxRes = await fetch(SERVER_INTERNAL_URL + '/api/briefing-context');
     if (ctxRes.ok) {
       const d = await ctxRes.json();
-      systemPrompt = d.systemPrompt || '';
-      console.log('[briefing] context loaded, prompt length:', systemPrompt.length);
+      systemPrompt     = d.systemPrompt || '';
+      newsSources       = d.newsSources || [];
+      webSearchCount    = d.webSearchCount || 0;
+      webSearchCostUsd  = d.webSearchCostUsd || 0;
+      console.log('[briefing] context loaded, prompt length:', systemPrompt.length, '| web_search:', webSearchCount, `($${webSearchCostUsd})`);
     } else {
       console.warn('[briefing] briefing-context fetch failed:', ctxRes.status);
     }
@@ -474,7 +478,14 @@ async function generateAndSendBriefing() {
         'Content-Type':  'application/json',
         'Prefer':        'resolution=merge-duplicates',
       },
-      body: JSON.stringify({ date: todayDate, content: briefingText, prompt: systemPrompt }),
+      body: JSON.stringify({
+        date: todayDate,
+        content: briefingText,
+        prompt: systemPrompt,
+        news_sources: newsSources,
+        web_search_count: webSearchCount,
+        web_search_cost_usd: webSearchCostUsd,
+      }),
     });
     console.log('[briefing] saved to DB for', todayDate);
   } catch (e) {
