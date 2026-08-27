@@ -1765,7 +1765,7 @@ async function aiStreamChat(requestBody, { thinkingEl, tmInterval } = {}) {
         msgs.scrollTop = msgs.scrollHeight;
 
       } else if (evt.type === 'web_search_confirm') {
-        result.webSearchConfirm = { query: evt.query, reason: evt.reason };
+        result.webSearchConfirm = { queries: evt.queries || [] };
 
       } else if (evt.type === 'web_search_sources') {
         result.webSearchSources = evt.sources || [];
@@ -1813,16 +1813,22 @@ function aiFinishAssistantTurn(result, contextStartSeq) {
 }
 
 // Prompt de confirmación cuando el modelo pide permiso para buscar en la web
-// (tool request_web_search — ver ai-server.js). Sin estilos propios en CSS
-// todavía, usa clases nuevas (ai-web-search-confirm, ai-ws-*) — hay que
-// agregarles estilo en el stylesheet de la app.
+// (tool request_web_search — ver ai-server.js). Ahora soporta pedir varias
+// búsquedas de una (ej. "por qué subieron X e Y") en un solo prompt.
 function aiRenderWebSearchConfirm(confirm, requestBody, contextStartSeq) {
   const msgs = document.getElementById('aiMessages');
+  const queries = confirm.queries || [];
   const el = document.createElement('div');
   el.className = 'ai-msg assistant ai-web-search-confirm';
+
+  const queryLines = queries.map(q =>
+    `<span class="ai-ws-confirm-query">"${q.query}"${q.reason ? ` — ${q.reason}` : ''}</span>`
+  ).join('');
+
   el.innerHTML =
-    `<div class="ai-ws-confirm-text">🔎 ¿Buscar en la web: <em>"${confirm.query}"</em>?` +
-    (confirm.reason ? `<br><span class="ai-ws-confirm-reason">${confirm.reason}</span>` : '') +
+    `<div class="ai-ws-confirm-text">🔎 ¿Buscar en la web` +
+    (queries.length > 1 ? ` esto (${queries.length})` : ' esto') + `?` +
+    queryLines +
     `</div>` +
     `<div class="ai-ws-confirm-btns">` +
     `<button class="ai-ws-yes">Sí, buscar</button>` +
@@ -1847,7 +1853,7 @@ function aiRenderWebSearchConfirm(confirm, requestBody, contextStartSeq) {
     btnsEl.remove();
     textEl.innerHTML += '<br><em>Buscando…</em>';
 
-    const result = await aiStreamChat({ ...requestBody, webSearchApproved: true, webSearchQuery: confirm.query }, {});
+    const result = await aiStreamChat({ ...requestBody, webSearchApproved: true, webSearchQueries: queries }, {});
 
     if (result.error) {
       aiAddMsg('assistant', '⚠️ Error: ' + result.error);

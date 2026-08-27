@@ -3244,3 +3244,60 @@
 
 /* Gráfico de tipos de entrenamiento — 20% más alto que los otros (200px base) */
 .h-analytics-chart-wrap.tall { height: 240px; }
+
+/* ── Links dentro de respuestas del chat (web_search sources, etc.) ── */
+.ai-msg-text a {
+  color: var(--accent5);
+  text-decoration: underline;
+  text-decoration-color: rgba(79, 195, 247, 0.4);
+  word-break: break-word;
+}
+.ai-msg-text a:active { color: var(--accent); text-decoration-color: var(--accent); }
+
+/* ── Prompt de confirmación de web_search ── */
+.ai-web-search-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ai-ws-confirm-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.ai-ws-confirm-text em { font-style: normal; color: var(--muted); }
+.ai-ws-confirm-query {
+  display: block;
+  margin-top: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent5);
+  color: var(--muted);
+  font-size: 12px;
+}
+.ai-ws-confirm-btns {
+  display: flex;
+  gap: 10px;
+}
+.ai-ws-yes, .ai-ws-no {
+  flex: 1;
+  padding: 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-ws-yes {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+.ai-ws-yes:active { opacity: 0.85; transform: scale(0.97); }
+.ai-ws-yes:disabled, .ai-ws-no:disabled { opacity: 0.5; pointer-events: none; }
+.ai-ws-no {
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+}
+.ai-ws-no:active { border-color: var(--accent); color: var(--accent); }

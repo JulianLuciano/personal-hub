@@ -15,6 +15,7 @@ const AI_TOOLS = [
     description: `Query Julian's portfolio database for historical or detailed data not already in the system context.
 Use when asked about: full transaction history, specific asset purchase price, past portfolio performance, RSU vest schedule, historical prices, or daily returns.
 Do NOT use if the answer is already in the system context.
+Do NOT use to explain WHY something moved (that's what happened, not what it means) — for "por qué", "investigá", "explicame las razones", etc., go to get_ticker_news/request_web_search instead. This tool only gives you numbers.
 
 IMPORTANT — for "% change over N days" questions (one ticker or all of them): use "daily_returns" with from_date/to_date, and OMIT filters.ticker to get ALL tickers in ONE call — it already returns return_pct + close_usd per ticker per day. Do NOT loop "price_history" once per ticker for this — that's 12+ calls for something daily_returns answers in one. Reserve "price_history" for when you need the full price timeseries of ONE specific ticker (e.g. charting, or exact price levels on exact dates) — it always requires a single filters.ticker, there's no bulk mode.
 Ticker note: market-data query_types (price_history, daily_returns) are keyed by the real market symbol — for the RSU position use ticker 'META', not 'RSU_META' (that's only the portfolio's internal label in transactions/positions).`,
@@ -177,16 +178,30 @@ If even the deep call doesn't have what the user asked for, don't conclude on yo
   {
     name: 'request_web_search',
     description: `Request Julián's permission to search the web, for cases get_ticker_news/query_db couldn't actually answer.
-IMPORTANT: this does NOT perform a real search. It only shows Julián a confirmation prompt with your query and reason. Only call this when a web search is genuinely necessary — not routinely, and never as a first resort before trying get_ticker_news/query_db.
+IMPORTANT: this does NOT perform a real search. It only shows Julián a confirmation prompt with your queries and reasons. Only call this when a web search is genuinely necessary — not routinely, and never as a first resort before trying get_ticker_news/query_db.
 
-When to use it: if the user asked for something specific (e.g. "the latest earnings", "recent news about X") and get_ticker_news's results (even after "deep":true) don't actually contain that — DON'T conclude on your own that it doesn't exist and just tell the user so. Offer to search instead, via this tool. The only exception is a plain, certain logical fact you can verify from context yourself (e.g. an earnings date that's confirmed still in the future, so no report exists yet) — in that case explain the fact directly, no need to search.`,
+Can request MULTIPLE searches in ONE call (up to 3) — if the user asked about more than one thing (e.g. "por qué subieron ARKK y MSFT"), put one entry per thing in "queries" and ask for all of them at once. Don't make Julián confirm multiple times for things you already know you need to search — decide the full set of searches up front, in this one call.
+
+When to use it: if the user asked for something specific (e.g. "the latest earnings", "recent news about X", "por qué subió Y") and get_ticker_news's results (even after "deep":true) don't actually contain that — DON'T conclude on your own that it doesn't exist and just tell the user so. Offer to search instead, via this tool. This also applies to funds/ETFs (get_ticker_news doesn't cover them at all) if the user wants more than the generic macro/beta explanation. The only exception is a plain, certain logical fact you can verify from context yourself (e.g. an earnings date that's confirmed still in the future, so no report exists yet) — in that case explain the fact directly, no need to search.`,
     input_schema: {
       type: 'object',
       properties: {
-        query:  { type: 'string', description: 'The exact web search query you would run if approved' },
-        reason: { type: 'string', description: 'One short sentence (in Rioplatense Spanish) explaining why this search is needed' },
+        queries: {
+          type: 'array',
+          description: 'One entry per distinct thing to search, up to 3.',
+          items: {
+            type: 'object',
+            properties: {
+              query:  { type: 'string', description: 'The exact web search query you would run if approved' },
+              reason: { type: 'string', description: 'One short sentence (in Rioplatense Spanish) explaining why this search is needed' },
+            },
+            required: ['query', 'reason'],
+          },
+          minItems: 1,
+          maxItems: 3,
+        },
       },
-      required: ['query', 'reason'],
+      required: ['queries'],
     },
   },
 ];
@@ -332,7 +347,16 @@ async function executeQueryDb(input) {
       break;
     }
     case 'daily_returns': {
-      let qs = `daily_returns?order=date.desc&limit=${limit}&select=ticker,date,return_pct,close_usd`;
+      // Sin ticker (bulk, todos los activos) el default de 20 se queda corto
+      // — un rango de 30 días × ~13 tickers son ~280 filas. Server-side se
+      // sube el default/tope para bulk, así no depende de que el modelo se
+      // acuerde de pedir un limit alto — esto era la causa real de que
+      // terminara haciendo una query de más por ticker cuando la bulk le
+      // volvía "incompleta".
+      const drLimit = ticker
+        ? limit
+        : Math.min(filters.limit || 400, 500);
+      let qs = `daily_returns?order=date.desc&limit=${drLimit}&select=ticker,date,return_pct,close_usd`;
       if (ticker)    qs += `&ticker=eq.${encodeURIComponent(ticker)}`;
       if (from_date) qs += `&date=gte.${from_date}`;
       if (to_date)   qs += `&date=lte.${to_date}`;
@@ -1714,7 +1738,7 @@ router.post('/ai-chat', async (req, res) => {
   if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
   if (!isConfigured()) return res.status(500).json({ error: 'Supabase not configured' });
 
-  const { model, max_tokens = 4096, system, messages, webSearchApproved, webSearchQuery } = req.body;
+  const { model, max_tokens = 4096, system, messages, webSearchApproved, webSearchQueries } = req.body;
   // Subido de 5 a 6: un colchón extra de iteraciones para consultas que
   // necesiten encadenar varias tools (ver nota más abajo sobre por qué esto
   // NO es lo que causaba el bug de "dice que va a hacer algo y no lo hace").
@@ -1755,15 +1779,22 @@ router.post('/ai-chat', async (req, res) => {
   // parser de streaming no entiende — ver callAnthropicStreaming), se hace
   // UNA llamada dedicada, solo con esa tool, no-streaming. Más simple y es
   // exactamente el patrón que se validó a mano con los scripts de prueba.
-  if (webSearchApproved && webSearchQuery) {
-    console.log(`[ai-chat] web_search aprobado por el usuario: "${webSearchQuery}"`);
+  if (webSearchApproved && Array.isArray(webSearchQueries) && webSearchQueries.length > 0) {
+    const queries = webSearchQueries.slice(0, 3); // mismo tope que el schema de la tool
+    console.log(`[ai-chat] web_search aprobado por el usuario: ${queries.map(q => `"${q.query}"`).join(', ')}`);
+    const startedAt = Date.now();
     try {
+      // Se le pasa la lista exacta que el modelo ya había decidido buscar
+      // (no se le pide que las vuelva a inventar) como un turno de usuario
+      // extra, así no "re-decide" con qué queries busca.
+      const approvalHint = 'Julián confirmó. Buscá exactamente esto:\n' +
+        queries.map((q, i) => `${i + 1}. "${q.query}" — ${q.reason}`).join('\n');
       const wsBody = {
         model,
         max_tokens,
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-        messages,
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+        messages: [...messages, { role: 'user', content: approvalHint }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: queries.length }],
         ...modelExtraParams,
       };
       const raw = await callAnthropic(anthropicKey, wsBody);
@@ -1787,6 +1818,13 @@ router.post('/ai-chat', async (req, res) => {
       const searchCost = webSearches * 0.01;
       console.log(`[ai-chat] web_search costo: $${(tokenCost + searchCost).toFixed(5)} (tokens: $${tokenCost.toFixed(5)}, ${webSearches} búsqueda(s): $${searchCost.toFixed(5)})`);
 
+      // Se manda como tool_log para que quede igual que las demás tools en
+      // el widget "N herramientas usadas" y se persista en tool_calls al
+      // guardar el mensaje (antes esto no quedaba registrado en absoluto).
+      send({
+        type: 'tool_log',
+        log: [{ tool: 'web_search', input: { queries: queries.map(q => q.query) }, elapsed_ms: Date.now() - startedAt, row_count: webSearches, error: null }],
+      });
       send({ type: 'delta', text });
       if (sources.length > 0) send({ type: 'web_search_sources', sources: sources.slice(0, 3) });
       send({ type: 'done', usage: { input_tokens: u.input_tokens, output_tokens: u.output_tokens }, web_search_cost_usd: +(tokenCost + searchCost).toFixed(5) });
@@ -1853,7 +1891,7 @@ router.post('/ai-chat', async (req, res) => {
           else if (name === 'request_web_search') {
             // No ejecuta nada de verdad — solo marca que hay que cortar acá
             // y pedirle confirmación a Julián. Ver más abajo, después del loop.
-            pendingWebSearchConfirm = { query: input.query, reason: input.reason };
+            pendingWebSearchConfirm = { queries: input.queries };
             result = { status: 'pending_user_confirmation', note: 'Esperando que el usuario confirme antes de buscar.' };
           }
           else                                       result = { error: `Tool desconocida: ${name}` };
@@ -1887,8 +1925,8 @@ router.post('/ai-chat', async (req, res) => {
     // El cliente, si confirma, vuelve a pegarle a este mismo endpoint con
     // webSearchApproved:true (ver el bypass al principio del handler).
     if (pendingWebSearchConfirm) {
-      console.log(`[ai-chat] pidiendo confirmación de web_search: "${pendingWebSearchConfirm.query}"`);
-      send({ type: 'web_search_confirm', query: pendingWebSearchConfirm.query, reason: pendingWebSearchConfirm.reason });
+      console.log(`[ai-chat] pidiendo confirmación de web_search: ${pendingWebSearchConfirm.queries.map(q => `"${q.query}"`).join(', ')}`);
+      send({ type: 'web_search_confirm', queries: pendingWebSearchConfirm.queries });
       return res.end();
     }
 
@@ -1904,7 +1942,11 @@ router.post('/ai-chat', async (req, res) => {
     // respuesta final solo de texto con lo que ya se obtuvo en fase 1.
     const streamReqBody = JSON.stringify({
       model, max_tokens,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      system: [{
+        type: 'text',
+        text: system + '\n\n[Esta es tu respuesta FINAL — ya no tenés acceso a ninguna tool desde acá. Nunca describas una acción futura ("voy a buscar eso", "pido ese dato puntual", "te aviso en el próximo mensaje") — si te falta un dato, o lo tenías que haber pedido en un tool call ANTES de esta respuesta, o simplemente no está disponible; decilo así, no prometas algo que no vas a hacer.]',
+        cache_control: { type: 'ephemeral' },
+      }],
       messages: loopMessages,
       stream: true,
       ...modelExtraParams,
