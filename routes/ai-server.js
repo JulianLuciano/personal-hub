@@ -36,7 +36,7 @@ Ticker note: market-data query_types (price_history, daily_returns) are keyed by
             'period_returns',
           ],
           description: `Query type. Pick the most specific one.
-- "period_returns": for "% change over 7/30 days" questions (one ticker or ALL of them, omit filters.ticker for all) — this is a single lightweight query (2 rows per ticker) that ALWAYS returns both 7d and 30d change together. Prefer this over "daily_returns" for period-change questions.
+- "period_returns": for "% change over N days/months/years" questions (one ticker or ALL of them, omit filters.ticker for all) — one lightweight query, any mix of periods via filters.periods (e.g. ["7d","30d"] default, or ["60d"] for ~2 months, ["365d"] for ~1 year, ["ytd"] for year-to-date). Prefer this over "daily_returns" for period-change questions.
 - "daily_returns": only when you need actual day-by-day granularity (e.g. "was there a specific bad day in there", not just the net change).`,
         },
         filters: {
@@ -48,6 +48,11 @@ Ticker note: market-data query_types (price_history, daily_returns) are keyed by
             to_date:     { type: 'string',  description: 'ISO date YYYY-MM-DD' },
             limit:       { type: 'integer', description: 'Max rows. Default 20, max 200.' },
             vested_only: { type: 'boolean', description: 'rsu_vests only: true=vested, false=pending' },
+            periods: {
+              type: 'array',
+              items: { type: 'string' },
+              description: `period_returns ONLY. Each entry is either "Nd" for N days ago (e.g. "7d", "30d", "60d" for ~2 months, "365d" for ~1 year), or "ytd" for year-to-date (anchor = Jan 1 of the current year). Mix as many as needed in one call, e.g. ["7d","30d","ytd"]. Default if omitted: ["7d","30d"].`,
+            },
           },
         },
       },
@@ -295,7 +300,7 @@ async function fetchStartCapital() {
 
 async function executeQueryDb(input) {
   const { query_type, filters = {} } = input;
-  const { ticker, from_date, to_date, vested_only } = filters;
+  const { ticker, from_date, to_date, vested_only, periods } = filters;
   const limit = Math.min(filters.limit || 20, 200);
 
   let rows, description;
@@ -352,15 +357,16 @@ async function executeQueryDb(input) {
     case 'period_returns': {
       // RPC directo a la función de Postgres (ver period_returns.sql) — no
       // pasa por sb() porque necesita POST con body, no un GET con
-      // querystring. Devuelve 2 filas por ticker (7d + 30d) en vez de las
+      // querystring. Devuelve 1 fila por (ticker, período) en vez de las
       // ~280 filas crudas que traía filtrar daily_returns a mano.
       let tickers = null;
       if (ticker) tickers = [ticker];
+      const periodsArg = (Array.isArray(periods) && periods.length > 0) ? periods : undefined; // undefined → usa el default de la función (7d/30d)
       try {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_period_returns`, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ p_tickers: tickers }),
+          body: JSON.stringify({ p_tickers: tickers, ...(periodsArg ? { p_periods: periodsArg } : {}) }),
         });
         if (!res.ok) {
           const errBody = await res.text();
@@ -370,7 +376,7 @@ async function executeQueryDb(input) {
       } catch (e) {
         return { error: `RPC get_period_returns error: ${e.message}` };
       }
-      description = ticker ? `Variación 7d/30d de ${ticker}` : 'Variación 7d/30d (todos los tickers)';
+      description = `Variación (${(periodsArg || ['7d', '30d']).join(', ')})${ticker ? ` de ${ticker}` : ' (todos los tickers)'}`;
       break;
     }
     case 'daily_returns': {
