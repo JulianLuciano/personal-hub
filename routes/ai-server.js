@@ -365,7 +365,11 @@ async function executeQueryDb(input) {
       try {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_period_returns`, {
           method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
+          headers: {
+            'apikey':        SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type':  'application/json',
+          },
           body: JSON.stringify({ p_tickers: tickers, ...(periodsArg ? { p_periods: periodsArg } : {}) }),
         });
         if (!res.ok) {
