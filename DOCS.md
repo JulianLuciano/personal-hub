@@ -129,6 +129,17 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | day% del briefing incorrecto (muestra 0% o valor de ayer) | `routes/ai-server.js` → `tDayAnchor` (medianoche London). Verificar con: `SELECT ticker, price_usd, captured_at FROM price_snapshots WHERE ticker='RSU_META' AND captured_at <= NOW() - INTERVAL '20 hours' ORDER BY captured_at DESC LIMIT 3` |
 | Macro no aparece en el prompt del briefing | `routes/ai-server.js` → `fetchMacro()` directo (no usa cache HTTP). Verificar en Railway logs: `[briefing-context] macro loaded, tickers: 7` |
 | Briefing truncado (texto cortado a mitad de frase) | `notification-worker.js` → `max_tokens` (hoy 2500; revisar log `[briefing] stop_reason: ...` — si dice `max_tokens`, confirmado el corte, subir el límite) |
+| ADA con datos de fundamentals/noticias que no son de Cardano | `routes/market-server.js` → `TICKER_MAP['ADA']` debe ser `'ADA-USD'`. Sin este mapeo, Yahoo resuelve `"ADA"` a un instrumento random, no a la cripto (agosto 2026) |
+| `get_ticker_news`/noticias sin resultados o con ruido | `routes/market-server.js` → `fetchTickerNews()` (Yahoo, sin summary) / `fetchAlphaVantageNews()` (con summary, filtros de fecha/relevancia/dominio — puede necesitar sumar un dominio nuevo a `AV_NOISE_DOMAINS` si aparece spam nuevo) |
+| Alpha Vantage nunca se usa aunque haya presupuesto | Revisar `SINGLE_COMPANY_TICKERS` en `routes/market-server.js` — solo se llama para empresas individuales (META/MELI/NU/MSFT/GOOGL/BRK.B), fondos y cripto lo omiten a propósito |
+| Presupuesto de Alpha Vantage agotado sin explicación | Log `[news-av] presupuesto diario: X/15 usado` — contador compartido entre chat y briefing, resetea por día UTC. Revisar `AV_DAILY_MAX` en `routes/market-server.js` |
+| `web_search` no pide confirmación / se ejecuta directo | `routes/ai-server.js` → `AI_TOOLS` debe tener `request_web_search`, no la tool real `web_search`, en el array de tools de Fase 1 |
+| Prompt de confirmación de `web_search` no aparece o no muestra las queries | `ai.js` → `aiRenderWebSearchConfirm()` — verificar el evento SSE `web_search_confirm` con `queries` (array), no `query` singular (formato viejo) |
+| `web_search` aprobado no queda en el historial al recargar | `routes/ai-server.js` → el bypass de `webSearchApproved` debe mandar el evento `tool_log` explícito antes del `delta` — si falta, `aiFinishAssistantTurn` no tiene nada que persistir en `tool_calls` |
+| Fuentes de `web_search` incompletas con 2+ queries en un turno | `routes/ai-server.js` → deben extraerse de `citations` en los bloques de texto (dedupeado por URL), no de "los primeros N resultados crudos" cortados global — con >1 búsqueda en el mismo turno, un corte global deja fuera la segunda |
+| "Variación de N días de todos mis activos" hace muchas tool calls (10+) | `routes/ai-server.js` → debería usar `query_db` con `query_type: 'period_returns'` (una sola query), no `daily_returns` per-ticker ni `price_history` en loop |
+| `period_returns` da error de RPC / 401 | Confirmar `period_returns.sql` corrido en el SQL Editor de Supabase, y que `ALPHA_VANTAGE_API_KEY`/`SUPABASE_SECRET_KEY` estén en el `.env`/Railway. El fetch al RPC arma headers a mano con `SUPABASE_KEY` — no depende de `headers` importado de `lib/supabase-server.js` |
+| Investigar "por qué" algo se movió no encuentra nada / usa `query_db` en loop | `routes/ai-server.js` → la descripción de `query_db` aclara que NO es para causas, eso es `get_ticker_news`/`request_web_search` |
 | Variación diaria del portfolio incorrecta en fin de semana / lunes | `portfolio.js` → `_prevMarketDay()` — queries de snapshots usan días de mercado (saltan sábado/domingo), no días calendario |
 | Variación diaria infla depósitos/compras del día como rendimiento | `portfolio.js` + `routes/ai-server.js` → Modified Dietz: `changeUSD = V_fin - V_ini - netCFusd`. CF fetch filtra `is_reinvestment=false`, tipos `BUY/DEPOSIT/SELL/WITHDRAWAL` |
 | `day_cashflow_*` no aparece en contexto AI | Es condicional: solo se emite cuando `netCFusd !== 0`. Si no hubo transacciones externas ese día, es correcto que no aparezca |
@@ -160,8 +171,8 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | `ai.js` | Chat con Claude: builders de contexto, SSE streaming de respuestas, loop agentic con tool calls, widget de tools usadas, logging de conversaciones a Supabase, rendering de respuestas, historial con swipe-to-delete y búsqueda fulltext, mensajes favoritos (★), modal de briefing diario, banner de alertas proactivas colapsable. |
 | `server.js` | Express: bootstrap, proxy genérico Supabase, chart downsampling, positions, habits, push notifications, water, jacket proxy. ~270 líneas. |
 | `lib/supabase-server.js` | Helper de credenciales: `SUPABASE_URL`, `SUPABASE_KEY`, `isConfigured()`, `headers(extra?)`, `sb(path, opts?)`. Centraliza los headers de autenticación — elimina ~25 repeticiones que había en server.js. |
-| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`, `/api/price-history`. Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchMacro/MACRO_TICKERS` para que `ai-server.js` los llame directamente sin HTTP. |
-| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`), `callAnthropic()` con retry, historial de conversaciones. ~1550 líneas. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz: fetcha CF del día (London date) y resta `netCFusd` de `dayChangeUSD/GBP`; emite `day_return_*` (rendimiento puro) y `day_cashflow_*` (condicional, solo si hubo CF externo). |
+| `routes/market-server.js` | Yahoo Finance: `fetchFundamentals()`, `fetchMacro()`, **`fetchTickerNews()`/`fetchAlphaVantageNews()`/`fetchTickerNewsEnriched()`** (agosto 2026, noticias por ticker), caches de portfolio/watchlist/macro (1h TTL), endpoints `/api/market-data`, `/api/watchlist-data`, `/api/macro-data`, `/api/price-history`. Exporta esas funciones + `MACRO_TICKERS`/`SINGLE_COMPANY_TICKERS`/`NEWS_TICKER_MAP` para que `ai-server.js` los llame directamente sin HTTP. |
+| `routes/ai-server.js` | Todo lo de AI server-side: OCR (`/api/ocr-transaction`), context helpers (`/api/ai-transactions-context`, `/api/ai-correlation-context`, `/api/briefing-context`), agentic chat loop SSE (`/api/ai-chat`), tool executors (`executeQueryDb`, `executeRunMontecarlo`, `executeRunMontecarloTarget`, `get_ticker_news`, `request_web_search`), `callAnthropic()`/`callAnthropicStreaming()` con retry, historial de conversaciones. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). `briefing-context` incluye Modified Dietz (ver abajo) y **`NEWS_CONTEXT`** (agosto 2026, noticias condicionales por evento relevante, con escalado a `web_search` real hasta 3 veces por corrida). |
 | `worker.js` | Proceso separado: fetch Yahoo Finance cada 15 min, guarda snapshots + calcula matriz de correlación diaria. También fetchea USD/ARS bolsa MEP desde DolarApi cada tick y lo guarda en `price_snapshots.fx_usd_ars`, `portfolio_snapshots.fx_usd_ars` y `portfolio_snapshots.total_ars`. |
 | `recalculator.js` | Recalcula qty/avg_cost de posiciones desde tabla transactions. Soporta BUY/SELL/RSU_VEST/DEPOSIT/WITHDRAWAL. Calcula `net_invested` en paralelo: DEPOSIT/BUY con `is_reinvestment=true` no suman; WITHDRAWAL con `is_reinvestment=true` NO restan (capital convertido, no retirado); WITHDRAWAL con `is_reinvestment=false` sí resta. |
 | `sw-habits.js` | Service Worker en `/public`. Recibe Web Push real del servidor vía VAPID. Maneja action buttons de agua y redirección al abrir briefing (`/?briefing=1`). |
@@ -515,10 +526,11 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 **Configuración:**
 - `AI_CONTEXT_WINDOW = 10` — cuántos mensajes se pasan como contexto en cada turn (5 pares Q&A). **Cambiar este único valor** para ajustar el sliding window en toda la app.
 - `AI_MODELS` — mapa `{ sonnet: 'claude-sonnet-5', opus: 'claude-opus-5' }`.
-  - **Sonnet**: `output_config.effort: 'medium'`. Se probó bajar a `low` (Anthropic lo recomienda para chat/non-coding donde importa más el turnaround) pero quedó **pausado sin pushear**: en la prueba con `medium` ya apareció un caso de respuesta cortada en seco con `thinking_tokens:0` y `stop_reason:end_turn` (el modelo "perdió el hilo" de una lista a mitad de camino) — bajar más el effort probablemente empeora ese riesgo (menos thinking, menos verbosidad = más chance de cortar así), no lo mejora. Queda en `medium` hasta confirmar que ese patrón no es frecuente. Thinking sin forzar (adaptive por default de Sonnet 5).
+  - **Sonnet**: `output_config.effort: 'low'`. Se probó `medium` primero (más cauto) pero se terminó bajando a `low` — Anthropic lo recomienda para chat/non-coding donde importa más el turnaround. Con `low`, en un test apareció una respuesta cortada en seco con `thinking_tokens:0` y `stop_reason:end_turn` (el modelo "perdió el hilo" de una lista a mitad de camino) — quedó como riesgo conocido, no bloqueante, no se repitió con frecuencia en uso normal.
   - **Opus**: `output_config.effort: 'medium'` (bajado de `high` — a `high`, Opus tardaba genuinamente más de 90s pensando en preguntas largas/multi-parte, disparando timeouts reales, no un bug; `medium` es el "cost-saving step-down" que recomienda Anthropic).
   - Ambos params se agregan server-side en `/api/ai-chat` (routes/ai-server.js, ver `modelExtraParams`), no en el cliente.
   - Nota: Sonnet 5 NO acepta el thinking manual viejo (`thinking:{type:'enabled', budget_tokens}`) — devuelve 400. Para apagarlo del todo es `thinking:{type:'disabled'}` explícito (no se usa en el chat principal, sí en OCR — ver abajo).
+  - **Recordatorio anti-"promesa vacía" en el system prompt principal:** el modelo solo puede pedir tools ANTES de su respuesta final, nunca durante/después — si una pregunta tiene varias partes, tiene que juntar todo lo necesario (incluido pedir `request_web_search` si hace falta) antes de dejar de llamar tools, porque después no hay vuelta atrás. Se agregó esto tras un caso real donde el modelo, sin poder seguir buscando, terminaba con una respuesta casi vacía (`thinking:143, texto:2 tokens`, `stop_reason:end_turn` — no era un truncado por `max_tokens`) en vez de decir claramente qué le faltaba. **Se descartó a propósito** la alternativa de meter este recordatorio en el system de Fase 2 (donde ya no hay tools) — eso solo ocultaba el síntoma (respuestas vacías silenciosas) en vez de arreglar la causa, y hacía más difícil debuggear cuando volvía a pasar.
 - `max_tokens: 8192` para ambos modelos (subido de 3000 → 4096 → 8192 tras varios cortes en respuestas largas — con adaptive thinking prendido, `max_tokens` es un techo compartido entre tokens de thinking + texto de respuesta; en respuestas largas con muchas tablas —ej. armado de portfolio con betas/correlaciones/tramos— 4096 seguía quedándose corto).
 - **Detección de corte por `max_tokens`:** Fase 2 (streaming) captura `stop_reason` del evento `message_delta` y lo loggea explícito: `[ai-chat] stream done | in: X out: Y (thinking: T, texto: Z) | stop_reason: max_tokens ⚠️ CORTADO POR max_tokens...`. El evento SSE `done` manda `truncated: true/false` al cliente; si viene truncado, `ai.js` agrega una nota visible al final del mensaje ("⚠️ Respuesta cortada por límite de tokens") — como se agrega a la misma variable que después se loggea a Supabase, queda persistida en el historial, no es solo un aviso efímero en pantalla.
 - **Desglose thinking vs. texto:** usa `usage.output_tokens_details.thinking_tokens` (incluido *dentro* de `output_tokens`, no es un contador aparte) — `texto ≈ output_tokens - thinking_tokens`.
@@ -544,9 +556,15 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 
 **Chat UI:**
 - `openAIChat()` / `closeAIChat()` — abre y cierra el modal (close siempre vuelve a la vista de chat). Al abrir llama `aiRenderAlerts()` para refrescar el banner de alertas.
-- `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat` via SSE (`ReadableStream`), parsea eventos `tool_log` / `delta` / `done` / `error`, renderiza el texto progresivamente chunk a chunk re-aplicando markdown, loggea a Supabase. Construye el system prompt con cache (`_cachedSystemPrompt`, invalidado por `captured_at` del snapshot más reciente de `liveData`): el bloque pesado (portfolio, health, market) se reconstruye solo cuando `liveData` cambia; txSection, corrSection, wlExtended se concatenan siempre fresh porque varían por mensaje. El contexto de correlación se fetchea desde `/api/ai-correlation-context` (server-side), no desde `corrAllRows` del frontend.
+- `aiSendMsg()` — envía el mensaje, muestra typing indicator animado, llama a `/api/ai-chat` via SSE (`ReadableStream`), delega el fetch+parseo del stream a `aiStreamChat()` (ver abajo), loggea a Supabase. Construye el system prompt con cache (`_cachedSystemPrompt`, invalidado por `captured_at` del snapshot más reciente de `liveData`): el bloque pesado (portfolio, health, market) se reconstruye solo cuando `liveData` cambia; txSection, corrSection, wlExtended se concatenan siempre fresh porque varían por mensaje. El contexto de correlación se fetchea desde `/api/ai-correlation-context` (server-side), no desde `corrAllRows` del frontend.
+- `aiStreamChat(requestBody, {thinkingEl, tmInterval})` (agosto 2026) — función standalone que hace el fetch a `/api/ai-chat` y procesa el stream SSE completo (`tool_log`, `delta`, `web_search_confirm`, `web_search_sources`, `done`, `error`), devolviendo `{replyText, toolLog, usage, truncated, webSearchConfirm, webSearchSources, error, replyEl}`. Se extrajo de adentro de `aiSendMsg` específicamente para poder reusarla en el flujo de confirmación de `web_search` (ver abajo) sin duplicar ~100 líneas de parseo de stream.
+- `aiFinishAssistantTurn(result, contextStartSeq)` — guarda el turno del asistente en `aiHistory` + Supabase (`aiLogMessage`), compartido entre el flujo normal y el de después de confirmar una búsqueda web.
+- `aiRenderWebSearchConfirm(confirm, requestBody, contextStartSeq)` — UI de confirmación cuando el modelo pide permiso para usar `web_search` real (tool `request_web_search`, ver `routes/ai-server.js`). Soporta **varias queries en un solo prompt** (`confirm.queries`, array) — si el usuario pregunta por dos cosas a la vez, se pide confirmación una sola vez para ambas. Botones "Sí, buscar" / "No, gracias" (clases `.ai-ws-confirm-*`, `.ai-ws-yes`, `.ai-ws-no` en `styles.css`). Al confirmar, vuelve a llamar `aiStreamChat` con `{webSearchApproved: true, webSearchQueries: confirm.queries}` agregado al `requestBody` original.
 - `setAiModel(m)` — cambia entre Sonnet y Opus con feedback visual. El modelo se lee en el momento del envío, así que puede cambiar mid-conversación — cada mensaje assistant loggea el modelo usado.
 - `aiRenderMarkdown(text)` — parsea tablas, bold, italic, headers y listas para renderizar en HTML. **Bug de espaciado corregido:** la limpieza de `<br>` redundantes alrededor de bloques `<div>` (headers `##`, bullets) colapsaba también las líneas en blanco reales (`<br><br>` del markdown original) a un solo `<br>` — que en HTML no genera espacio visible *antes* de un bloque (se "absorbe" porque el `<div>` ya arranca en línea nueva por su propia naturaleza de bloque; después de un `<div>` sí genera espacio, por eso el bug era asimétrico: headers pegados al texto de arriba pero bien separados del texto de abajo, mientras tablas —que no pasan por `<div>`— se veían siempre bien). Fix: la limpieza "antes del div" ahora usa `(?<!<br>)<br>(<div)` — solo saca el `<br>` cuando no viene precedido de otro `<br>`, preservando la línea en blanco real cuando corresponde.
+- **Links markdown `[texto](url)`** (agosto 2026, feature de noticias/web_search): no existía soporte para links antes de esto. Ahora se convierte a `<a href target="_blank" rel="noopener noreferrer">`. `target="_blank"` **no logró** abrir en Safari del sistema desde la PWA instalada en iPhone — sigue navegando dentro de la misma ventana de la app instalada. Sin resolver, queda como limitación conocida.
+- `aiSiteNameFromUrl(url)` — deriva un nombre de sitio legible de una URL para el formato "Título - Sitio" en las fuentes de `web_search` (ej. `bloomberg.com` → "Bloomberg", cualquier subdominio de `wikipedia.org` → "Wikipedia" a propósito).
+- **Color de links (`.ai-msg-text a`, `styles.css`):** usa `var(--accent5)` (celeste). Se probó agregar `a:visited` con el mismo color pero se revirtió a pedido — el default del navegador para visited (violeta) se deja como está. **Bug sin resolver:** en Safari de escritorio, ni siquiera los links *sin visitar* toman el celeste — quedan con el azul default del navegador. Confirmado con el Web Inspector que la regla `.ai-msg-text a` directamente no aparece entre las reglas que compiten por el elemento (no es un problema de especificidad CSS, es que esa regla no está cargada en esa vista) — la sospecha es caché del navegador o del estático servido, no llegó a confirmarse la causa raíz. En el iPhone (PWA instalada) el celeste sí funciona bien siempre, con violeta para visited.
 
 **Historial de conversaciones:**
 - `aiToggleHistory()` — alterna entre vista de chat y vista de historial dentro del mismo sheet
@@ -583,7 +601,7 @@ Chat con Claude integrado en la app. Maneja el chat UI, los builders de contexto
 **Tool calls widget:**
 - `aiRenderToolLog(toolLog, container)` — función standalone reutilizable que construye el elemento `.ai-tools-used` y lo agrega al container dado. Usada tanto en el live chat (después de recibir la respuesta) como en `aiOpenConversation` (al recargar mensajes históricos desde DB).
 - El widget muestra un header colapsado con `🔧 N herramientas usadas`. Al tocar expande/colapsa el detalle.
-- Cada fila del detalle muestra: icono, nombre de la tool, descripción del input (query_type + ticker/fechas para `query_db`, escenario + años para `run_montecarlo`), elapsed ms.
+- Cada fila del detalle muestra: icono, nombre de la tool, descripción del input (query_type + ticker/fechas para `query_db`, escenario + años para `run_montecarlo`, ticker (+ "profundo" si `deep:true`) para `get_ticker_news`, las queries reales para `web_search`), elapsed ms.
 - El widget se inserta **antes** del mensaje del asistente en el DOM.
 - Al reabrir una conversación, `aiOpenConversation` lee `row.tool_calls` de cada mensaje y llama `aiRenderToolLog` si no es null.
 
@@ -616,25 +634,43 @@ Helper centralizado de credenciales Supabase. Exporta:
 
 ### `routes/market-server.js`
 Yahoo Finance y caches de market data. Puntos clave:
-- `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC y BRK.B. Devuelve además `earningsTiming` (`'BMO'|'AMC'|'unknown'`), lookup manual en `EARNINGS_TIMING` (Yahoo no da hora confiable de reporte vía `calendarEvents`, solo la fecha estimada — confirmado con `yfinance.get_earnings_dates()` en Python, que sí trae timestamp con hora pero por un endpoint distinto/frágil de scrapear en Node). Cubre MELI/META/GOOGL/MSFT/NU (AMC) y BRK-B (BMO); tickers no listados caen en `'unknown'`.
+- `fetchFundamentals(ticker)` — quoteSummary con 6 módulos (PE, beta, 52w, analyst, earnings, sector). Alias via `TICKER_MAP` para BTC, ADA y BRK.B. Devuelve además `earningsTiming` (`'BMO'|'AMC'|'unknown'`), lookup manual en `EARNINGS_TIMING` (Yahoo no da hora confiable de reporte vía `calendarEvents`, solo la fecha estimada — confirmado con `yfinance.get_earnings_dates()` en Python, que sí trae timestamp con hora pero por un endpoint distinto/frágil de scrapear en Node). Cubre MELI/META/GOOGL/MSFT/NU (AMC) y BRK-B (BMO); tickers no listados caen en `'unknown'`.
+  - **`TICKER_MAP['ADA'] = 'ADA-USD'` (agosto 2026)** — faltaba este mapeo. Sin él, `fetchFundamentals('ADA')` le pedía a Yahoo el ticker crudo `"ADA"`, que resuelve a un instrumento ambiguo/random, no a Cardano — esa era la causa real de un error de validación de schema (`summaryDetail.currency` esperando string y viniendo `null`) que se venía arrastrando desde antes de esta sesión y que se había atribuido erróneamente a "Yahoo devuelve mal los datos de cripto" o a la versión vieja de la librería. Confirmado con `yahoo-finance2` recién actualizado a v4.0.2 (`npm install yahoo-finance2@latest`, 0 vulnerabilidades tras `npm audit fix`) que el error persistía igual en v4 — no era un tema de versión, era el mapeo faltante.
 - `fetchMacro(yahooTicker)` — 35 días de historial diario, calcula chg7d/chg30d/trend.
+- **`fetchTickerNews(ticker, {maxAgeDays=30, limit=3})`** (agosto 2026) — noticias vía `yf.search(ticker, {newsCount, quotesCount:0})`. Filtra por fecha (últimos 30 días) y loggea (`[news] ...`) cuando un ticker queda sin resultados tras el filtro. **`NEWS_TICKER_MAP`** — mapping *solo para búsqueda de noticias* (no fundamentals) para tickers LSE con poca cobertura directa en Yahoo: `ARKK.L→ARKK` (mismo gestor, holdings casi idénticas), `NDIA.L→INDA` (mismo índice MSCI India, distinto issuer/domicilio), `VWRP.L→VT` (aproximación — mismo gestor Vanguard pero índice distinto, FTSE All-World vs FTSE Global All Cap). **Limitación confirmada:** el `search()` de Node (a diferencia del `.news` de la librería Python `yfinance`) **no expone `summary`** — solo título, link, publisher y fecha. No hay forma de conseguir resumen sin otra fuente (ver Alpha Vantage abajo) o `web_fetch` sobre el link puntual.
+- **`fetchAlphaVantageNews(ticker, {maxAgeDays=30, limit=3})`** (agosto 2026) — `NEWS_SENTIMENT` de Alpha Vantage (`ALPHA_VANTAGE_API_KEY` env var), con summary real + sentiment por ticker, a diferencia de Yahoo. Filtros necesarios, validados a mano contra resultados reales:
+  - **Fecha:** últimos 30 días (`time_published`, formato `AAAAMMDDTHHmmss`) — sin esto, un ticker con relevancia 1.00 puede traer un reporte de ganancias de hace 2 años, la relevancia no mide antigüedad.
+  - **Relevancia:** `> 0.8` (`ticker_sentiment.relevance_score`).
+  - **Ruido de dominio/título** (`AV_NOISE_DOMAINS`, `AV_NOISE_TITLE_PATTERNS`) — filings 13F institucionales parafraseados como "noticia" (`marketbeat.com`, `gurufocus.com`: "Tal Fondo aumentó su posición en X"), sitios de exchanges cripto tratando el ticker como si fuera un token tradeable (`cryptorank.io`, `okx.com`, `bitget.com`, `bybit.com`), filings SEC/Form-4 de rutina (`stocktitan.net`), páginas de datos sin contenido real (`tradingview.com`), notas de una sola línea (`moomoo.com`, patrón "X ETF Rises/Falls N%"). **Mantenimiento esperado:** cada ticker nuevo puede destapar un dominio de spam distinto — no es un filtro que se estabilice solo.
+  - **Rate limit real:** 25 requests/día en el free tier — motivo del presupuesto compartido (ver abajo), no una formalidad.
+- **`AV_DAILY_MAX = 15`, `AV_PER_TICKER_MAX = 5`** — techo propio (por debajo del límite real de 25/día) con un contador compartido en memoria (`avDailyState`, resetea solo al cambiar de día UTC) entre **chat y briefing** — los dos consumen del mismo cupo sin coordinarse entre sí, así que vive acá adentro como estado compartido del proceso, no algo que cada caller administre por su cuenta. Se resetea a 0 si el proceso reinicia (deploy) — aceptable, mejor pecar de generoso que bloquear innecesariamente.
+- **`SINGLE_COMPANY_TICKERS`** — `Set(['META','MELI','NU','MSFT','GOOGL','BRK.B','BRK-B'])`. Guardrail: fondos diversificados (SPY, VWRP.L, ARKK.L, NDIA.L) y cripto (BTC, ADA) **no** deberían disparar búsqueda de noticias — un solo titular rara vez explica el movimiento de un fondo de cientos/miles de posiciones; para esos, el macro (VIX, tasas, índices) ya cumple ese rol. Aplicado tanto en `fetchTickerNewsEnriched` (Alpha Vantage se omite directo para no-single-company) como en la condición de "evento relevante" del briefing.
+- **`fetchTickerNewsEnriched(ticker)`** — merge de Yahoo + Alpha Vantage. **Importante — no es "iterativo" acá:** a diferencia del chat (donde el modelo decide con `deep:true` si Yahoo no alcanzó, ver `routes/ai-server.js`), esta función llama a **las dos fuentes juntas, automático**, si el ticker es de empresa individual y hay presupuesto — es un heurístico fijo, no una decisión de un modelo en el medio, porque el briefing arma todo el prompt en JS puro *antes* de llamar a Claude por primera vez (no hay ningún modelo "en el loop" en esa etapa para poder decidir nada). Se evaluó pasar a un heurístico más fino (ej. "solo escalar a AV si Yahoo trajo menos de N resultados") pero se dejó como está a pedido — confirmado explícitamente que este comportamiento (Yahoo+AV siempre juntos cuando aplica) es el esperado, no un bug.
 - Tres caches independientes en memoria: `portfolioCache`, `watchlistCache`, `macroCache` — TTL 1 hora.
-- Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchFundamentals/fetchMacro/MACRO_TICKERS/CACHE_TTL_MS` para que `ai-server.js` llame directamente a Yahoo sin HTTP round-trip.
+- Exporta `getPortfolioCache/setPortfolioCache/getMacroCache/setMacroCache/fetchFundamentals/fetchTickerNews/fetchAlphaVantageNews/fetchTickerNewsEnriched/fetchMacro/MACRO_TICKERS/NEWS_TICKER_MAP/SINGLE_COMPANY_TICKERS/CACHE_TTL_MS` para que `ai-server.js` llame directamente sin HTTP round-trip.
 - Pre-warm de watchlist + macro a los 30s del arranque.
 
 ---
 
 ### `routes/ai-server.js`
-Todo lo de AI server-side (~1550 líneas). Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). Contiene:
+Todo lo de AI server-side. Nombre `ai-server.js` para diferenciarlo de `public/js/ai.js` (frontend). Contiene:
 
 **Helpers internos compartidos:**
 - `fetchRsuPerVest()` — calcula dinámicamente el valor neto promedio por vest RSU desde `rsu_vests` + precio META + FX. Antes duplicado en los dos Monte Carlo.
 - `fetchStartCapital()` — fetchea `startInvested` y `startCash` en GBP desde posiciones actuales + price snapshots. Antes duplicado.
 
 **Tool executors:**
-- `executeQueryDb(input)` — usa `sb()` del helper para todas las queries read-only.
+- `executeQueryDb(input)` — usa `sb()` del helper para todas las queries read-only. Query types: `transactions_by_ticker/period/all`, `portfolio_history`, `price_history`, `rsu_vests`, `positions_snapshot`, `daily_returns`, `period_returns` (agosto 2026, ver abajo).
+  - **`daily_returns` en modo bulk (sin `ticker`)** — el default de `limit` (20) se quedaba corto: 30 días × ~13 tickers son ~280 filas, así que la query bulk devolvía solo 20 filas mezcladas y se veía "incompleta" — esto causó en un caso real que el modelo, al no confiar en el resultado bulk, cayera al fallback de loopear `price_history` una vez por ticker (16 tool calls de más para algo que 1 sola query alcanza). Fix: en modo bulk el límite sube automático a 400, sin depender de que el modelo se acuerde de pedir un `limit` alto.
+  - **`period_returns` (agosto 2026)** — reemplaza el uso de `daily_returns` para preguntas de "% de cambio en N días". Llama vía RPC (`POST /rest/v1/rpc/get_period_returns`, no pasa por `sb()` porque necesita body, no querystring) a una función de Postgres (`get_period_returns`, ver `period_returns.sql` en la raíz del repo — **hay que correrla a mano en el SQL Editor de Supabase**, no se aplica sola). Devuelve 1 fila por (ticker, período) en vez de las ~280 filas crudas de `daily_returns` bulk. Acepta `filters.periods` — array de `"Nd"` (`"7d"`, `"30d"`, `"60d"`, `"365d"`, etc.) o `"ytd"` (ancla = 1° de enero del año actual); default `['7d','30d']` si no se especifica. La función usa `LATERAL JOIN` para resolver el ancla de cada período dinámicamente por ticker (última fila disponible en o antes de la fecha ancla). **Dos bugs de SQL encontrados y corregidos en el desarrollo** (documentados acá para no repetirlos): `ROUND(double precision, integer)` no existe en Postgres, hace falta castear a `::numeric` antes; y `ORDER BY ticker, period` falla en un `UNION ALL` si esas columnas no tienen alias explícito en el `SELECT` — se usa `ORDER BY 1, 2` (posicional) en su lugar.
+  - **Bug de headers en el RPC (401 "No API key found"):** el fetch al RPC armaba los headers con `{...headers, 'Content-Type': ...}` asumiendo que `headers` (importado de `lib/supabase-server.js`) era un objeto plano — probablemente es una función, así que el spread no copiaba nada. Fix: headers armados a mano con `SUPABASE_KEY` (`apikey` + `Authorization: Bearer ...`), sin depender de la forma exacta del helper importado.
+  - `query_db` **no** es para explicar POR QUÉ se movió algo (eso es `get_ticker_news`/`request_web_search`) — la descripción de la tool lo aclara explícito tras un caso real donde "investigá las razones de X" terminó re-consultando `daily_returns` en vez de buscar noticias.
 - `executeRunMontecarlo(input)` — 2000 simulaciones, tasas separadas invested/cash, bonus meses 3/9, RSU meses 1/4/7/10.
 - `executeRunMontecarloTarget(input)` — Monte Carlo inverso: distribución de meses para alcanzar un target.
+- **`get_ticker_news(ticker, deep?)`** (agosto 2026) — llama `fetchTickerNews`/`fetchTickerNewsEnriched` de `market-server.js`. **Iterativo, decidido por el modelo** (a diferencia del briefing, ver arriba): sin `deep`, solo Yahoo (gratis, rápido). Si el modelo juzga que no alcanzó, puede volver a llamar la misma tool para el mismo ticker con `deep:true`, que suma Alpha Vantage (consume presupuesto compartido). Restringido a `SINGLE_COMPANY_TICKERS` en la descripción de la tool.
+- **`request_web_search(queries)`** (agosto 2026) — gate de confirmación, **no ejecuta ninguna búsqueda real**. `queries` es un array de hasta 3 `{query, reason}` — si el usuario pregunta por más de una cosa a la vez (ej. "por qué subieron ARKK y MSFT"), el modelo pide las dos búsquedas en una sola confirmación, no una por una. Al llamarla, el server setea `pendingWebSearchConfirm`, corta el loop de Fase 1 inmediatamente (`if (pendingWebSearchConfirm) break;`) y manda `data: {"type":"web_search_confirm","queries":[...]}`, terminando la response sin pasar a Fase 2. El cliente muestra el prompt de confirmación (`aiRenderWebSearchConfirm` en `ai.js`) y, si el usuario aprueba, vuelve a pegarle a `/api/ai-chat` con `webSearchApproved:true, webSearchQueries:[...]`.
+- **Camino separado para `web_search` aprobado** — cuando llega `webSearchApproved+webSearchQueries`, no se mezcla la tool real `web_search` de Anthropic dentro del loop normal de Fase 1 (que tendría que reconstruir bloques `server_tool_use`/`web_search_tool_result` que el parser de streaming custom de Fase 1 no entiende — ver `callAnthropicStreaming`). En cambio, se hace **una llamada dedicada no-streaming**, solo con la tool real `web_search` (`max_uses: queries.length`, tope 3), armando un mensaje de usuario extra con las queries exactas que el modelo ya había decidido (no se le pide que las re-invente). El `tool_log` de esta llamada se manda explícito por SSE (`{type:'web_search', input:{queries}, ...}`) — **antes esto no se guardaba en absoluto** (bug encontrado y corregido: el bypass nunca mandaba el evento `tool_log`, así que el uso de `web_search` no quedaba en `tool_calls` al recargar la conversación).
+- **Fuentes de `web_search` — vía citas reales, no "top-N crudo":** el response de Anthropic con `web_search` adjunta un array `citations` a cada bloque de texto (`{url, title, cited_text}`) apuntando a la fuente puntual que respalda esa frase — eso es lo que se usa (deduplicado por URL), no "los primeros 3 resultados crudos de cada búsqueda" (enfoque descartado: con 2+ queries en el mismo turno, un corte global a 3 solo dejaba fuentes de la primera búsqueda, la segunda quedaba sin representar). Fallback a los resultados crudos por búsqueda (top-3) solo si por algún motivo no vino ninguna cita.
 
 **Anthropic caller:**
 - `callAnthropic(key, body)` — retry automático en 429/529, backoff 2s/4s, máx 2 reintentos.
@@ -782,6 +818,8 @@ Corre 2000 simulaciones Monte Carlo sobre el portfolio real. Alineado con la ló
     - **Amplitud restaurada:** la sección NO se limita a RSU_META — se le instruye a buscar activamente otros ángulos si esa mención no aplica: divergencia de momentum entre posiciones correlacionadas (7d/30d), balance growth/defensivo, matemática de un vest próximo con decisión concreta planteada, `PNL_ATTRIBUTION` por categoría, earnings próximos, o cualquier otro patrón real en los datos. Esto se agregó porque una primera versión de la condición dejaba la sección cayendo en relleno genérico ("sin novedades relevantes") cuando RSU_META no aplicaba, en vez de buscar otro ángulo — el prompt ahora es explícito en que la ausencia de la mención de RSU_META no implica que la sección deba quedar vacía.
   - **Footer con FX** — el briefing cierra siempre con `--- \n *Datos al cierre NYSE · [fecha] · FX: 1 GBP = X USD*`, usando el valor exacto de `fx:` que ya viaja en `PORTFOLIO` (se había perdido en el rediseño a 3 secciones, restaurado a pedido).
   - **Formato de headers** — la instrucción de espaciado (antes abstracta: "un solo salto de línea en blanco, nunca dos o más") ahora incluye un ejemplo concreto (blank line explícita antes de "## 3." como caso de referencia) para que el modelo sea más consistente generando el separador — aunque el bug real de espaciado pegado que reportó Julián resultó estar en el renderer del cliente (`aiRenderMarkdown`, ver sección de `js/ai.js`), no en el texto generado por el modelo.
+  - **`NEWS_CONTEXT` (agosto 2026)** — sección de noticias, condicional. Antes de armar el prompt final, se calculan los **tickers con evento relevante**: de `SINGLE_COMPANY_TICKERS` (fondos/cripto quedan afuera, usan macro en su lugar), los que tienen `|day%_usd| >= 5` (`MOVE_THRESHOLD`) **o** aparecen en `UPCOMING_EARNINGS`, ordenados por movimiento absoluto descendente (para que el presupuesto de Alpha Vantage y el techo de `web_search` se gasten primero en lo que más importa). Para cada uno: `fetchTickerNewsEnriched()` (Yahoo + Alpha Vantage, ver `market-server.js`). Si después de eso un ticker sigue sin nada útil (`hasContent === false`) y está entre los top-3 por movimiento, se escala a `web_search` real — **tope duro de 3 búsquedas por corrida del briefing** (`MAX_WEB_SEARCH_PER_RUN`), llamada directa a Anthropic con `effort:'low'`, `max_uses:1`. El prompt incluye una nota explícita de que `NEWS_CONTEXT` es información de fuente externa no verificada (usar con margen de duda, nunca al mismo nivel que `PORTFOLIO`/`POSITIONS`) y que si se usa algo de ahí en la sección 3, hay que citar 2-3 fuentes con link.
+  - **Respuesta del endpoint ampliada:** ya no devuelve solo `{ systemPrompt }` — también `newsSources` (array `{ticker, title, url}` para persistir en `daily_briefings`), `webSearchCount` y `webSearchCostUsd` (cuánto se gastó en la corrida, para trackear costo real). Ver `notification-worker.js` para cómo se guardan.
   
   **Decisiones de diseño del cálculo (julio 2026, ver sección "Fix de consistencia..." más abajo):**
   - Cost basis = invested (non-fiat) + cash — ambos vía `net_invested_usd/gbp` primero (excluye reinversiones), con fallback a `initial_investment` y por último `avg_cost × qty`. Mismo criterio que `portfolio.js`.
@@ -914,7 +952,7 @@ Proceso Node.js independiente que corre en Railway como segundo service (start c
 **Briefing diario (lunes a viernes, 5 min después del cierre NYSE):**
 - **Corre en `notification-worker.js`, un proceso/service separado del server principal** (deploy propio en Railway, `notifications-worker-production.up.railway.app`) — NO vive en `server.js` ni en `routes/ai-server.js`. Se comunica con el server principal solo vía HTTP (`GET /api/briefing-context`) para traer el contexto.
 - `getNYSECloseUTC()` — calcula dinámicamente a qué minuto UTC corresponde las 16:00 ET usando `Intl.DateTimeFormat`. Maneja DST de EEUU y UK automáticamente sin offsets hardcodeados.
-- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones). Llama a `claude-sonnet-5` directamente desde el worker (no pasa por `/api/ai-chat`) con `max_tokens: 2500` (subido de 1200 tras un corte real en producción a mitad de frase — con `effort:medium` y adaptive thinking, 1200 se quedaba corto para hasta 600 palabras + markdown) y `output_config.effort: 'medium'` (mismo effort que el chat principal) — sin tools (es generación de texto, un solo turno) y sin forzar `thinking` (adaptive por default). Loggea `stop_reason` y `thinking_tokens` (mismo patrón que Fase 2 del chat) con warning explícito si vuelve a cortarse por `max_tokens`. Timeout subido de 30s a 60s. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
+- `generateAndSendBriefing()` — fetcha el system prompt completo desde `GET /api/briefing-context` del service principal (incluye posiciones, P&L, day change, fundamentals actuales, macro, transacciones**, y desde agosto 2026 también `newsSources`/`webSearchCount`/`webSearchCostUsd`** — ver `routes/ai-server.js`). Llama a `claude-sonnet-5` directamente desde el worker (no pasa por `/api/ai-chat`) con `max_tokens: 2500` (subido de 1200 tras un corte real en producción a mitad de frase — con `effort:medium` y adaptive thinking, 1200 se quedaba corto para hasta 600 palabras + markdown) y `output_config.effort: 'medium'` (a propósito **distinto** del `low` que quedó en el chat interactivo — acá nadie espera la respuesta en vivo, es un job de background, se prioriza calidad sobre latencia) — sin tools (es generación de texto, un solo turno) y sin forzar `thinking` (adaptive por default). Loggea `stop_reason` y `thinking_tokens` (mismo patrón que Fase 2 del chat) con warning explícito si vuelve a cortarse por `max_tokens`. Timeout subido de 30s a 60s. Guarda el resultado en `daily_briefings` (upsert por fecha, incluye el campo `prompt` con el system prompt completo para auditoría, **y desde agosto 2026 también `news_sources` (jsonb), `web_search_count` e `web_search_cost_usd`** — requiere `ALTER TABLE` manual, ver sección de Base de datos). Manda push con título "📊 Briefing financiero del día" con preview de 110 chars y texto completo en `data.fullText`.
 - Test endpoint: `POST http://notifications-worker-production.up.railway.app/test-briefing` — dispara el briefing inmediatamente sin esperar el cierre NYSE.
 - Variables de entorno adicionales requeridas: `ANTHROPIC_API_KEY`, `SERVER_INTERNAL_URL` (URL del service principal, ej: `https://personal-hub-julian.up.railway.app`).
 
@@ -956,11 +994,20 @@ server.js — loop agentic + streaming
   → Llamada 1 a Anthropic (con AI_TOOLS)
       Si stop_reason = end_turn   → pasa a Fase 2
       Si stop_reason = tool_use   → ejecutar tools server-side:
-          query_db              → executeQueryDb() → Supabase REST
+          query_db              → executeQueryDb() → Supabase REST / RPC
           run_montecarlo        → executeRunMontecarlo() → simulación Node.js
           run_montecarlo_target → executeRunMontecarloTarget() → MC inverso Node.js
+          get_ticker_news       → fetchTickerNews/fetchTickerNewsEnriched() (market-server.js)
+          request_web_search    → NO ejecuta nada — corta el loop y pide confirmación (ver abajo)
       → tool_result agregado al hilo → repite (hasta MAX_TOOL_ITERATIONS = 6)
   → Emite: data: {"type":"tool_log","log":[...]}
+
+  Si el modelo pidió request_web_search: se corta acá, se manda
+  data: {"type":"web_search_confirm","queries":[...]} y termina la
+  response — NO pasa a Fase 2. El cliente muestra el prompt de
+  confirmación; si el usuario aprueba, vuelve a pegarle a este mismo
+  endpoint con webSearchApproved:true, webSearchQueries:[...], que
+  entra por un camino separado (ver "Búsqueda web real" más abajo).
 
   Fase 2 (streaming):
   → Llamada final a Anthropic con stream: true — SIN tools (ver nota en la
@@ -969,6 +1016,10 @@ server.js — loop agentic + streaming
   → Al finalizar: data: {"type":"done","usage":{...}}
 ```
 
+### Búsqueda web real (agosto 2026)
+
+Cuando llega `webSearchApproved:true, webSearchQueries:[...]` en el body, el endpoint **no pasa por el loop de arriba** — hace una llamada dedicada no-streaming, solo con la tool real `web_search` de Anthropic (`max_uses: queries.length`, tope 3), pasándole al modelo las queries exactas que ya había decidido (no se le pide que las re-invente). Motivo de mantenerlo separado: la tool real `web_search` devuelve bloques `server_tool_use`/`web_search_tool_result` que el parser de streaming custom de Fase 1 no sabe reconstruir — mezclarla ahí hubiera requerido extender ese parser. Las fuentes se extraen de las `citations` que Anthropic adjunta a cada bloque de texto (no de "los primeros N resultados crudos" — ver `routes/ai-server.js` para el detalle). El `tool_log` de esta llamada se manda explícito por SSE para que quede en el historial igual que cualquier otra tool.
+
 ### Cuándo usa cada tool
 
 **`query_db`** — cuando la pregunta requiere datos históricos no presentes en el contexto:
@@ -976,6 +1027,8 @@ server.js — loop agentic + streaming
 - "¿Cómo estuvo el portfolio en enero?" → `portfolio_history` con rango de fechas
 - "¿Cuántos RSUs me quedan?" → `rsu_vests` con `vested_only: false`
 - "¿Cuánto invertí en diciembre?" → `transactions_by_period`
+- "¿Cuánto variaron mis activos en 7/30/60 días o YTD?" → `period_returns` con `filters.periods` (agosto 2026 — reemplaza el loop viejo de `price_history` por ticker)
+- **NO** para "¿por qué se movió X?" — eso es `get_ticker_news`/`request_web_search`, `query_db` solo trae números.
 
 **`run_montecarlo`** — cuando el usuario quiere proyecciones con horizonte conocido:
 - "¿Qué pasa si ahorro £600/mes los próximos 10 años?" → `years: 10, monthly_contribution_gbp: 600`
@@ -987,6 +1040,10 @@ server.js — loop agentic + streaming
 - "¿Es posible llegar a £50k en 2 años?" → `target_gbp: 50000, max_horizon_months: 24`
 - "Simulación pesimista a 5 años" → `scenario: bear, years: 5`
 
+**`get_ticker_news`** (agosto 2026) — solo para posiciones de una sola empresa (`SINGLE_COMPANY_TICKERS`: META, MELI, NU, MSFT, GOOGL, BRK.B) — nunca para fondos/cripto, ahí se usa el macro del contexto. Discrecional, sin pedir permiso. Primero sin `deep` (Yahoo, gratis); si el modelo juzga que no alcanzó, la vuelve a llamar con `deep:true` para sumar Alpha Vantage — decisión del modelo en el loop, no un heurístico automático (eso solo pasa en el briefing, que corre sin modelo en el medio, ver `market-server.js` → `fetchTickerNewsEnriched`).
+
+**`request_web_search`** — cuando ni `get_ticker_news` ni `query_db` responden lo pedido puntualmente (ej. "el último earnings de X", o el usuario pide explícitamente buscar en internet). Nunca como primer recurso. Puede pedir hasta 3 búsquedas juntas en una sola confirmación si el usuario preguntó por más de una cosa.
+
 **Sin tools** — responde directo si la info ya está en el contexto del system prompt:
 - Composición actual del portfolio, P&L, health score, watchlist, macro
 
@@ -997,6 +1054,7 @@ server.js — loop agentic + streaming
 - `MAX_TOOL_ITERATIONS = 6` como techo duro. Si se supera con el modelo aún pidiendo tools, el loop corta igual y pasa a Fase 2 con los tool_results ya obtenidos hasta ese punto — NO hay un mensaje de error explícito al usuario, simplemente responde con lo que consiguió resolver.
 - Los requests sin tools son idénticos en costo a antes (0 overhead)
 - `_tool_calls_log` en la respuesta incluye `elapsed_ms` por tool para monitoreo
+- **`web_search` real** (agosto 2026) tiene su propio costo aparte de tokens: ~$10 cada 1000 búsquedas, más el costo normal de tokens de lo que trae cada resultado. Por eso el gate de confirmación — nunca se dispara sin que el usuario apruebe explícitamente en el chat (en el briefing sí es automático, pero con tope duro de 3 por corrida).
 
 ### Widget de tool calls en el chat (UI)
 
@@ -1004,13 +1062,13 @@ Componente: `aiRenderToolLog(toolLog, container)` en `ai.js`.
 
 - Se muestra entre el thinking indicator y la respuesta del asistente
 - Header colapsado: `🔧 N herramientas usadas` — tap para expandir
-- Detalle expandido: una fila por tool con icono, nombre, descripción del input y tiempo de ejecución
+- Detalle expandido: una fila por tool con icono, nombre, descripción del input (incluye `get_ticker_news` y `web_search` desde agosto 2026 — antes caían en descripción vacía por un gap de renderizado) y tiempo de ejecución
 - Se persiste en `ai_messages.tool_calls` (JSONB) y se re-renderiza al reabrir la conversación
 - Clases CSS: `.ai-tools-used`, `.ai-tools-header`, `.ai-tools-summary`, `.ai-tools-chevron`, `.ai-tools-detail`, `.ai-tools-row`, `.ai-tools-row-{icon,name,desc,time}`
 
-### Roadmap de tools (no implementadas aún)
+### Roadmap de tools
 
-- **`web_search`** (Tavily) — para noticias recientes, earnings, eventos de mercado. Pendiente de fase 4. No implementada por costo variable y riesgo de over-triggering.
+- ~~`web_search` (Tavily) — pendiente~~ **Implementada agosto 2026**, pero con la tool nativa de Anthropic (`web_search_20250305`), no Tavily — con gate de confirmación en el chat (nunca automático) y tope de 3 por corrida en el briefing (automático, sin confirmación, porque no hay usuario presente para preguntarle).
 
 ---
 
@@ -1058,8 +1116,14 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `correlation_matrix` | Matriz de correlación de retornos entre activos. Una fila por par ordenado (ticker_a, ticker_b) por período. PK: `(ticker_a, ticker_b, period_days)`. |
 | `ai_conversations` | Una fila por sesión de chat. Campos: `id` (UUID), `started_at`, `model`, `title` (primeros 80 chars del primer mensaje), `message_count` (actualizado automáticamente por trigger). |
 | `ai_messages` | Una fila por mensaje. Campos: `id`, `conversation_id`, `seq` (0-based global en la conversación), `role` (user/assistant), `content`, `model`, `input_tokens`, `output_tokens`, `context_start_seq` (seq del primer mensaje incluido como contexto en ese turn), `starred` (BOOLEAN DEFAULT false), `tool_calls` (JSONB — array de tool calls ejecutados, solo en mensajes assistant que usaron tools), `created_at`. |
-| `daily_briefings` | Un registro por día con el briefing financiero generado por el worker. Campos: `id` (UUID), `date` (DATE UNIQUE), `content` (TEXT — markdown del briefing), `prompt` (TEXT — system prompt completo enviado a Claude, para auditoría), `generated_at` (TIMESTAMPTZ). |
+| `daily_briefings` | Un registro por día con el briefing financiero generado por el worker. Campos: `id` (UUID), `date` (DATE UNIQUE), `content` (TEXT — markdown del briefing), `prompt` (TEXT — system prompt completo enviado a Claude, para auditoría), `generated_at` (TIMESTAMPTZ). **Agosto 2026 — requiere migración manual:** `news_sources` (JSONB — array `{ticker,title,url}` de las fuentes usadas por `NEWS_CONTEXT`), `web_search_count` (INTEGER), `web_search_cost_usd` (NUMERIC). `ALTER TABLE daily_briefings ADD COLUMN IF NOT EXISTS news_sources jsonb, ADD COLUMN IF NOT EXISTS web_search_count integer, ADD COLUMN IF NOT EXISTS web_search_cost_usd numeric;` |
 | `daily_returns` | Retornos diarios por ticker calculados por el worker. Campos: `ticker`, `date`, `return_pct`, `close_usd`. Usado por el agente via `query_db` con `query_type: daily_returns` y como insumo para el Monte Carlo del servidor. |
+
+### Funciones de Postgres (RPC)
+
+| Función | Qué hace |
+|---|---|
+| `get_period_returns(p_tickers text[], p_periods text[])` | Agosto 2026. Devuelve el cambio % de precio entre el dato más reciente y el más reciente en/antes de cada período pedido — 1 fila por (ticker, período) en vez de traer todo el historial crudo. `p_tickers` NULL = todos. `p_periods` acepta `"Nd"` (`"7d"`, `"30d"`, `"60d"`, `"365d"`, etc.) o `"ytd"` (ancla = 1° de enero del año actual); default `['7d','30d']`. Usada por `query_db` con `query_type: 'period_returns'` (ver `routes/ai-server.js`) vía `POST /rest/v1/rpc/get_period_returns`. **Definición completa en `period_returns.sql`** en la raíz del repo — hay que correrla a mano en el SQL Editor de Supabase, `CREATE OR REPLACE` no se aplica sola con el deploy del código. |
 
 ### Schema de las tablas de chat history
 
@@ -1187,6 +1251,8 @@ ORDER BY seq;
 
 ## Arquitectura agentica del chat AI
 
+> **Nota (agosto 2026):** esta sección quedó duplicada con "Arquitectura agentica del chat AI" más arriba (pre-existente a esta sesión, no se consolidaron las dos todavía). La de arriba tiene el detalle actualizado de las tools nuevas (`get_ticker_news`, `request_web_search`, `period_returns`) — acá abajo solo se sincronizó lo mínimo para no contradecir.
+
 ### Concepto
 
 El asesor financiero es un agente con capacidad de consultar datos reales y correr simulaciones. El frontend no cambia — manda el mismo request a `/api/ai-chat` y recibe la misma estructura de respuesta. Todo el loop ocurre server-side.
@@ -1215,7 +1281,10 @@ ai.js loggea tool_calls en ai_messages (Supabase)
 
 ### Tools disponibles
 
-**`query_db`** — consulta datos históricos de Supabase. El modelo elige un `query_type` de un enum; el servidor construye el SQL internamente. El modelo nunca ve SQL raw. 8 query types: transacciones (by ticker / by period / all), portfolio history, price history, RSU vests, positions snapshot, daily returns.
+**`query_db`** — consulta datos históricos de Supabase. El modelo elige un `query_type` de un enum; el servidor construye el SQL internamente (o llama a un RPC de Postgres para `period_returns`). El modelo nunca ve SQL raw. 9 query types: transacciones (by ticker / by period / all), portfolio history, price history, RSU vests, positions snapshot, daily returns, **period_returns** (agosto 2026 — ver sección de arriba).
+
+**`get_ticker_news`** y **`request_web_search`** (agosto 2026) — ver el detalle completo en la sección de arriba, no se duplica acá.
+
 
 **`run_montecarlo`** — simulación Monte Carlo server-side. Fetchea valores iniciales reales de Supabase (invested vs cash separados), corre 2000 simulaciones, devuelve percentiles y probabilidades para los goals de Julián.
 
@@ -1409,9 +1478,7 @@ La arquitectura actual permite calcular ganancias realizadas por SELL: `ganancia
 ## Desarrollo local
 
 ### Requisitos
-```bash
-npm install dotenv   # solo primera vez
-```
+`dotenv` ya está en `package.json` como dependencia normal — no hace falta instalarlo aparte.
 
 ### Arrancar
 ```bash
@@ -1419,12 +1486,14 @@ npm install dotenv   # solo primera vez
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
 ANTHROPIC_API_KEY=sk-ant-...
+ALPHA_VANTAGE_API_KEY=...
 VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 
 # arrancar servidor:
-node -r dotenv/config server.js
+npm start
 ```
+**Agosto 2026 — cambio importante:** antes había que arrancar con `node -r dotenv/config server.js` porque `server.js` nunca hacía `require('dotenv').config()` en el código — el paquete estaba instalado pero nadie lo llamaba, así que un simple `npm start` local fallaba con `{"error":"Supabase not configured"}` aunque el `.env` existiera. Se agregó `require('dotenv').config();` como primera línea de `server.js` — es seguro también en Railway (ahí no hay archivo `.env`, así que `dotenv` no encuentra nada que cargar y no hace nada, sin pisar las variables que Railway ya inyecta directo). Con esto, `npm start` alcanza, sin flags.
 
 ### Smoke tests
 ```bash
@@ -1444,6 +1513,7 @@ bash test-server.sh
 | `SUPABASE_URL` | URL del proyecto Supabase |
 | `SUPABASE_SECRET_KEY` | Service role key (nunca expuesta al frontend) |
 | `ANTHROPIC_API_KEY` | API key de Anthropic para OCR y chat |
+| `ALPHA_VANTAGE_API_KEY` | Agosto 2026. Fuente secundaria de noticias (`NEWS_SENTIMENT`, con summary + sentiment). Free tier: 25 requests/día — hay un techo propio más bajo (`AV_DAILY_MAX=15` en `routes/market-server.js`) para dejar margen. Sin esta var, `fetchAlphaVantageNews` devuelve `{items:[], error:'ALPHA_VANTAGE_API_KEY no configurada'}` en vez de romper — el briefing/chat siguen funcionando solo con Yahoo. |
 | `JACKET_API_URL` | URL de la API de predicción de abrigo |
 | `VAPID_PUBLIC_KEY` | Clave pública VAPID para Web Push |
 | `VAPID_PRIVATE_KEY` | Clave privada VAPID |
@@ -1705,7 +1775,7 @@ Dos bugs relacionados, encontrados en la misma sesión de debugging:
 
 ### Verificación
 
-`GET /api/briefing-context` no llama a Claude ni escribe en la DB — solo devuelve `{ systemPrompt }`. Sirve para chequear los números sin gastar una llamada a la API ni generar push de prueba:
+`GET /api/briefing-context` no escribe en la DB, pero **desde agosto 2026 puede llamar a Claude** (hasta 3 veces, para el escalado a `web_search` de `NEWS_CONTEXT` — ver arriba) si algún ticker con evento relevante se queda sin noticias útiles de Yahoo/Alpha Vantage. En un día sin tickers que califiquen para eso, sigue sin gastar ninguna llamada a la API. Devuelve `{ systemPrompt, newsSources, webSearchCount, webSearchCostUsd }`. Sirve para chequear los números sin generar push de prueba:
 
 ```bash
 curl -s https://TU-URL-RAILWAY.up.railway.app/api/briefing-context \
