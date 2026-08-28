@@ -1410,6 +1410,8 @@ function aiRenderToolLog(toolLog, container) {
     query_db:                { icon: '🗄', label: 'Base de datos' },
     run_montecarlo:          { icon: '📊', label: 'Monte Carlo' },
     run_montecarlo_target:   { icon: '🎯', label: 'Monte Carlo (objetivo)' },
+    get_ticker_news:         { icon: '📰', label: 'Noticias' },
+    web_search:              { icon: '🔎', label: 'Búsqueda web' },
   };
   const QUERY_LABELS = {
     transactions_by_ticker: 'transacciones',
@@ -1459,6 +1461,11 @@ function aiRenderToolLog(toolLog, container) {
         ? `${inp.months} meses`
         : inp.years != null ? `${inp.years} año${inp.years !== 1 ? 's' : ''}` : '?';
       desc = `${sc} · ${horizonLabel}${rsu}`;
+    } else if (entry.tool === 'get_ticker_news') {
+      desc = inp.ticker || '';
+      if (inp.deep) desc += ' · profundo (Yahoo+AlphaVantage)';
+    } else if (entry.tool === 'web_search') {
+      desc = Array.isArray(inp.queries) ? inp.queries.join(' · ') : '';
     }
 
     const errStr  = entry.error ? ` ⚠ ${entry.error}` : '';
