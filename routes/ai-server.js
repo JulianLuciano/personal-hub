@@ -1842,10 +1842,15 @@ router.post('/ai-chat', async (req, res) => {
       }
       const response = JSON.parse(raw.body);
       const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      // Se agrupa por búsqueda (cada web_search_tool_result = una query real),
+      // tomando las 3 más relevantes DE CADA UNA — antes se juntaban todas
+      // en un array plano y se cortaba a 3 global, así que con 2+ queries en
+      // el mismo turno solo sobrevivían fuentes de la primera búsqueda.
       const sources = [];
       for (const b of response.content) {
         if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
-          for (const r of b.content) if (r.url) sources.push({ title: r.title || r.url, url: r.url });
+          const top = b.content.filter(r => r.url).slice(0, 3).map(r => ({ title: r.title || r.url, url: r.url }));
+          sources.push(...top);
         }
       }
       const u = response.usage || {};
@@ -1863,7 +1868,7 @@ router.post('/ai-chat', async (req, res) => {
         log: [{ tool: 'web_search', input: { queries: queries.map(q => q.query) }, elapsed_ms: Date.now() - startedAt, row_count: webSearches, error: null }],
       });
       send({ type: 'delta', text });
-      if (sources.length > 0) send({ type: 'web_search_sources', sources: sources.slice(0, 3) });
+      if (sources.length > 0) send({ type: 'web_search_sources', sources });
       send({ type: 'done', usage: { input_tokens: u.input_tokens, output_tokens: u.output_tokens }, web_search_cost_usd: +(tokenCost + searchCost).toFixed(5) });
       return res.end();
     } catch (err) {
