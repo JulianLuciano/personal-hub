@@ -1502,10 +1502,23 @@ router.get('/briefing-context', async (req, res) => {
           if (raw.status === 200) {
             const resp = JSON.parse(raw.body);
             const text = resp.content.filter(b => b.type === 'text').map(b => b.text).join('');
+            // Mismo criterio que en el chat: fuentes REALMENTE citadas, no
+            // los primeros N resultados crudos del buscador. Fallback a
+            // crudo solo si no vino ninguna cita.
             const sources = [];
+            const seenUrls = new Set();
             for (const b of resp.content) {
-              if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
-                for (const s of b.content) if (s.url) sources.push({ title: s.title || s.url, url: s.url });
+              if (b.type === 'text' && Array.isArray(b.citations)) {
+                for (const c of b.citations) {
+                  if (c.url && !seenUrls.has(c.url)) { seenUrls.add(c.url); sources.push({ title: c.title || c.url, url: c.url }); }
+                }
+              }
+            }
+            if (sources.length === 0) {
+              for (const b of resp.content) {
+                if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+                  for (const s of b.content) if (s.url) sources.push({ title: s.title || s.url, url: s.url });
+                }
               }
             }
             const u = resp.usage || {};
@@ -1842,15 +1855,30 @@ router.post('/ai-chat', async (req, res) => {
       }
       const response = JSON.parse(raw.body);
       const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
-      // Se agrupa por búsqueda (cada web_search_tool_result = una query real),
-      // tomando las 3 más relevantes DE CADA UNA — antes se juntaban todas
-      // en un array plano y se cortaba a 3 global, así que con 2+ queries en
-      // el mismo turno solo sobrevivían fuentes de la primera búsqueda.
+      // Fuentes REALMENTE citadas por el modelo (no "los primeros N
+      // resultados crudos del buscador") — cada bloque de texto trae un
+      // array "citations" con la URL puntual que respalda esa frase. Se
+      // dedupea por URL porque la misma fuente puede citarse varias veces.
+      // Fallback a los resultados crudos por búsqueda solo si por algún
+      // motivo no vino ninguna cita (no debería pasar en uso normal).
       const sources = [];
+      const seenUrls = new Set();
       for (const b of response.content) {
-        if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
-          const top = b.content.filter(r => r.url).slice(0, 3).map(r => ({ title: r.title || r.url, url: r.url }));
-          sources.push(...top);
+        if (b.type === 'text' && Array.isArray(b.citations)) {
+          for (const c of b.citations) {
+            if (c.url && !seenUrls.has(c.url)) {
+              seenUrls.add(c.url);
+              sources.push({ title: c.title || c.url, url: c.url });
+            }
+          }
+        }
+      }
+      if (sources.length === 0) {
+        for (const b of response.content) {
+          if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+            const top = b.content.filter(r => r.url).slice(0, 3).map(r => ({ title: r.title || r.url, url: r.url }));
+            sources.push(...top);
+          }
         }
       }
       const u = response.usage || {};
