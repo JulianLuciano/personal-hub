@@ -50,6 +50,7 @@ let CURRENT_WEEK = 10;
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
 let habitDayState    = {};         // { trained, piano }
 let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
+let habitProteinDraft = { grams: null, manual: false }; // gramos de proteína del día (habit_daily_logs.protein_g) + toggle slider/manual
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -354,6 +355,7 @@ async function habitLoadDay() {
     habitLoadMeals(dateStr),
   ]);
   habitDayState = data ? { ...data } : {};
+  habitProteinDraft = { grams: habitDayState.protein_g ?? null, manual: false };
   await habitLoadTrainingDetail(dateStr); // tipo/duración/notas del entrenamiento (vive en habit_logs, no en habit_daily_logs)
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
@@ -884,6 +886,7 @@ function habitRenderMeals() {
 
   container.innerHTML =
     '<div class="h-meal-slots-list">' + slotsHTML + '</div>' +
+    habitRenderProteinRow() +
     '<div class="h-meal-caprichos-row">' +
       savedCaprichosHTML +
       '<button class="h-meal-capricho-add' + (cap.open ? ' selected' : '') + '" onclick="habitCapDraftToggleOpen()">+ Capricho</button>' +
@@ -928,6 +931,66 @@ function habitFlashMealField(key) {
   void el.offsetWidth;
   el.classList.add('h-chip-flash');
   setTimeout(() => el.classList.remove('h-chip-flash'), 700);
+}
+
+// ── PROTEÍNA (habit_daily_logs.protein_g) ───────────────────────────────────
+// Fila minimalista: slider 0-250g + toggle a input manual a la derecha.
+// No pega contra la DB hasta tocar "Guardar comidas" (mismo botón que el
+// resto de la sección de alimentación) — ver habitSaveAllMeals().
+
+function habitRenderProteinRow() {
+  const g = habitProteinDraft.grams;
+  const display = g == null ? 0 : g;
+  const manual = habitProteinDraft.manual;
+  const control = manual
+    ? '<input class="h-protein-manual-input" id="habitProteinManualInput" type="number" inputmode="numeric" min="0" max="250" ' +
+        'placeholder="g" value="' + (g == null ? '' : g) + '" oninput="habitProteinSetGrams(this.value, ' + "'manual'" + ')">'
+    : '<input class="h-protein-slider" id="habitProteinSlider" type="range" min="0" max="250" step="5" ' +
+        'value="' + display + '" oninput="habitProteinSetGrams(this.value, ' + "'slider'" + ')">';
+
+  return (
+    '<div class="h-protein-row">' +
+      '<div class="h-protein-top">' +
+        '<span class="h-protein-label">&#129386; Prote&#237;na</span>' +
+        '<div class="h-protein-top-right">' +
+          '<span class="h-protein-value" id="habitProteinValue">' + display + 'g</span>' +
+          '<button class="h-protein-manual-toggle" onclick="habitProteinToggleManual()">' + (manual ? 'Slider' : 'Manual') + '</button>' +
+        '</div>' +
+      '</div>' +
+      control +
+    '</div>'
+  );
+}
+
+// Solo cambia entre slider/input manual — no toca el valor guardado en el borrador.
+function habitProteinToggleManual() {
+  habitProteinDraft.manual = !habitProteinDraft.manual;
+  habitRenderMeals();
+}
+
+// Actualiza el borrador + refleja el valor en pantalla sin re-renderizar todo
+// (para no perder el foco del input ni cortar el drag del slider).
+function habitProteinSetGrams(value, source) {
+  let g = value === '' ? null : parseInt(value, 10);
+  if (g != null) {
+    if (isNaN(g)) g = null;
+    else g = Math.max(0, Math.min(250, g));
+  }
+  habitProteinDraft.grams = g;
+
+  const valEl = document.getElementById('habitProteinValue');
+  if (valEl) valEl.textContent = (g == null ? 0 : g) + 'g';
+
+  // Mantiene sincronizado el control que NO disparó el evento, por si el
+  // usuario alterna entre slider/manual sin guardar en el medio.
+  if (source !== 'slider') {
+    const slider = document.getElementById('habitProteinSlider');
+    if (slider) slider.value = g == null ? 0 : g;
+  }
+  if (source !== 'manual') {
+    const manualInp = document.getElementById('habitProteinManualInput');
+    if (manualInp) manualInp.value = g == null ? '' : g;
+  }
 }
 
 // Guarda todo junto: los 4 slots (según su estado en el borrador) + el
@@ -1001,6 +1064,23 @@ async function habitSaveAllMeals() {
       const saved = Array.isArray(rows) ? rows[0] : rows;
       habitMealsState.caprichos = [...habitMealsState.caprichos, saved];
     }
+
+    // Proteína del día → habit_daily_logs, mismo proxy genérico que usa `meals`
+    // arriba. Solo mandamos log_date + protein_g: con resolution=merge-duplicates
+    // Postgres actualiza únicamente esa columna, sin pisar trained/piano/etc.
+    const proteinPayload = {
+      log_date:   habitDateStr(habitDayOffset),
+      protein_g:  habitProteinDraft.grams,
+    };
+    const proteinRes = await fetch('/api/db/habit_daily_logs?on_conflict=log_date', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body:    JSON.stringify(proteinPayload),
+    });
+    if (!proteinRes.ok) throw new Error((await proteinRes.text()).slice(0, 150));
+    const proteinRows = await proteinRes.json();
+    const proteinSaved = Array.isArray(proteinRows) ? proteinRows[0] : proteinRows;
+    habitDayState.protein_g = proteinSaved ? proteinSaved.protein_g : habitProteinDraft.grams;
 
     habitMealsDraftFromState(); // resincroniza el borrador con lo recién guardado
     if (btn) btn.textContent = 'Guardado ✓';
