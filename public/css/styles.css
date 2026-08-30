@@ -2443,6 +2443,9 @@
 }
 .h-meal-grid-cell.filled { background: rgba(67,233,123,0.1); }
 .h-meal-grid-cell.indulgent { background: rgba(255,101,132,0.1); }
+.h-meal-grid-cell.protein-good { color: var(--accent3); font-weight: 700; }
+.h-meal-grid-cell.protein-mid  { color: var(--accent4); font-weight: 700; }
+.h-meal-grid-cell.protein-low  { color: var(--accent2); font-weight: 700; }
 .h-meal-stats-row {
   display: flex;
   flex-wrap: wrap;

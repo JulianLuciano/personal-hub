@@ -945,13 +945,13 @@ function habitRenderProteinRow() {
   const control = manual
     ? '<input class="h-protein-manual-input" id="habitProteinManualInput" type="number" inputmode="numeric" min="0" max="250" ' +
         'placeholder="g" value="' + (g == null ? '' : g) + '" oninput="habitProteinSetGrams(this.value, ' + "'manual'" + ')">'
-    : '<input class="h-protein-slider" id="habitProteinSlider" type="range" min="0" max="250" step="5" ' +
+    : '<input class="h-protein-slider" id="habitProteinSlider" type="range" min="0" max="250" step="1" ' +
         'value="' + display + '" oninput="habitProteinSetGrams(this.value, ' + "'slider'" + ')">';
 
   return (
     '<div class="h-protein-row">' +
       '<div class="h-protein-top">' +
-        '<span class="h-protein-label">&#129386; Prote&#237;na</span>' +
+        '<span class="h-protein-label">&#129385; Prote&#237;na</span>' +
         '<div class="h-protein-top-right">' +
           '<span class="h-protein-value" id="habitProteinValue">' + display + 'g</span>' +
           '<button class="h-protein-manual-toggle" onclick="habitProteinToggleManual()">' + (manual ? 'Slider' : 'Manual') + '</button>' +
@@ -1817,7 +1817,15 @@ async function loadMealsGrid() {
     rows = [];
   }
 
-  renderMealsGrid(rows, monday);
+  let proteinRows = [];
+  try {
+    proteinRows = await sbFetch(`/rest/v1/habit_daily_logs?log_date=gte.${from}&log_date=lte.${to}&order=log_date.asc`);
+  } catch (e) {
+    console.error('[analytics] Error cargando proteína:', e);
+    proteinRows = [];
+  }
+
+  renderMealsGrid(rows, monday, proteinRows);
   renderMealsStats(rows);
   habitMealsGridAutoScroll();
 }
@@ -1847,7 +1855,7 @@ function habitMealsGridAutoScroll() {
   wrap.scrollLeft = contentLeft - stickyWidth;
 }
 
-function renderMealsGrid(rows, monday) {
+function renderMealsGrid(rows, monday, proteinRows) {
   const container = document.getElementById('habitMealsGrid');
   if (!container) return;
 
@@ -1861,6 +1869,10 @@ function renderMealsGrid(rows, monday) {
       byDate[r.meal_date][r.meal_type] = r;
     }
   });
+
+  // log_date -> protein_g (o null si ese día no tiene registro/valor)
+  const proteinByDate = {};
+  (proteinRows || []).forEach(r => { proteinByDate[r.log_date] = r.protein_g; });
 
   const dates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -1891,6 +1903,22 @@ function renderMealsGrid(rows, monday) {
     });
     html += '</div>';
   });
+
+  // Fila de proteína: no viene de `meals`, sino de habit_daily_logs.protein_g.
+  // Color del texto según meta diaria: >=170 verde, 140-169 amarillo, <140 rojo.
+  // Días sin registro (null) quedan en blanco, sin color.
+  html += '<div class="h-meal-grid-row"><div class="h-meal-grid-rowlabel">Prote&#237;na</div>';
+  dates.forEach(d => {
+    const g = proteinByDate[d];
+    let cls  = '';
+    let text = '';
+    if (g != null) {
+      text = g + 'g';
+      cls  = g >= 170 ? 'protein-good' : (g >= 140 ? 'protein-mid' : 'protein-low');
+    }
+    html += '<div class="h-meal-grid-cell ' + cls + '">' + text + '</div>';
+  });
+  html += '</div>';
 
   container.innerHTML = html;
 }
