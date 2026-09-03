@@ -57,6 +57,7 @@ test-server.sh             ← Smoke tests locales (19 checks, correr antes de c
 | La app no carga / error en consola al iniciar | `core.js` |
 | Bug en tab Today (hábitos, progreso, heatmap) | `habits.js` |
 | Bug en registro de comidas (bien/mal/no comí, caprichos, grilla semanal) | `habits.js` (sección MEALS) + tabla `meals` en Supabase |
+| Bug en tracking de proteína (campos total/+-, grilla semanal, colores) | `habits.js` (`habitProtein*`) + `styles.css` (`.h-protein-*`) + columna `protein_g` en `habit_daily_logs` — ver "Tracking de proteína diaria (agosto 2026)" |
 | Hábito diario (entrenaste/piano) no persiste o se pierde al navegar días | `server.js` → `POST /api/habits/daily` (necesita `on_conflict=log_date`) + tabla `habit_daily_logs` en Supabase — ver "Fixes de hábitos (agosto 2026)" |
 | Entrenamiento marcado pero sin categoría/duración al volver a un día anterior | `habits.js` → `habitLoadTrainingDetail()` + tabla `habit_logs` — la categoría vive ahí, no en `habit_daily_logs` |
 | Upsert genérico (`/api/db/:table`) devuelve body vacío después de guardar | `server.js` → proxy `/api/db/*` debe reenviar el header `Prefer` del cliente |
@@ -299,7 +300,8 @@ Reemplaza la vieja grilla de Excel que el usuario llevaba a mano. Modelo de borr
 - "+ Capricho" es el mismo tipo de toggle: abre un campo de texto + kcal opcional; tocarlo de nuevo lo cierra y descarta lo tipeado. Admite varios por día (a diferencia de los 4 slots fijos, que son uno por día).
 - `habitSaveAllMeals()` — valida que todo lo marcado 👎 (y el capricho, si está abierto) tenga texto antes de mandar cualquier request. Si falta, flashea el campo (`habitFlashMealField()`, reutiliza `.h-chip-flash`) y no guarda nada. Si está OK: recorre los 4 slots (upsert por `meal_date,slot_key` si tienen estado, DELETE si tenían registro guardado y quedaron sin estado), después inserta el capricho pendiente si corresponde.
 - Guardado parcial: si marcás solo desayuno+almuerzo y guardás, merienda/cena quedan sin tocar (ni se guardan ni se borran). Al reabrir más tarde, `habitLoadMeals()` trae de la DB lo que ya está guardado y arma el borrador — lo completado aparece tildado, el resto vacío.
-- Analytics (dentro del sub-tab Hábitos, **no** en `analytics.js` que es de finanzas): `loadMealsGrid()` / `renderMealsGrid()` / `renderMealsStats()` — grilla semanal tipo la del Excel viejo (filas = comida, columnas = día, verde = bien/no comí, rosa = mal con el texto real), con navegación semana a semana (`habitMealsShiftWeek()`). `habitMealsGridAutoScroll()` deja el scroll horizontal arrancando en el día de hoy (si estás viendo la semana actual) en vez de siempre en lunes.
+- **Proteína diaria (`habitProteinDraft`, agosto 2026):** fila compacta dentro del bloque de comidas, con 2 campos numéricos en la misma línea — reemplazó un slider 0-250g que se probó primero y resultó incómodo. Campo "Total" edita `habitProteinDraft.grams` directo; campo "+/-" (acepta negativos) suma/resta sobre el total ya cargado y se aplica recién al confirmar (`onchange`, no `oninput`, para no sumar dígitos a medio escribir), vaciándose solo después. Si no se toca ninguno de los dos, `grams` queda en `null` y así se guarda (no se fuerza `0`). `habitProteinSetTotal()` / `habitProteinApplyDelta()`. Se persiste en `habit_daily_logs.protein_g` dentro del mismo `habitSaveAllMeals()` (mismo botón "Guardar comidas"), vía el proxy genérico `/api/db/habit_daily_logs?on_conflict=log_date` — no pasa por el endpoint dedicado `/api/habits/daily` de `server.js`, que sigue sin saber nada de `protein_g`. Prefill automático al cargar el día, leyendo `habitDayState.protein_g` (ya viene solo porque `GET /api/habits/daily/:date` hace `select=*`).
+- Analytics (dentro del sub-tab Hábitos, **no** en `analytics.js` que es de finanzas): `loadMealsGrid()` / `renderMealsGrid()` / `renderMealsStats()` — grilla semanal tipo la del Excel viejo (filas = comida, columnas = día, verde = bien/no comí, rosa = mal con el texto real, texto centrado en todas las celdas), más una fila "Proteína" (agosto 2026) con el texto coloreado según meta diaria (`≥170g` verde, `140-169g` amarillo, `<140g` rojo, sin dato = sin color) — trae `habit_daily_logs` del mismo rango de semana que `meals`. Botón "i" circular al lado del chip de "% comidas indulgentes" abre/cierra una leyenda con esos 3 colores (`habitToggleProteinLegend()`, estado solo en `classList`, no en JS — se cierra sola al navegar de semana). Navegación semana a semana con `habitMealsShiftWeek()`. `habitMealsGridAutoScroll()` (reescrita agosto 2026) deja el día de hoy pegado al borde **derecho** del scroll horizontal — se ve todo lo anterior (lunes → hoy) sin scrollear; de lunes a miércoles no tiene efecto práctico porque el `scrollLeft` calculado da negativo y el browser lo clampea solo a 0.
 
 ---
 
@@ -1104,7 +1106,7 @@ Describí el síntoma y pegá el error de consola si hay. Con eso lo identifico.
 | `price_snapshots` | Precio de cada ticker cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (tipo de cambio ARS/USD bolsa MEP al momento del tick). |
 | `portfolio_snapshots` | Valor total del portfolio cada 15 min (lo escribe el worker). Incluye `fx_usd_ars` (ARS/USD bolsa MEP), `total_ars` (valor total en ARS = total_usd * fx_usd_ars). El campo `breakdown` puede contener `fiat_ars` con el saldo nativo en ARS. |
 | `rsu_vests` | Schedule de vesting de RSUs META. |
-| `habit_daily_logs` | Un registro por día con `trained`/`piano`/`deepwork` (booleanos), `food`/`food_note` (sin uso, UI vieja). UNIQUE(log_date) — **ojo:** esta tabla directamente no existía hasta agosto 2026 (server.js la referenciaba como si estuviera creada) y el upsert no tenía `on_conflict`, así que cada guardado insertaba una fila nueva en vez de actualizar. Ver "Fixes de hábitos (agosto 2026)" más abajo. Solo guarda booleanos — tipo/duración/notas de entrenamiento viven en `habit_logs`, no acá. |
+| `habit_daily_logs` | Un registro por día con `trained`/`piano`/`deepwork` (booleanos), `food`/`food_note` (sin uso, UI vieja), `protein_g` (NUMERIC, nullable — proteína del día, agregada agosto 2026, ver "Tracking de proteína diaria" más abajo). UNIQUE(log_date) — **ojo:** esta tabla directamente no existía hasta agosto 2026 (server.js la referenciaba como si estuviera creada) y el upsert no tenía `on_conflict`, así que cada guardado insertaba una fila nueva en vez de actualizar. Ver "Fixes de hábitos (agosto 2026)" más abajo. Solo guarda booleanos + proteína — tipo/duración/notas de entrenamiento viven en `habit_logs`, no acá. |
 | `habit_logs` | Historial de entrenamientos registrados a mano con el botón "Registrar" del drawer. Columnas: `habit_date`, `habit` (`'Workout'` — piano no tiene registrador, nunca escribe acá), `type` (array), `duration_min`, `notes`. Sin columna de hora/timestamp explícita — no hay forma de ordenar de forma confiable si hay más de un registro el mismo día. |
 | `meals` | Registro de comidas por slot fijo (desayuno/almuerzo/merienda/cena) + caprichos libres, agosto 2026. Columnas: `meal_date`, `meal_type` (`desayuno`\|`almuerzo`\|`merienda`\|`cena`\|`capricho`), `slot_key` (generada: `meal_type` si no es capricho, `NULL` si lo es — permite múltiples caprichos por día pero un solo registro por slot fijo), `description` (nullable — null en "bien", `'(nada)'` en "no comí", texto real en "mal"/capricho), `is_indulgent`, `kcal_estimate`. UNIQUE(meal_date, slot_key), CHECK `is_indulgent=false OR description IS NOT NULL`. Upsert vía proxy genérico `/api/db/meals?on_conflict=meal_date,slot_key`. |
 | `habit_oneshots` | Contadores anuales (presentaciones, viajes, clases de piano, etc.). UNIQUE(year). |
@@ -1922,3 +1924,61 @@ CREATE INDEX IF NOT EXISTS idx_habit_weight_logs_created_at
 | El input de peso siempre arranca vacío al abrir One-shots | `habits.js` → `loadLatestWeightFromDB()` / `initHabits()` | Debe llamarse al iniciar y precargar input + milestones |
 | El gráfico de peso muestra la misma distancia entre fechas con gaps muy distintos | `habits.js` → `renderWeightChart()` | Necesita eje `type:'time'`, no eje de categorías. Ver sección arriba |
 | El scroll de la grilla de comidas corta el día de hoy a la mitad | `habits.js` → `habitMealsGridAutoScroll()` | Usar `getBoundingClientRect()`, no `offsetLeft` ni `scrollIntoView` — hay una columna `position:sticky` de por medio |
+
+## Tracking de proteína diaria (agosto 2026)
+
+### Contexto
+
+La sección de comidas (`habitMealsState`/`habitMealsDraft`, ver sesión de agosto anterior) no tenía forma de registrar proteína — solo los 4 slots fijos + caprichos. Se agregó como parte del mismo bloque de comidas y del mismo botón "Guardar comidas", sin crear un flujo de guardado nuevo.
+
+### Feature: campo en Today + persistencia
+
+**Modelo de datos:** se descartó modelarlo como una fila más en `meals` (no es una comida puntual, es un total del día) a favor de una columna nueva, `protein_g`, en `habit_daily_logs` — que ya tiene un registro por día vía `trained`/`piano`. Se persiste con el proxy genérico `/api/db/habit_daily_logs?on_conflict=log_date` (mismo patrón que usa `meals`) en vez de tocar el endpoint dedicado `POST /api/habits/daily` de `server.js`, que solo acepta `trained`/`piano`/`deepwork`/`food`/`food_note` a mano y no fue modificado. Con `Prefer: resolution=merge-duplicates`, PostgREST solo actualiza las columnas presentes en el body (`log_date`, `protein_g`), así que no pisa `trained`/`piano` de ese mismo día.
+
+**Primera versión (descartada):** slider `<input type=range>` 0-250g, con toggle a un input manual al lado. Se probó, resultó incómodo de usar (forzaba pensar en el número absoluto en vez del incremento que el usuario realmente tiene en la cabeza — "me tomé un batido de 32g"), y se reemplazó por completo.
+
+**Versión final:** dos campos numéricos compactos en una sola línea (`habitRenderProteinRow()`), sin slider:
+- **Total** (`habitProteinSetTotal()`): edita `habitProteinDraft.grams` directo. Sin tope superior (carga manual, no hace falta clampear a 250 como el slider viejo), piso en 0.
+- **+/-** (`habitProteinApplyDelta()`): suma o resta (acepta negativos) sobre el total ya cargado, para no obligar al usuario a hacer la cuenta mental. Se aplica recién al confirmar (evento `change` — blur o Enter —, no `input`), así no suma dígitos a medio escribir (ej. "3" antes de terminar de tipear "32"). Después de aplicarse, el campo se vacía solo y el campo Total se actualiza para reflejar el nuevo valor.
+
+Ambos con `type="number" inputmode="numeric"` para forzar teclado numérico en mobile (el de `+/-` muestra el signo "-" nativo en iOS/Android).
+
+Si no se toca ninguno de los dos campos, `habitProteinDraft.grams` queda en `null` y así se guarda — no se fuerza un `0` por default.
+
+Prefill automático: `habitLoadDay()` inicializa `habitProteinDraft` leyendo `habitDayState.protein_g` justo después de que ese objeto se completa (el `GET /api/habits/daily/:date` ya trae la columna nueva solo, porque el endpoint hace `select=*` sin especificar columnas).
+
+### Feature: fila de proteína en Analytics
+
+`loadMealsGrid()` ahora trae, además de `meals`, todo `habit_daily_logs` del mismo rango de semana. `renderMealsGrid()` agrega una fila "Proteína" al final de la grilla semanal existente, con el texto coloreado según meta diaria:
+- `≥170g` → verde (`--accent3`)
+- `140-169g` → amarillo (`--accent4`)
+- `<140g` → rojo (`--accent2`)
+- sin registro ese día → celda vacía, sin color
+
+Botón "i" circular (`.h-protein-info-btn`) al lado del chip de "% comidas indulgentes" en `renderMealsStats()`, que abre/cierra una leyenda con esos 3 colores (`habitToggleProteinLegend()`). El estado abierto/cerrado vive solo en `classList` del DOM, no en una variable JS — por diseño: al navegar de semana, `renderMealsStats()` repinta el bloque entero y la leyenda arranca cerrada de nuevo cada vez.
+
+### UI: texto centrado + auto-scroll invertido
+
+Se agregó `text-align: center` a `.h-meal-grid-cell`, afectando tanto las celdas de comidas (✓, descripciones, caprichos) como la fila de proteína nueva.
+
+`habitMealsGridAutoScroll()` se reescribió por completo (no quedó nada de la fórmula anterior): antes dejaba el día de hoy pegado al borde **izquierdo** del scroll (ver bug fijado en la sesión de peso, arriba). Ahora lo deja pegado al borde **derecho**, así se ve todo lo anterior (lunes → hoy) sin necesidad de scrollear — mismo cálculo con `getBoundingClientRect()` que ya se usaba, pero resuelto contra el borde opuesto (`contentRight - wrapRect.width` en vez de `contentLeft - stickyWidth`). De lunes a miércoles el cálculo da un `scrollLeft` negativo que el browser clampea solo a `0`, mismo resultado visual que antes para esos días — no hace falta ningún caso especial en el código.
+
+### Archivos modificados
+
+`habits.js` (estado `habitProteinDraft`, render + funciones de los 2 campos, persistencia en `habitSaveAllMeals()`, fila y leyenda en Analytics, `text-align` no va acá — es CSS, y reescritura de `habitMealsGridAutoScroll()`), `styles.css` (`.h-protein-*`, `.h-protein-info-btn`, `.h-protein-legend*`, `text-align:center` en `.h-meal-grid-cell`). `server.js` **no se tocó** — todo sale del proxy genérico `/api/db/*` que ya soportaba upserts con `Prefer` reenviado.
+
+### Migraciones SQL corridas (una vez, agosto 2026)
+
+```sql
+ALTER TABLE habit_daily_logs ADD COLUMN IF NOT EXISTS protein_g NUMERIC;
+```
+
+### Bugs relacionados y dónde están
+
+| Síntoma | Archivo | Detalle |
+|---|---|---|
+| El slider de proteína es incómodo de usar en mobile | `habits.js` → `habitRenderProteinRow()` | Reemplazado por completo: dos inputs numéricos (total + delta), sin slider ni toggle manual |
+| El delta suma dígitos a medio escribir (ej. "3" antes de "32") | `habits.js` → `habitProteinApplyDelta()` | Debe ir en `onchange` (blur/Enter), no en `oninput` |
+| El texto de la grilla de comidas queda pegado a la izquierda | `styles.css` → `.h-meal-grid-cell` | Falta `text-align: center` |
+| Se quiere ver todo lo anterior al día actual sin scrollear en la grilla semanal | `habits.js` → `habitMealsGridAutoScroll()` | Alinear el día de hoy contra el borde derecho del wrap (`contentRight - wrapRect.width`), no contra el izquierdo |
+
