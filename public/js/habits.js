@@ -50,7 +50,7 @@ let CURRENT_WEEK = 10;
 let habitDayOffset   = 0;          // 0 = hoy, -1 = ayer
 let habitDayState    = {};         // { trained, piano }
 let habitMealsState  = { slots: {}, caprichos: [] }; // cargado desde tabla real `meals`, no es mock
-let habitProteinDraft = { grams: null, manual: false }; // gramos de proteína del día (habit_daily_logs.protein_g) + toggle slider/manual
+let habitProteinDraft = { grams: null }; // gramos de proteína del día (habit_daily_logs.protein_g)
 let habitOneshotState = {};        // { presentations: 1, pianoLessons: 3, ... }
 let habitNotifState  = { daily: true, weight: true };
 let habitSaveTimeout = null;       // debounce timer para auto-save
@@ -355,7 +355,7 @@ async function habitLoadDay() {
     habitLoadMeals(dateStr),
   ]);
   habitDayState = data ? { ...data } : {};
-  habitProteinDraft = { grams: habitDayState.protein_g ?? null, manual: false };
+  habitProteinDraft = { grams: habitDayState.protein_g ?? null };
   await habitLoadTrainingDetail(dateStr); // tipo/duración/notas del entrenamiento (vive en habit_logs, no en habit_daily_logs)
   habitWaterGoal = habitDayState.trained ? 2500 : 2000;
   habitOpenDrawers.clear(); // resetear drawers al cambiar de día
@@ -934,63 +934,61 @@ function habitFlashMealField(key) {
 }
 
 // ── PROTEÍNA (habit_daily_logs.protein_g) ───────────────────────────────────
-// Fila minimalista: slider 0-250g + toggle a input manual a la derecha.
+// Dos campos en una sola línea, sin slider:
+//  · Total: edita directamente el número guardado.
+//  · +/-: ajuste marginal — sumás (o restás, con negativo) sobre el total ya
+//    cargado sin tener que hacer la cuenta mental. Se aplica al salir del
+//    campo (blur/Enter), no tecla por tecla, para no sumar "3" antes de
+//    terminar de escribir "32". Al aplicarse, el campo se vacía solo.
+// Si nunca se toca ninguno de los dos, habitProteinDraft.grams sigue en null
+// y así se guarda (ver habitSaveAllMeals) — no se fuerza un 0.
 // No pega contra la DB hasta tocar "Guardar comidas" (mismo botón que el
-// resto de la sección de alimentación) — ver habitSaveAllMeals().
+// resto de la sección de alimentación).
 
 function habitRenderProteinRow() {
   const g = habitProteinDraft.grams;
-  const display = g == null ? 0 : g;
-  const manual = habitProteinDraft.manual;
-  const control = manual
-    ? '<input class="h-protein-manual-input" id="habitProteinManualInput" type="number" inputmode="numeric" min="0" max="250" ' +
-        'placeholder="g" value="' + (g == null ? '' : g) + '" oninput="habitProteinSetGrams(this.value, ' + "'manual'" + ')">'
-    : '<input class="h-protein-slider" id="habitProteinSlider" type="range" min="0" max="250" step="1" ' +
-        'value="' + display + '" oninput="habitProteinSetGrams(this.value, ' + "'slider'" + ')">';
-
   return (
     '<div class="h-protein-row">' +
-      '<div class="h-protein-top">' +
-        '<span class="h-protein-label">&#129385; Prote&#237;na</span>' +
-        '<div class="h-protein-top-right">' +
-          '<span class="h-protein-value" id="habitProteinValue">' + display + 'g</span>' +
-          '<button class="h-protein-manual-toggle" onclick="habitProteinToggleManual()">' + (manual ? 'Slider' : 'Manual') + '</button>' +
+      '<span class="h-protein-label">&#129385; Prote&#237;na</span>' +
+      '<div class="h-protein-fields">' +
+        '<div class="h-protein-field" title="Total del d&#237;a">' +
+          '<input class="h-protein-input" id="habitProteinTotalInput" type="number" inputmode="numeric" min="0" step="1" ' +
+            'placeholder="0" value="' + (g == null ? '' : g) + '" oninput="habitProteinSetTotal(this.value)">' +
+          '<span class="h-protein-field-unit">g</span>' +
+        '</div>' +
+        '<div class="h-protein-field h-protein-field-delta" title="Sumar o restar sobre el total">' +
+          '<input class="h-protein-input" id="habitProteinDeltaInput" type="number" inputmode="numeric" step="1" ' +
+            'placeholder="&#177;" onchange="habitProteinApplyDelta(this.value)">' +
+          '<span class="h-protein-field-unit">g</span>' +
         '</div>' +
       '</div>' +
-      control +
     '</div>'
   );
 }
 
-// Solo cambia entre slider/input manual — no toca el valor guardado en el borrador.
-function habitProteinToggleManual() {
-  habitProteinDraft.manual = !habitProteinDraft.manual;
-  habitRenderMeals();
+// Edita el total directamente. Sin tope superior (carga manual, un día
+// puede pasarse de 250g sin drama) pero sí piso en 0.
+function habitProteinSetTotal(value) {
+  let g = value === '' ? null : parseInt(value, 10);
+  if (g != null) g = isNaN(g) ? null : Math.max(0, g);
+  habitProteinDraft.grams = g;
 }
 
-// Actualiza el borrador + refleja el valor en pantalla sin re-renderizar todo
-// (para no perder el foco del input ni cortar el drag del slider).
-function habitProteinSetGrams(value, source) {
-  let g = value === '' ? null : parseInt(value, 10);
-  if (g != null) {
-    if (isNaN(g)) g = null;
-    else g = Math.max(0, Math.min(250, g));
-  }
-  habitProteinDraft.grams = g;
+// Ajuste marginal: solo se aplica al confirmar (blur/Enter → evento 'change',
+// no 'input'), para no sumar valores a medio escribir. Parte de 0 si todavía
+// no había total cargado. No deja bajar de 0 con un delta negativo grande.
+function habitProteinApplyDelta(value) {
+  const input = document.getElementById('habitProteinDeltaInput');
+  const delta = value === '' ? NaN : parseInt(value, 10);
+  if (isNaN(delta)) { if (input) input.value = ''; return; }
 
-  const valEl = document.getElementById('habitProteinValue');
-  if (valEl) valEl.textContent = (g == null ? 0 : g) + 'g';
+  const current = habitProteinDraft.grams ?? 0;
+  const next    = Math.max(0, current + delta);
+  habitProteinDraft.grams = next;
 
-  // Mantiene sincronizado el control que NO disparó el evento, por si el
-  // usuario alterna entre slider/manual sin guardar en el medio.
-  if (source !== 'slider') {
-    const slider = document.getElementById('habitProteinSlider');
-    if (slider) slider.value = g == null ? 0 : g;
-  }
-  if (source !== 'manual') {
-    const manualInp = document.getElementById('habitProteinManualInput');
-    if (manualInp) manualInp.value = g == null ? '' : g;
-  }
+  if (input) input.value = '';
+  const totalInp = document.getElementById('habitProteinTotalInput');
+  if (totalInp) totalInp.value = next;
 }
 
 // Guarda todo junto: los 4 slots (según su estado en el borrador) + el
