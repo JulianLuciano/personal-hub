@@ -2440,6 +2440,7 @@
   vertical-align: top;
   line-height: 1.3;
   color: var(--text);
+  text-align: center;
 }
 .h-meal-grid-cell.filled { background: rgba(67,233,123,0.1); }
 .h-meal-grid-cell.indulgent { background: rgba(255,101,132,0.1); }
@@ -2448,10 +2449,49 @@
 .h-meal-grid-cell.protein-low  { color: var(--accent2); font-weight: 700; }
 .h-meal-stats-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
   margin-top: 10px;
 }
+.h-meal-stats-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.h-protein-info-btn {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'Outfit', sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.h-protein-info-btn:hover,
+.h-protein-info-btn:active { border-color: var(--accent); color: var(--accent); }
+.h-protein-legend {
+  display: none;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.h-protein-legend.open { display: flex; }
+.h-protein-legend-item { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.h-protein-legend-item.good { color: var(--accent3); }
+.h-protein-legend-item.mid  { color: var(--accent4); }
+.h-protein-legend-item.low  { color: var(--accent2); }
 .h-meal-stat-chip {
   padding: 6px 12px;
   border-radius: 100px;

@@ -1830,16 +1830,17 @@ async function loadMealsGrid() {
   habitMealsGridAutoScroll();
 }
 
-// Deja el scroll horizontal de la grilla arrancando en el día de hoy (o el
-// lunes, si estás viendo una semana pasada). Ej: si es jueves, la grilla
-// abre con jueves como primera columna visible, scrolleable para ambos lados.
+// Deja el scroll horizontal de la grilla con el día de hoy pegado al borde
+// derecho, así siempre se ve todo lo anterior (lunes -> hoy) sin scrollear.
+// De lunes a miércoles esto no tiene efecto práctico: el cálculo da un
+// scrollLeft negativo y el browser lo clampea a 0 solo, que es exactamente
+// el mismo resultado que antes (semana completa visible desde el arranque).
 function habitMealsGridAutoScroll() {
   const wrap = document.querySelector('.h-meal-grid-wrap');
   if (!wrap) return;
   if (mealsWeekOffset !== 0) { wrap.scrollLeft = 0; return; }
   const todayIdx = (new Date().getDay() + 6) % 7; // lunes = 0
   const headers  = document.querySelectorAll('#habitMealsGrid .h-meal-grid-daylabel');
-  const corner   = document.querySelector('#habitMealsGrid .h-meal-grid-corner');
   const target   = headers[todayIdx];
   if (!target) { wrap.scrollLeft = 0; return; }
   // offsetLeft no sirve acá: es relativo al offsetParent del elemento (el
@@ -1848,11 +1849,10 @@ function habitMealsGridAutoScroll() {
   // getBoundingClientRect() da la posición real en pantalla de cada elemento,
   // así que la resta entre target y wrap es la distancia real entre ambos
   // sin importar qué elemento sea el offsetParent.
-  const wrapRect    = wrap.getBoundingClientRect();
-  const targetRect  = target.getBoundingClientRect();
-  const stickyWidth = corner ? corner.getBoundingClientRect().width : 0;
-  const contentLeft = wrap.scrollLeft + (targetRect.left - wrapRect.left);
-  wrap.scrollLeft = contentLeft - stickyWidth;
+  const wrapRect     = wrap.getBoundingClientRect();
+  const targetRect   = target.getBoundingClientRect();
+  const contentRight  = wrap.scrollLeft + (targetRect.right - wrapRect.left);
+  wrap.scrollLeft = contentRight - wrapRect.width;
 }
 
 function renderMealsGrid(rows, monday, proteinRows) {
@@ -1932,7 +1932,23 @@ function renderMealsStats(rows) {
   const pct        = slotRows.length ? Math.round((indulgent / slotRows.length) * 100) : 0;
 
   container.innerHTML =
-    '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>';
+    '<div class="h-meal-stats-top">' +
+      '<div class="h-meal-stat-chip">' + pct + '% comidas indulgentes</div>' +
+      '<button class="h-protein-info-btn" type="button" onclick="habitToggleProteinLegend()" aria-label="Referencias de color de prote&#237;na">i</button>' +
+    '</div>' +
+    '<div class="h-protein-legend" id="habitProteinLegend">' +
+      '<span class="h-protein-legend-item good">&#9679; &#8805;170g</span>' +
+      '<span class="h-protein-legend-item mid">&#9679; 140&#8211;169g</span>' +
+      '<span class="h-protein-legend-item low">&#9679; &lt;140g</span>' +
+    '</div>';
+}
+
+// Abre/cierra la leyenda de colores de proteína. Estado vive solo en el DOM
+// (classList), no en JS — por diseño: al navegar de semana, renderMealsStats()
+// vuelve a pintar el bloque entero y la leyenda arranca cerrada de nuevo.
+function habitToggleProteinLegend() {
+  const el = document.getElementById('habitProteinLegend');
+  if (el) el.classList.toggle('open');
 }
 
 function habitMealsShiftWeek(delta) {
