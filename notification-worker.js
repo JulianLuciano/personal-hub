@@ -210,10 +210,8 @@ const WATER_BASE_INTERVAL_MIN = 90;
 //   last_sent_at timestamptz, interval_minutes int, consecutive_yes int, consecutive_no int
 
 async function getWaterNotifState() {
-  try {
-    const rows = await sbGet('water_notif_state?limit=1');
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-  } catch (_) { return null; }
+  const rows = await sbGet('water_notif_state?id=eq.1&limit=1');
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 }
 
 async function updateWaterNotifState(patch) {
@@ -284,8 +282,14 @@ async function checkAndSendWaterNotif() {
     return;
   }
 
-  // Get notif state
-  const state = await getWaterNotifState();
+  // Get notif state — si esto falla, NO seguimos: fallar abierto acá manda pushes sin freno
+  let state;
+  try {
+    state = await getWaterNotifState();
+  } catch (e) {
+    console.warn('[worker] water: fetch de estado falló, salteo este tick:', e.message);
+    return;
+  }
 
   // User turned off water notifications from Settings — respect it
   if (state?.enabled === false) {
