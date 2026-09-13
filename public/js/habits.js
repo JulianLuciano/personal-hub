@@ -1903,7 +1903,7 @@ function renderMealsGrid(rows, monday, proteinRows) {
   });
 
   // Fila de proteína: no viene de `meals`, sino de habit_daily_logs.protein_g.
-  // Color del texto según meta diaria: >=170 verde, 140-169 amarillo, <140 rojo.
+  // Color del texto según meta diaria: >=145 verde, 130-144 amarillo, <130 rojo.
   // Días sin registro (null) quedan en blanco, sin color.
   html += '<div class="h-meal-grid-row"><div class="h-meal-grid-rowlabel">Prote&#237;na</div>';
   dates.forEach(d => {
@@ -1912,7 +1912,7 @@ function renderMealsGrid(rows, monday, proteinRows) {
     let text = '';
     if (g != null) {
       text = g + 'g';
-      cls  = g >= 170 ? 'protein-good' : (g >= 140 ? 'protein-mid' : 'protein-low');
+      cls  = g >= 145 ? 'protein-good' : (g >= 130 ? 'protein-mid' : 'protein-low');
     }
     html += '<div class="h-meal-grid-cell ' + cls + '">' + text + '</div>';
   });
@@ -1935,9 +1935,9 @@ function renderMealsStats(rows) {
       '<button class="h-protein-info-btn" type="button" onclick="habitToggleProteinLegend()" aria-label="Referencias de color de prote&#237;na">i</button>' +
     '</div>' +
     '<div class="h-protein-legend" id="habitProteinLegend">' +
-      '<span class="h-protein-legend-item good">&#9679; &#8805;170g</span>' +
-      '<span class="h-protein-legend-item mid">&#9679; 140&#8211;169g</span>' +
-      '<span class="h-protein-legend-item low">&#9679; &lt;140g</span>' +
+      '<span class="h-protein-legend-item good">&#9679; &#8805;145g</span>' +
+      '<span class="h-protein-legend-item mid">&#9679; 130&#8211;144g</span>' +
+      '<span class="h-protein-legend-item low">&#9679; &lt;130g</span>' +
     '</div>';
 }
 
